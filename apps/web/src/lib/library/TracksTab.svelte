@@ -1,7 +1,11 @@
 <script lang="ts">
-  import { lib } from './store.svelte';
+  import { getContext } from 'svelte';
+  import { lib, LIBRARY_PLAYER, type LibraryPlayer } from './store.svelte';
   import TrackTable from './TrackTable.svelte';
   import SortDropdown from './SortDropdown.svelte';
+  import QualityBadge from './QualityBadge.svelte';
+
+  const player = getContext<LibraryPlayer | undefined>(LIBRARY_PLAYER);
 
   const trackSortOptions = [
     { value: 'title', label: 'Title' },
@@ -75,6 +79,7 @@
       {#each lib.filteredTracks as t (t.id)}
          <div class="card"
            class:warn-border={t.needs_validation}
+           class:playing={player?.isCurrent(t.id)}
            role="button"
            tabindex="0"
            onmouseenter={() => (lib.hoveredItem = { type: 'track', id: t.id })}
@@ -83,10 +88,27 @@
           <div class="card-body">
             <div class="card-title" title={t.title}>{t.title}</div>
             <div class="card-sub">{t.artists.map(a => a.name).join(', ') || '\u2014'}</div>
-            {#if t.duration != null}<div class="card-meta mono">{lib.fmtDuration(t.duration)}</div>{/if}
+            {#if t.duration != null || t.quality}
+              <div class="card-foot">
+                {#if t.duration != null}<span class="card-meta mono">{lib.fmtDuration(t.duration)}</span>{/if}
+                <QualityBadge quality={t.quality} />
+              </div>
+            {/if}
           </div>
           {#if t.needs_validation}<span class="card-badge badge-warn" title="Awaiting validation">!</span>{/if}
           <div class="card-hover-actions">
+            {#if player}
+              <!-- The title lives on the wrapper so it still shows when the button is disabled. -->
+              <span class="play-slot" title={t.file_path ? null : 'Not downloaded yet'}>
+                <button
+                  class="btn-play"
+                  onclick={(e) => { e.stopPropagation(); player?.play(t); }}
+                  disabled={!t.file_path}
+                >
+                  {player.isPlaying(t.id) ? 'Pause' : 'Play'}
+                </button>
+              </span>
+            {/if}
             <button class="btn-edit" onclick={(e) => { e.stopPropagation(); lib.startEditTrack(t); }}>Edit</button>
             <button class="btn-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeleteTrack(t.id); }}>Delete</button>
           </div>
@@ -96,3 +118,45 @@
     {#if lib.filteredTracks.length === 0}<p class="status">No tracks found.</p>{/if}
   {/if}
 {/if}
+
+<style>
+  .card.playing {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  .card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem;
+    margin-top: 0.25rem;
+  }
+
+  .card-foot .card-meta {
+    margin-top: 0;
+  }
+
+  .play-slot {
+    display: flex;
+  }
+
+  .play-slot .btn-play {
+    width: 100%;
+  }
+
+  .card-hover-actions .btn-play {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .card-hover-actions .btn-play:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  .card-hover-actions .btn-play:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+</style>

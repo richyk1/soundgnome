@@ -30,6 +30,16 @@ export type EditState =
   | null;
 export type HoveredItem = { type: 'track' | 'album' | 'artist'; id: number } | null;
 
+// ── Playback ─────────────────────────────────────────────────────────────────
+// The Library page owns the audio element and hands these controls to every
+// track list through context. Tracks without a local file are not playable.
+export interface LibraryPlayer {
+  play(track: LibraryTrackDto): void;
+  isCurrent(id: number): boolean;
+  isPlaying(id: number): boolean;
+}
+export const LIBRARY_PLAYER = Symbol('library-player');
+
 // ── Artist name similarity helpers ────────────────────────────────────────────
 function _editDistance(a: string, b: string): number {
   const m = a.length, n = b.length;

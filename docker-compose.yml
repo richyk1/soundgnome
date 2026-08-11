@@ -1,9 +1,8 @@
 services:
 
   soundome:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/barthofu/soundome:latest
+    platform: linux/amd64
     ports:
       - "8000:8000"
     env_file:
@@ -11,9 +10,9 @@ services:
     environment:
         - SOUNDOME__GENERAL__BASE_LIBRARY_DIR=/app/library
         - SOUNDOME__GENERAL__TEMP_DOWNLOAD_DIR=/app/temp
-        - SOUNDOME__DATABASE__URL=/app/data/soundome.db
+        - SOUNDOME__DATABASE__URL=/data/soundome.db
     volumes:
-      - ./data:/app/data
+      - ./data:/data
       - ./library:/app/library
       - ./temp:/app/temp
       - ./config.toml:/app/config.toml:ro

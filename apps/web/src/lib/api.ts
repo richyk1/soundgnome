@@ -602,3 +602,92 @@ export async function getVersion(): Promise<string> {
   return data.version;
 }
 
+// ================================================================================================
+// Providers: SoundCloud
+// ================================================================================================
+
+export interface SoundcloudStatusDto {
+  connected: boolean;
+  username: string | null;
+}
+
+export async function getSoundcloudStatus(): Promise<SoundcloudStatusDto> {
+  const res = await fetch(`${BASE}/providers/soundcloud`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function connectSoundcloud(token: string): Promise<SoundcloudStatusDto> {
+  const res = await fetch(`${BASE}/providers/soundcloud`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function disconnectSoundcloud(): Promise<SoundcloudStatusDto> {
+  const res = await fetch(`${BASE}/providers/soundcloud`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+// ================================================================================================
+// SoundCloud likes
+// ================================================================================================
+
+export interface SoundcloudLikeDto {
+  id: number;
+  title: string;
+  artist: string;
+  duration_secs: number;
+  artwork_url: string | null;
+  permalink_url: string;
+}
+
+export interface SoundcloudLikesDto {
+  count: number;
+  tracks: SoundcloudLikeDto[];
+}
+
+export interface SoundcloudStreamDto {
+  url: string;
+}
+
+/**
+ * List the connected account's SoundCloud likes without downloading anything.
+ * Takes a few seconds for large collections.
+ */
+export async function getSoundcloudLikes(): Promise<SoundcloudLikesDto> {
+  const res = await fetch(`${BASE}/soundcloud/likes`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+/**
+ * Resolve a signed, directly playable stream URL for one liked track.
+ * The URL expires, so resolve it again when playback fails.
+ */
+export async function getSoundcloudStreamUrl(id: number): Promise<string> {
+  const res = await fetch(`${BASE}/soundcloud/likes/${id}/stream`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  const data: SoundcloudStreamDto = await res.json();
+  return data.url;
+}
+

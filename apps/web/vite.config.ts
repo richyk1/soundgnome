@@ -87,7 +87,9 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     proxy: {
-      '/api': 'http://localhost:8000',
+      // Override when the API runs elsewhere or on another port, e.g. a remote
+      // box where 8000 is already taken: SOUNDOME_API_URL=http://localhost:8100
+      '/api': process.env.SOUNDOME_API_URL ?? 'http://localhost:8000',
     },
   },
 })

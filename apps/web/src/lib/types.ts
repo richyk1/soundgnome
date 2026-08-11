@@ -119,6 +119,14 @@ export interface TaskDto {
 // Library
 // ================================================================================================
 
+/** Audio quality of the local file. Null on the track when there is no file yet, or it could not be probed. */
+export interface TrackQualityDto {
+  /** Short uppercase label: AAC, MP3, FLAC, ALAC, OPUS, VORBIS, WAV or PCM. */
+  format: string;
+  bitrate_kbps: number | null;
+  lossless: boolean;
+}
+
 export interface LibraryTrackDto {
   id: number;
   title: string;
@@ -132,6 +140,7 @@ export interface LibraryTrackDto {
   disc_number: number | null;
   label: string | null;
   file_path: string | null;
+  quality?: TrackQualityDto | null;
   needs_validation: boolean;
   references: ReferenceDto[];
 }

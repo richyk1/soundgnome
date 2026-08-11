@@ -1,10 +1,33 @@
 <script lang="ts">
-  import { lib } from '../lib/library/store.svelte';
+  import { setContext } from 'svelte';
+  import { lib, LIBRARY_PLAYER, type LibraryPlayer } from '../lib/library/store.svelte';
   import ArtistTab from '../lib/library/ArtistTab.svelte';
   import AlbumTab from '../lib/library/AlbumTab.svelte';
   import TracksTab from '../lib/library/TracksTab.svelte';
   import PlaylistsTab from '../lib/library/PlaylistsTab.svelte';
   import EditModal from '../lib/library/EditModal.svelte';
+  import AudioPlayer, { type PlayerHandle } from '../lib/AudioPlayer.svelte';
+  import type { LibraryTrackDto } from '../lib/types';
+
+  // ── Playback: one player shared by every track list on this page ───────────
+  let player: PlayerHandle | null = $state(null);
+  let playError: string | null = $state(null);
+
+  setContext<LibraryPlayer>(LIBRARY_PLAYER, {
+    play(track: LibraryTrackDto) {
+      if (!track.file_path) return;
+      playError = null;
+      player?.toggle({
+        id: track.id,
+        title: track.title,
+        artist: track.artists.map((a) => a.name).join(', '),
+        artwork: track.cover,
+        durationSecs: track.duration,
+      });
+    },
+    isCurrent: (id) => player?.isCurrent(id) ?? false,
+    isPlaying: (id) => player?.isPlaying(id) ?? false,
+  });
 
   // Refresh all collections when arriving on this page.
   $effect(() => {
@@ -74,6 +97,10 @@
       </button>
     </div>
   </div>
+
+  {#if playError}
+    <p class="status error">{playError}</p>
+  {/if}
 
   <div class="tabs">
     {#each (['artists', 'albums', 'tracks', 'playlists'] as const) as t}
@@ -170,22 +197,28 @@
 
 <EditModal />
 
+<AudioPlayer
+  bind:this={player}
+  resolveSrc={(track) => `/api/tracks/${track.id}/audio`}
+  onError={(_track, msg) => (playError = msg)}
+/>
+
 <style>
   .library-page { 
     max-width: 1400px; 
     margin: 0 auto; 
-    padding: 1rem 0.75rem;
+    padding: 1rem 0.75rem 6rem;
   }
 
   @media (min-width: 640px) {
     .library-page {
-      padding: 1.5rem 1rem;
+      padding: 1.5rem 1rem 6rem;
     }
   }
 
   @media (min-width: 1024px) {
     .library-page {
-      padding: 2rem 1.5rem;
+      padding: 2rem 1.5rem 6rem;
     }
   }
 

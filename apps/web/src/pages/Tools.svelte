@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule } from '../lib/api';
-  import type { StorageStatsDto, SyncScheduleDto } from '../lib/api';
+  import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud, downloadUrl } from '../lib/api';
+  import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto } from '../lib/api';
 
   // ── Tab ────────────────────────────────────────────────────────────────────
-  type Tab = 'storage' | 'sync';
+  type Tab = 'storage' | 'sync' | 'providers';
   let activeTab: Tab = $state('sync');
 
   // ── Storage ─────────────────────────────────────────────────────────────────
@@ -148,10 +148,81 @@
   onMount(() => {
     loadStorage();
     loadSync();
+    loadSoundcloud();
   });
 
   function switchTab(tab: Tab) {
     activeTab = tab;
+  }
+
+  // ── SoundCloud ───────────────────────────────────────────────────────────────
+  let scStatus: SoundcloudStatusDto | null = $state(null);
+  let scLoading = $state(true);
+  let scToken = $state('');
+  let scPending = $state(false);
+  let scError: string | null = $state(null);
+  let scSuccess: string | null = $state(null);
+
+  async function loadSoundcloud() {
+    scLoading = true;
+    scError = null;
+    try {
+      scStatus = await getSoundcloudStatus();
+    } catch (e: unknown) {
+      scError = e instanceof Error ? e.message : String(e);
+    } finally {
+      scLoading = false;
+    }
+  }
+
+  async function handleConnect(e: SubmitEvent) {
+    e.preventDefault();
+    const token = scToken.trim();
+    if (!token || scPending) return;
+    scPending = true;
+    scError = null;
+    scSuccess = null;
+    try {
+      scStatus = await connectSoundcloud(token);
+      scToken = '';
+      scSuccess = 'SoundCloud account connected.';
+    } catch (e: unknown) {
+      scError = e instanceof Error ? e.message : String(e);
+    } finally {
+      scPending = false;
+    }
+  }
+
+  async function handleDisconnect() {
+    scPending = true;
+    scError = null;
+    scSuccess = null;
+    try {
+      scStatus = await disconnectSoundcloud();
+      scToken = '';
+    } catch (e: unknown) {
+      scError = e instanceof Error ? e.message : String(e);
+    } finally {
+      scPending = false;
+    }
+  }
+
+  // SoundCloud's own likes URL. The backend recognises it and routes it
+  // through the normal playlist sync, so this reuses the download endpoint.
+  const SOUNDCLOUD_LIKES_URL = 'https://soundcloud.com/you/likes';
+
+  async function handleSyncLikes() {
+    scPending = true;
+    scError = null;
+    scSuccess = null;
+    try {
+      await downloadUrl(SOUNDCLOUD_LIKES_URL);
+      scSuccess = 'Likes sync started. Follow its progress on the Tasks page.';
+    } catch (e: unknown) {
+      scError = e instanceof Error ? e.message : String(e);
+    } finally {
+      scPending = false;
+    }
   }
 </script>
 
@@ -174,6 +245,13 @@
         <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
       </svg>
       Storage
+    </button>
+    <button class="tab" class:active={activeTab === 'providers'} onclick={() => switchTab('providers')}>
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>
+      Providers
     </button>
   </div>
 
@@ -347,6 +425,84 @@
           {/each}
         </ul>
       {/if}
+    </div>
+  {/if}
+
+  <!-- ── Providers tab ───────────────────────────────────────────────────────── -->
+  {#if activeTab === 'providers'}
+    <div class="tab-content">
+      <p class="sync-subtitle">Connect external accounts so downloads can use your own session.</p>
+
+      <section class="schedule-card">
+        <div class="schedule-header">
+          <div class="schedule-info">
+            <span class="schedule-label">SoundCloud connection</span>
+          </div>
+          {#if !scLoading}
+            <div class="schedule-meta">
+              <span
+                class="status-badge"
+                class:enabled={scStatus?.connected}
+                class:paused={!scStatus?.connected}
+              >
+                {scStatus?.connected ? 'Connected' : 'Not connected'}
+              </span>
+            </div>
+          {/if}
+        </div>
+
+        <p class="provider-note">
+          Connecting unlocks SoundCloud downloadable originals, often FLAC, plus age and region gated
+          tracks. Availability is per track and depends on the uploader enabling downloads.
+        </p>
+
+        {#if scError}
+          <p class="feedback error">{scError}</p>
+        {/if}
+        {#if scSuccess}
+          <p class="feedback info">{scSuccess}</p>
+        {/if}
+
+        {#if scLoading}
+          <p class="provider-note">Loading…</p>
+        {:else if scStatus?.connected}
+          <p class="provider-note">
+            Connected as <strong>{scStatus.username ?? 'unknown account'}</strong>
+          </p>
+          <p class="provider-note">
+            Syncing your likes creates a playlist called SoundCloud Likes and downloads every liked
+            track that is not already in your library. It runs as a background task, so you can
+            follow it on the Tasks page.
+          </p>
+          <div class="schedule-actions">
+            <button class="btn-accent" disabled={scPending} onclick={handleSyncLikes}>
+              {#if scPending}<span class="spinner"></span> Working…{:else}Sync my likes{/if}
+            </button>
+            <button class="btn-danger" disabled={scPending} onclick={handleDisconnect}>
+              {#if scPending}<span class="spinner"></span> Disconnecting…{:else}Disconnect{/if}
+            </button>
+          </div>
+        {:else}
+          <form class="form-row form-row--split" onsubmit={handleConnect}>
+            <input
+              type="password"
+              placeholder="Paste your oauth_token cookie value"
+              bind:value={scToken}
+              disabled={scPending}
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="submit" class="btn-accent" disabled={scPending || !scToken.trim()}>
+              {#if scPending}<span class="spinner"></span> Connecting…{:else}Connect{/if}
+            </button>
+          </form>
+          <p class="provider-note">
+            Where to find it: log in to soundcloud.com, open your browser devtools, go to Application
+            or Storage, then Cookies, then soundcloud.com, and copy the value of the oauth_token
+            cookie.
+          </p>
+        {/if}
+      </section>
     </div>
   {/if}
 </div>
@@ -569,6 +725,7 @@
   }
 
   .form-row input[type="url"],
+  .form-row input[type="password"],
   .form-row input[type="text"] {
     flex: 1;
     padding: 0.5rem 0.75rem;
@@ -583,6 +740,7 @@
   }
 
   .form-row input[type="url"]:focus,
+  .form-row input[type="password"]:focus,
   .form-row input[type="text"]:focus {
     border-color: var(--accent);
   }
@@ -895,5 +1053,21 @@
     .artist-meta {
       justify-content: space-between;
     }
+  }
+
+  /* ── Providers ─────────────────────────────────────────────────────────────── */
+  .provider-note {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  .provider-note strong {
+    color: var(--text);
+  }
+
+  .schedule-card .feedback {
+    margin: 0;
   }
 </style>
