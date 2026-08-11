@@ -165,23 +165,38 @@ impl AIBackend for OpenRouterAI {
         prompt: &str,
         data: T,
     ) -> SoundomeResult<T> {
-        let prompt_with_data = prompt_with_data(prompt, &data)?;
+        let mut prompt_with_data = prompt_with_data(prompt, &data)?;
+
+        // Strict structured output requires an object at the schema root.
+        // OpenAI-compatible proxies (LiteLLM, and OpenAI itself in strict mode)
+        // reject `"type": "array"` outright, so a batch request is wrapped in a
+        // single `items` property and unwrapped from the response.
+        let raw_schema = generate_json_schema(&data);
+        let wrapped = raw_schema.get("type").and_then(|t| t.as_str()) == Some("array");
+
+        let schema_value = if wrapped {
+            prompt_with_data.push_str(
+                "\n\nReturn a JSON object of the form {\"items\": [ ... ]} containing every \
+                 result in the \"items\" array.",
+            );
+            serde_json::json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["items"],
+                "properties": { "items": raw_schema },
+            })
+        } else {
+            raw_schema
+        };
+
         let messages = vec![self.get_message(&prompt_with_data)];
 
         let schema = JsonSchemaConfig {
             name: "tracks".to_string(),
             strict: true,
-            schema: serde_json::from_value::<JsonSchemaDefinition>(generate_json_schema(data))
+            schema: serde_json::from_value::<JsonSchemaDefinition>(schema_value)
                 .map_err(Error::Json)?,
         };
-        // let response_format = ResponseFormat {
-        //     format_type: "json_schema".to_string(),
-        //     json_schema: Some(JsonSchema {
-        //         name: "tracks".to_string(),
-        //         strict: true,
-        //         schema: generate_json_schema(data),
-        //     }),
-        // };
 
         // Retry logic with exponential backoff
         let max_retries = 3;
@@ -198,11 +213,22 @@ impl AIBackend for OpenRouterAI {
                         self.model, err
                     ))
                 })?
-                .generate(&self.model, messages.clone(), schema.clone())
+                .generate::<serde_json::Value>(&self.model, messages.clone(), schema.clone())
                 .await;
 
             match result {
-                Ok(response) => return Ok(response),
+                Ok(response) => {
+                    let payload = if wrapped {
+                        response.get("items").cloned().ok_or_else(|| {
+                            Error::Network(
+                                "Structured response is missing the \"items\" array".to_string(),
+                            )
+                        })?
+                    } else {
+                        response
+                    };
+                    return serde_json::from_value(payload).map_err(Error::Json);
+                }
                 Err(err) => {
                     let err_string = err.to_string();
                     let is_timeout = err_string.contains("timeout")
