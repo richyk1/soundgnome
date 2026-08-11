@@ -119,11 +119,79 @@ pub struct TrackDto {
     pub label: Option<String>,
     pub file_path: Option<String>,
     pub needs_validation: bool,
+    /// Probed audio quality, absent when there is no local file or it cannot
+    /// be read.
+    pub quality: Option<TrackQualityDto>,
     pub references: Vec<ReferenceDto>,
+}
+
+/// Measured properties of the audio file backing a track.
+///
+/// Probed from disk on read rather than stored: a re-tagged or replaced file
+/// then reports its real quality instead of a stale row. The probe only reads
+/// container headers, so it is cheap enough to do per response.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct TrackQualityDto {
+    /// Short codec label, e.g. "FLAC", "AAC", "MP3".
+    pub format: String,
+    pub bitrate_kbps: u32,
+    pub lossless: bool,
+}
+
+impl TrackQualityDto {
+    fn probe(track: &Track) -> Option<Self> {
+        let quality = crate::utils::quality_cache::probe(track)?;
+        let extension = track
+            .file_path
+            .as_ref()
+            .and_then(|p| p.extension())
+            .and_then(|e| e.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
+
+        // An m4a holds either AAC or ALAC, and only the lossless flag tells
+        // them apart, so the label is derived from both.
+        let format = match extension.as_str() {
+            "m4a" | "mp4" | "aac" => {
+                if quality.lossless {
+                    "ALAC"
+                } else {
+                    "AAC"
+                }
+            }
+            "mp3" => "MP3",
+            "flac" => "FLAC",
+            "opus" => "OPUS",
+            "ogg" => {
+                if quality.lossless {
+                    "PCM"
+                } else {
+                    "VORBIS"
+                }
+            }
+            "wav" | "wave" => "WAV",
+            _ => {
+                if quality.lossless {
+                    "PCM"
+                } else {
+                    "LOSSY"
+                }
+            }
+        };
+
+        Some(Self {
+            format: format.to_string(),
+            bitrate_kbps: quality.bitrate_bps / 1000,
+            lossless: quality.lossless,
+        })
+    }
 }
 
 impl TrackDto {
     fn from_track(track: Track) -> Option<Self> {
+        // Probe before the struct is torn apart: it needs `file_path`.
+        let quality = TrackQualityDto::probe(&track);
+
         Some(Self {
             id: track.id?,
             title: track.title,
@@ -150,6 +218,7 @@ impl TrackDto {
                 .file_path
                 .and_then(|p| p.to_str().map(|s| s.to_string())),
             needs_validation: track.needs_validation,
+            quality,
             references: track.references.into_iter().map(reference_to_dto).collect(),
         })
     }

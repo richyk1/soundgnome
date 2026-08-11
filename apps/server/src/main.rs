@@ -286,9 +286,14 @@ fn rocket() -> _ {
                 routes::library::list_ingest_files,
                 routes::library::ingest_all,
                 routes::storage::storage_stats,
+                routes::soundcloud::get_status,
+                routes::soundcloud::connect,
+                routes::soundcloud::disconnect,
+                routes::soundcloud::list_likes,
+                routes::soundcloud::stream_url,
+                routes::audio::stream,
             ],
         )
-        // .mount("/api", routes![routes::audio::stream,])
         .mount(
             "/api",
             routes![
