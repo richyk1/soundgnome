@@ -338,19 +338,25 @@ impl DownloaderConfig {
 
     /// The yt-dlp `-f` format selector.
     ///
-    /// Native mode selects only containers the tagger can write (flac/m4a/mp3),
-    /// so finalized files always receive their metadata and SOUNDOME_ID — raw
-    /// Opus/WebM would crash tagging. If a source exposes no taggable audio the
-    /// download fails cleanly (yt-dlp: "requested format is not available"); set
-    /// `audio_format` to a codec to force a transcode in that case. Transcode
-    /// mode grabs the best source (preferring a lossless original) and lets
-    /// yt-dlp convert it.
+    /// Native mode keeps the source codec, but only for containers that end up
+    /// taggable. FLAC, M4A and MP3 are taggable as they are. WAV and AIFF are
+    /// not, yet they are the most common originals uploaders offer, so they are
+    /// selected here and losslessly repacked into FLAC after download (see
+    /// `downloader::utils::ytdlp`). Raw Opus/WebM stays excluded: repacking it
+    /// would either lose the audio or produce another untaggable file.
+    ///
+    /// If a source exposes nothing usable the download fails cleanly (yt-dlp:
+    /// "requested format is not available"); set `audio_format` to a codec to
+    /// force a transcode in that case.
     pub fn format_selector(&self) -> String {
         if self.is_native() {
             let mut parts: Vec<&str> = Vec::new();
             if self.prefer_original {
                 parts.extend([
                     "download[ext=flac]",
+                    "download[ext=wav]",
+                    "download[ext=aiff]",
+                    "download[ext=aif]",
                     "download[ext=m4a]",
                     "download[ext=mp3]",
                 ]);
@@ -452,7 +458,17 @@ mod downloader_cfg {
     /// Every token of a native-mode selector must end with a taggable container
     /// suffix. Bare `bestaudio`/`best` (which could resolve to Opus/WebM and
     /// crash tagging) are forbidden in native mode.
-    const TAGGABLE_SUFFIXES: [&str; 3] = ["[ext=flac]", "[ext=m4a]", "[ext=mp3]"];
+    /// Containers a native download may produce. FLAC, M4A and MP3 are tagged
+    /// as they are; WAV and AIFF are repacked into FLAC by the downloader
+    /// before tagging. Anything else (Opus, WebM) must never be selected.
+    const FINALISABLE_SUFFIXES: [&str; 6] = [
+        "[ext=flac]",
+        "[ext=wav]",
+        "[ext=aiff]",
+        "[ext=aif]",
+        "[ext=m4a]",
+        "[ext=mp3]",
+    ];
 
     #[test]
     fn is_native_true_for_best_and_empty() {
@@ -478,7 +494,8 @@ mod downloader_cfg {
     fn format_selector_native_prefer_original() {
         assert_eq!(
             cfg("best", "0", true).format_selector(),
-            "download[ext=flac]/download[ext=m4a]/download[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=mp3]"
+            "download[ext=flac]/download[ext=wav]/download[ext=aiff]/download[ext=aif]/\
+             download[ext=m4a]/download[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=mp3]"
         );
     }
 
@@ -509,7 +526,7 @@ mod downloader_cfg {
             let selector = cfg("best", "0", prefer_original).format_selector();
             for token in selector.split('/') {
                 assert!(
-                    TAGGABLE_SUFFIXES
+                    FINALISABLE_SUFFIXES
                         .iter()
                         .any(|suffix| token.ends_with(suffix)),
                     "native selector token {token:?} (prefer_original={prefer_original}) \

@@ -44,7 +44,68 @@ pub async fn download_with_ytdlp(
         .map(PathBuf::from)
         .ok_or(Error::NotFound("downloaded file path".to_string()))?;
 
-    Ok(final_path)
+    repack_lossless_to_flac(final_path).await
+}
+
+/// Containers that carry lossless audio but cannot hold the tags Soundome
+/// writes. Uploaders most often offer WAV, so these must not be rejected.
+const UNTAGGABLE_LOSSLESS: [&str; 3] = ["wav", "aiff", "aif"];
+
+/// Repack a lossless-but-untaggable download into FLAC.
+///
+/// This is a container change, not a re-encode: FLAC stores the same samples,
+/// so nothing is lost, the file gets roughly 40% smaller, and the tagger can
+/// finally write the metadata and the SOUNDOME_ID anchor.
+///
+/// Any other extension is returned untouched.
+async fn repack_lossless_to_flac(path: PathBuf) -> Result<PathBuf, Error> {
+    let is_untaggable_lossless = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| UNTAGGABLE_LOSSLESS.contains(&e.to_lowercase().as_str()))
+        .unwrap_or(false);
+
+    if !is_untaggable_lossless {
+        return Ok(path);
+    }
+
+    let flac_path = path.with_extension("flac");
+    tracing::info!(
+        "Repacking lossless original {} to FLAC",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    );
+
+    let output = Command::new("ffmpeg")
+        // -nostdin plus a null stdin: ffmpeg reads the terminal for interactive
+        // keys by default, and a background child that touches a TTY gets
+        // SIGTTIN and stops dead, hanging the whole serial task queue.
+        .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .arg(&path)
+        // Keep the samples as they are; only the container and coding change.
+        .args(["-c:a", "flac", "-compression_level", "8"])
+        .arg(&flac_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .output()
+        .await
+        .map_err(|e| Error::Custom(format!("ffmpeg is required to repack WAV originals: {}", e)))?;
+
+    if !output.status.success() {
+        // Leave the original in place: a lossy fallback would be worse than a
+        // visible failure the user can retry.
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::Custom(format!(
+            "ffmpeg failed to repack {} to FLAC: {}",
+            path.display(),
+            stderr.trim()
+        )));
+    }
+
+    if let Err(e) = tokio::fs::remove_file(&path).await {
+        tracing::warn!("Could not remove {} after repacking: {}", path.display(), e);
+    }
+
+    Ok(flac_path)
 }
 
 fn build_download_args(
@@ -57,8 +118,8 @@ fn build_download_args(
         url.to_string(),
         "-f".to_string(),
         config.format_selector(),
-        // Extract the audio track (also required so --embed-thumbnail targets the
-        // audio file). Without --audio-format the source codec is kept as-is.
+        // Take the audio stream out of whatever container it arrives in,
+        // keeping the source codec (no --audio-format means no re-encode).
         "--extract-audio".to_string(),
     ];
 
@@ -70,7 +131,11 @@ fn build_download_args(
         args.push(quality.to_string());
     }
 
-    args.push("--embed-thumbnail".to_string());
+    // No --embed-thumbnail on purpose. yt-dlp cannot embed into WAV or AIFF, so
+    // it fails the very lossless originals worth downloading. The tagger embeds
+    // the real cover art from the source metadata later anyway
+    // (`tag_file_with_track_and_cover`), which is both higher resolution and
+    // survives the repack to FLAC.
 
     // SoundCloud only serves downloadable originals (FLAC) to authenticated
     // clients; cookies also unlock age/region-gated tracks.
