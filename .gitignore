@@ -1,12 +1,14 @@
 # env
 .direnv
 .env
+cookies.txt
 
 # build
 target/
 
 # node
 node_modules/
+apps/web/dev-dist/
 dist/
 
 # config
@@ -30,3 +32,6 @@ rustypipe_reports/
 
 # logs
 out
+
+# macos
+.DS_Store

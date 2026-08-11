@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -17,9 +19,36 @@ pub struct Config {
     #[serde(default)]
     pub tagger: TaggerConfig,
     #[serde(default)]
+    pub downloader: DownloaderConfig,
+    #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
     pub playlists: PlaylistsConfig,
+}
+
+impl Config {
+    /// Where the SoundCloud `oauth_token` cookie submitted through the UI is
+    /// stored. Kept next to the database so it survives restarts and lands on
+    /// the same mounted volume in Docker.
+    pub fn soundcloud_cookies_path(&self) -> PathBuf {
+        Path::new(&self.database.url)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("soundcloud_cookies.txt")
+    }
+
+    /// The file to hand yt-dlp via `--cookies`, if any.
+    ///
+    /// An explicit `downloader.cookies_file` always wins: an operator who
+    /// mounted a full browser cookie jar should not have it silently replaced
+    /// by a token pasted into the UI.
+    pub fn resolved_cookies_file(&self) -> Option<PathBuf> {
+        if let Some(explicit) = self.downloader.cookies_file.as_deref() {
+            return Some(PathBuf::from(explicit));
+        }
+        let stored = self.soundcloud_cookies_path();
+        stored.is_file().then_some(stored)
+    }
 }
 
 // ===============================================================================
@@ -242,6 +271,110 @@ impl TaggerConfig {
 }
 
 // ===============================================================================
+// Downloader
+// ===============================================================================
+
+/// Audio download quality/format options passed to yt-dlp.
+#[derive(Debug, Clone, Deserialize)]
+#[allow(unused)]
+pub struct DownloaderConfig {
+    /// Output audio format. `"best"` (default) keeps the best *taggable* source
+    /// audio without re-encoding: SoundCloud downloadable originals (usually
+    /// FLAC) when credentials are provided, otherwise the native AAC/MP3 stream.
+    /// Any other value forces a transcode to that codec via yt-dlp
+    /// `--audio-format`. Only tagger-writable codecs are supported: `"mp3"`,
+    /// `"flac"`, `"m4a"` (aac). Untaggable targets (opus, wav, ...) would fail
+    /// finalization, so avoid them.
+    /// ENV: SOUNDOME__DOWNLOADER__AUDIO_FORMAT
+    #[serde(default = "DownloaderConfig::default_audio_format")]
+    pub audio_format: String,
+
+    /// yt-dlp `--audio-quality` value (`"0"` = best VBR ... `"9"` = worst).
+    /// Only applied when `audio_format` forces a transcode.
+    /// ENV: SOUNDOME__DOWNLOADER__AUDIO_QUALITY
+    #[serde(default = "DownloaderConfig::default_audio_quality")]
+    pub audio_quality: String,
+
+    /// Prefer a SoundCloud uploader's downloadable original file (often FLAC)
+    /// over the streamed transcodes. Requires `cookies_file` — SoundCloud only
+    /// exposes originals to authenticated clients.
+    /// ENV: SOUNDOME__DOWNLOADER__PREFER_ORIGINAL
+    #[serde(default = "DownloaderConfig::default_prefer_original")]
+    pub prefer_original: bool,
+
+    /// Path to a Netscape-format cookies file passed to yt-dlp `--cookies`.
+    /// Enables SoundCloud original (FLAC) downloads and age/region-gated content.
+    /// ENV: SOUNDOME__DOWNLOADER__COOKIES_FILE
+    pub cookies_file: Option<String>,
+}
+
+impl Default for DownloaderConfig {
+    fn default() -> Self {
+        Self {
+            audio_format: Self::default_audio_format(),
+            audio_quality: Self::default_audio_quality(),
+            prefer_original: Self::default_prefer_original(),
+            cookies_file: None,
+        }
+    }
+}
+
+impl DownloaderConfig {
+    fn default_audio_format() -> String {
+        "best".to_string()
+    }
+    fn default_audio_quality() -> String {
+        "0".to_string()
+    }
+    fn default_prefer_original() -> bool {
+        true
+    }
+
+    /// True when the source codec is kept as-is (no re-encode).
+    pub fn is_native(&self) -> bool {
+        let f = self.audio_format.trim();
+        f.is_empty() || f.eq_ignore_ascii_case("best")
+    }
+
+    /// The yt-dlp `-f` format selector.
+    ///
+    /// Native mode selects only containers the tagger can write (flac/m4a/mp3),
+    /// so finalized files always receive their metadata and SOUNDOME_ID — raw
+    /// Opus/WebM would crash tagging. If a source exposes no taggable audio the
+    /// download fails cleanly (yt-dlp: "requested format is not available"); set
+    /// `audio_format` to a codec to force a transcode in that case. Transcode
+    /// mode grabs the best source (preferring a lossless original) and lets
+    /// yt-dlp convert it.
+    pub fn format_selector(&self) -> String {
+        if self.is_native() {
+            let mut parts: Vec<&str> = Vec::new();
+            if self.prefer_original {
+                parts.extend([
+                    "download[ext=flac]",
+                    "download[ext=m4a]",
+                    "download[ext=mp3]",
+                ]);
+            }
+            parts.extend(["bestaudio[ext=m4a]", "bestaudio[ext=mp3]"]);
+            parts.join("/")
+        } else if self.prefer_original {
+            "download/bestaudio/best".to_string()
+        } else {
+            "bestaudio/best".to_string()
+        }
+    }
+
+    /// `Some((codec, quality))` when a transcode is requested, otherwise `None`.
+    pub fn transcode_target(&self) -> Option<(&str, &str)> {
+        if self.is_native() {
+            None
+        } else {
+            Some((self.audio_format.trim(), self.audio_quality.trim()))
+        }
+    }
+}
+
+// ===============================================================================
 // Proxy
 // ===============================================================================
 
@@ -295,4 +428,138 @@ pub struct PlaylistsConfig {
     /// May be relative (to the working directory) or absolute.
     /// Defaults to `{base_library_dir}/.playlists/` when absent.
     pub m3u8_dir: Option<String>,
+}
+
+// ===============================================================================
+// Tests
+// ===============================================================================
+
+#[cfg(test)]
+mod downloader_cfg {
+    use super::*;
+
+    /// Build a `DownloaderConfig` with explicit format/quality/prefer_original,
+    /// no cookies file. Fields are `pub` so we construct directly.
+    fn cfg(audio_format: &str, audio_quality: &str, prefer_original: bool) -> DownloaderConfig {
+        DownloaderConfig {
+            audio_format: audio_format.to_string(),
+            audio_quality: audio_quality.to_string(),
+            prefer_original,
+            cookies_file: None,
+        }
+    }
+
+    /// Every token of a native-mode selector must end with a taggable container
+    /// suffix. Bare `bestaudio`/`best` (which could resolve to Opus/WebM and
+    /// crash tagging) are forbidden in native mode.
+    const TAGGABLE_SUFFIXES: [&str; 3] = ["[ext=flac]", "[ext=m4a]", "[ext=mp3]"];
+
+    #[test]
+    fn is_native_true_for_best_and_empty() {
+        for f in ["best", "BEST", "  best  ", ""] {
+            assert!(
+                cfg(f, "0", true).is_native(),
+                "audio_format {f:?} should be native"
+            );
+        }
+    }
+
+    #[test]
+    fn is_native_false_for_transcode_codecs() {
+        for f in ["mp3", "flac", "m4a"] {
+            assert!(
+                !cfg(f, "0", true).is_native(),
+                "audio_format {f:?} should force a transcode (not native)"
+            );
+        }
+    }
+
+    #[test]
+    fn format_selector_native_prefer_original() {
+        assert_eq!(
+            cfg("best", "0", true).format_selector(),
+            "download[ext=flac]/download[ext=m4a]/download[ext=mp3]/bestaudio[ext=m4a]/bestaudio[ext=mp3]"
+        );
+    }
+
+    #[test]
+    fn format_selector_native_no_prefer_original() {
+        assert_eq!(
+            cfg("best", "0", false).format_selector(),
+            "bestaudio[ext=m4a]/bestaudio[ext=mp3]"
+        );
+    }
+
+    #[test]
+    fn format_selector_transcode_prefer_original() {
+        assert_eq!(
+            cfg("mp3", "0", true).format_selector(),
+            "download/bestaudio/best"
+        );
+    }
+
+    #[test]
+    fn format_selector_transcode_no_prefer_original() {
+        assert_eq!(cfg("mp3", "0", false).format_selector(), "bestaudio/best");
+    }
+
+    #[test]
+    fn native_selector_only_contains_taggable_containers() {
+        for prefer_original in [true, false] {
+            let selector = cfg("best", "0", prefer_original).format_selector();
+            for token in selector.split('/') {
+                assert!(
+                    TAGGABLE_SUFFIXES
+                        .iter()
+                        .any(|suffix| token.ends_with(suffix)),
+                    "native selector token {token:?} (prefer_original={prefer_original}) \
+                     is not a taggable container; bare bestaudio/best would risk \
+                     untaggable Opus/WebM"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn transcode_selector_keeps_bare_fallback() {
+        // Transcode mode re-encodes, so a bare `best` fallback is intentional
+        // and must be present (the opposite of the native invariant).
+        for prefer_original in [true, false] {
+            let selector = cfg("mp3", "0", prefer_original).format_selector();
+            let tokens: Vec<&str> = selector.split('/').collect();
+            assert!(
+                tokens.contains(&"best"),
+                "transcode selector {selector:?} (prefer_original={prefer_original}) \
+                 should keep a bare `best` fallback"
+            );
+        }
+    }
+
+    #[test]
+    fn transcode_target_none_when_native() {
+        assert_eq!(DownloaderConfig::default().transcode_target(), None);
+        assert_eq!(cfg("  best  ", "0", true).transcode_target(), None);
+    }
+
+    #[test]
+    fn transcode_target_some_when_transcoding() {
+        assert_eq!(cfg("mp3", "0", true).transcode_target(), Some(("mp3", "0")));
+    }
+
+    #[test]
+    fn transcode_target_trims_whitespace() {
+        assert_eq!(
+            cfg(" flac ", " 5 ", true).transcode_target(),
+            Some(("flac", "5"))
+        );
+    }
+
+    #[test]
+    fn default_matches_documented_defaults() {
+        let d = DownloaderConfig::default();
+        assert_eq!(d.audio_format, "best");
+        assert_eq!(d.audio_quality, "0");
+        assert!(d.prefer_original);
+        assert_eq!(d.cookies_file, None);
+    }
 }

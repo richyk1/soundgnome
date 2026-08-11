@@ -234,6 +234,41 @@ ingest_metadata_providers = ["spotify", "musicbrainz", "bandcamp"]
 
 
 # =============================================================================
+# [downloader]  (optional)
+# =============================================================================
+# Controls the audio quality/format yt-dlp produces.
+# Defaults give the best *taggable* quality without re-encoding.
+# =============================================================================
+[downloader]
+
+# Output audio format.
+#   "best" (default) = keep the best taggable source audio with NO re-encode:
+#     SoundCloud downloadable originals (usually FLAC) when cookies are set,
+#     otherwise the native AAC/MP3 stream. YouTube keeps native AAC (m4a).
+#   A codec name forces a transcode. Only tagger-writable codecs are supported:
+#     "mp3", "flac", "m4a". Avoid opus/wav — they cannot be tagged.
+# ENV: SOUNDOME__DOWNLOADER__AUDIO_FORMAT
+audio_format = "best"
+
+# yt-dlp --audio-quality ("0" = best VBR ... "9" = worst).
+# Only applied when audio_format forces a transcode.
+# ENV: SOUNDOME__DOWNLOADER__AUDIO_QUALITY
+audio_quality = "0"
+
+# Prefer a SoundCloud uploader's downloadable original file (often FLAC) over
+# the streamed transcodes. Requires cookies_file — SoundCloud only exposes
+# originals to authenticated clients.
+# ENV: SOUNDOME__DOWNLOADER__PREFER_ORIGINAL
+prefer_original = true
+
+# Path to a Netscape-format cookies.txt passed to yt-dlp --cookies.
+# Needed to fetch SoundCloud FLAC originals and age/region-gated tracks.
+# Export it from your browser while logged in to SoundCloud.
+# ENV: SOUNDOME__DOWNLOADER__COOKIES_FILE
+# cookies_file = "/app/cookies.txt"
+
+
+# =============================================================================
 # [proxy]  (optional)
 # =============================================================================
 # Outbound HTTP proxy configuration shared across the application.

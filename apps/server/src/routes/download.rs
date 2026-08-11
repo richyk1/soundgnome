@@ -39,7 +39,10 @@ pub struct PlaylistDownloadResult {
 // ================================================================================================
 
 fn is_playlist_url(url: &str) -> bool {
-    url.contains("/playlist/")
+    // The SoundCloud likes feed is synced as a playlist, but its URL carries
+    // none of the markers below.
+    fetcher::soundcloud::Soundcloud::is_likes_url(url)
+        || url.contains("/playlist/")
         || url.contains("/sets/")
         || (url.contains("list=") && !url.contains("list=OLAK5uy_"))
 }

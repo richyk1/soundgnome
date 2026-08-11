@@ -1,7 +1,7 @@
+use config::{models::DownloaderConfig, Config};
 use serde::Deserialize;
-use serde_json::Value;
 use shared::{errors::Error, http::ProxyRotator, types::SoundomeResult};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::{io::AsyncReadExt, process::Command};
@@ -23,39 +23,69 @@ pub async fn download_with_ytdlp(
         .ok_or(Error::InvalidPath(base_library_dir.clone()))?;
     let output_path = format!("{}/{}.%(ext)s", base_library_dir, file_name);
 
-    let stdout = run_ytdlp_with_retry(|| build_download_args(url, &output_path)).await?;
+    let config = Config::get();
+    // Resolved per download, not cached: the user can connect or disconnect
+    // SoundCloud from the UI while the server is running.
+    let cookies = config.resolved_cookies_file();
+    let stdout = run_ytdlp_with_retry(|| {
+        build_download_args(url, &output_path, &config.downloader, cookies.as_deref())
+    })
+    .await?;
 
-    // Parse JSON output
-    let value: Value = serde_json::from_slice(&stdout)?;
-    let path = value["_filename"]
-        .as_str()
+    // yt-dlp prints the final file path (after post-processing and the move to
+    // its output location) via `--print after_move:%(filepath)s`. The extension
+    // is whatever was actually produced (flac/m4a/mp3/...), so take it verbatim
+    // instead of assuming ".mp3". Use the last non-empty line.
+    let final_path = String::from_utf8_lossy(&stdout)
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(PathBuf::from)
         .ok_or(Error::NotFound("downloaded file path".to_string()))?;
-
-    // Replace extension with .mp3
-    let final_path = PathBuf::from(match path.rsplit_once('.') {
-        Some((base, _)) => format!("{}.mp3", base),
-        None => format!("{}.mp3", path),
-    });
 
     Ok(final_path)
 }
 
-fn build_download_args(url: &str, output_path: &str) -> Vec<String> {
-    // default args
+fn build_download_args(
+    url: &str,
+    output_path: &str,
+    config: &DownloaderConfig,
+    cookies_file: Option<&Path>,
+) -> Vec<String> {
     let mut args = vec![
         url.to_string(),
-        "--print-json".to_string(),
         "-f".to_string(),
-        "bestaudio".to_string(),
+        config.format_selector(),
+        // Extract the audio track (also required so --embed-thumbnail targets the
+        // audio file). Without --audio-format the source codec is kept as-is.
         "--extract-audio".to_string(),
-        "--audio-format".to_string(),
-        "mp3".to_string(),
-        "--audio-quality".to_string(),
-        "0".to_string(),
-        "--embed-thumbnail".to_string(),
-        "--output".to_string(),
-        output_path.to_string(),
     ];
+
+    // Transcode only when a specific format is requested; "best" keeps native.
+    if let Some((format, quality)) = config.transcode_target() {
+        args.push("--audio-format".to_string());
+        args.push(format.to_string());
+        args.push("--audio-quality".to_string());
+        args.push(quality.to_string());
+    }
+
+    args.push("--embed-thumbnail".to_string());
+
+    // SoundCloud only serves downloadable originals (FLAC) to authenticated
+    // clients; cookies also unlock age/region-gated tracks.
+    if let Some(cookies) = cookies_file {
+        args.push("--cookies".to_string());
+        args.push(cookies.to_string_lossy().into_owned());
+    }
+
+    // Download for real and print the final file path after post-processing.
+    args.push("--no-simulate".to_string());
+    args.push("--print".to_string());
+    args.push("after_move:%(filepath)s".to_string());
+
+    args.push("--output".to_string());
+    args.push(output_path.to_string());
 
     append_proxy_arg(&mut args);
 

@@ -142,6 +142,21 @@ Controls which metadata providers are used when enriching and tagging audio file
 
 ---
 
+## `[downloader]` (optional)
+
+Audio quality/format produced by yt-dlp. Defaults give the best **taggable** quality without re-encoding.
+
+| Key | Type | Default | Description | Environment variable |
+|---|---|---|---|---|
+| `downloader.audio_format` | string | `"best"` | `"best"` keeps the best taggable source audio with no re-encode (SoundCloud downloadable originals — usually FLAC — when cookies are set, else the native AAC/MP3 stream; YouTube keeps native AAC). Any other value forces a transcode; only tagger-writable codecs are supported: `"mp3"`, `"flac"`, `"m4a"`. | `SOUNDOME__DOWNLOADER__AUDIO_FORMAT` |
+| `downloader.audio_quality` | string | `"0"` | yt-dlp `--audio-quality` (`"0"` best … `"9"` worst). Applied only when `audio_format` forces a transcode. | `SOUNDOME__DOWNLOADER__AUDIO_QUALITY` |
+| `downloader.prefer_original` | bool | `true` | Prefer a SoundCloud uploader's downloadable original (often FLAC) over streamed transcodes. Requires `cookies_file`. | `SOUNDOME__DOWNLOADER__PREFER_ORIGINAL` |
+| `downloader.cookies_file` | string | — | Path to a Netscape `cookies.txt` passed to yt-dlp `--cookies`. Enables SoundCloud FLAC originals and gated content. | `SOUNDOME__DOWNLOADER__COOKIES_FILE` |
+
+> SoundCloud only serves original (lossless) downloads to authenticated clients. Without `cookies_file`, the best SoundCloud audio is the ~160 kbps AAC stream. YouTube never offers lossless.
+
+---
+
 ## `[proxy]` (optional)
 
 Outbound HTTP proxy configuration shared across the application. Omit this section entirely to disable proxy support. See [../operations/proxy-configuration.md](../operations/proxy-configuration.md) for full details.
