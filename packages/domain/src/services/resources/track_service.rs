@@ -348,17 +348,15 @@ impl TrackService {
         })
     }
 
-    /// Compares file quality of two tracks.
-    /// Currently, this is a simple comparison based on bitrate.
+    /// Compares the audio quality of two copies of the same track: lossless
+    /// beats lossy, then higher bitrate wins.
     ///
-    /// Returns true if the new track has better quality.
+    /// Returns true only when the new track is measurably better. If either
+    /// file cannot be probed the answer is `false`, so an unreadable candidate
+    /// never displaces audio we already have.
     pub fn is_better_quality(&self, existing_track: &Track, new_track: &Track) -> bool {
-        let existing_bitrate = existing_track.get_bitrate();
-        let new_bitrate = new_track.get_bitrate();
-
-        match (existing_bitrate, new_bitrate) {
-            (Some(e), Some(n)) => n > e,
-            // if we can't determine, default to false
+        match (existing_track.audio_quality(), new_track.audio_quality()) {
+            (Some(existing), Some(new)) => new > existing,
             _ => false,
         }
     }

@@ -12,6 +12,42 @@ use crate::{
 use super::{Reference, ReferenceType};
 
 // ================================================================================================
+// Audio quality
+// ================================================================================================
+
+/// Codecs that reproduce their input bit-for-bit. A lossless file always wins
+/// over a lossy one, whatever the bitrates say: 1411 kbps of FLAC and 320 kbps
+/// of MP3 are not measured on the same scale.
+const LOSSLESS_CODECS: &[symphonia::core::codecs::CodecType] = {
+    use symphonia::core::codecs::*;
+    &[
+        CODEC_TYPE_FLAC,
+        CODEC_TYPE_ALAC,
+        CODEC_TYPE_WAVPACK,
+        CODEC_TYPE_MONKEYS_AUDIO,
+        CODEC_TYPE_TTA,
+        CODEC_TYPE_PCM_U8,
+        CODEC_TYPE_PCM_S16LE,
+        CODEC_TYPE_PCM_S16BE,
+        CODEC_TYPE_PCM_S24LE,
+        CODEC_TYPE_PCM_S24BE,
+        CODEC_TYPE_PCM_S32LE,
+        CODEC_TYPE_PCM_S32BE,
+        CODEC_TYPE_PCM_F32LE,
+        CODEC_TYPE_PCM_F64LE,
+    ]
+};
+
+/// Measured properties of an audio file, ordered worst to best.
+///
+/// Field order is the comparison order: `lossless` outranks `bitrate_bps`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AudioQuality {
+    pub lossless: bool,
+    pub bitrate_bps: u32,
+}
+
+// ================================================================================================
 // Enums
 // ================================================================================================
 
@@ -182,14 +218,18 @@ impl Track {
             .and_then(|d| d.split('-').next().map(|s| s.to_string()))
     }
 
-    pub fn get_bitrate(&self) -> Option<u32> {
+    /// Probe the audio file for the properties that decide which of two copies
+    /// of the same track to keep. Returns `None` when the file is missing or
+    /// cannot be demuxed, in which case callers must not assume anything about
+    /// its quality.
+    pub fn audio_quality(&self) -> Option<AudioQuality> {
         let path = self.file_path.as_ref()?;
 
-        // Use symphonia for audio probing
         use symphonia::core::io::MediaSourceStream;
         use symphonia::core::probe::Hint;
 
         let file = File::open(path).ok()?;
+        let file_len = file.metadata().ok()?.len();
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
         // Provide file extension hint so symphonia can select the correct reader
@@ -199,23 +239,31 @@ impl Track {
             hint.with_extension(ext);
         }
 
-        let probed = match symphonia::default::get_probe().format(
-            &hint,
-            mss,
-            &Default::default(),
-            &Default::default(),
-        ) {
-            Ok(probed) => probed,
-            Err(_) => return None,
-        };
-        let format = probed.format;
+        let probed = symphonia::default::get_probe()
+            .format(&hint, mss, &Default::default(), &Default::default())
+            .ok()?;
+        let params = &probed
+            .format
+            .default_track()
+            .or_else(|| probed.format.tracks().first())?
+            .codec_params;
 
-        // Find the first audio track with a defined bits_per_coded_sample
-        let track = format
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.bits_per_coded_sample.is_some())?;
-        track.codec_params.bits_per_coded_sample
+        // symphonia does not expose a declared bitrate, so derive it from file
+        // size over duration. That counts tags and embedded cover art as audio,
+        // which inflates the figure by a few kbps -- harmless, since it is only
+        // ever compared against another file measured the same way.
+        let frames = params.n_frames?;
+        let sample_rate = params.sample_rate? as u64;
+        if frames == 0 || sample_rate == 0 {
+            return None;
+        }
+        let seconds = frames as f64 / sample_rate as f64;
+        let bitrate_bps = (file_len as f64 * 8.0 / seconds) as u32;
+
+        Some(AudioQuality {
+            lossless: LOSSLESS_CODECS.contains(&params.codec),
+            bitrate_bps,
+        })
     }
 
     /// Display a track in a user-friendly format
