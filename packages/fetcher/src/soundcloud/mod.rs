@@ -663,11 +663,19 @@ impl Source for Soundcloud {
             return Ok(liked
                 .into_iter()
                 .enumerate()
-                .map(|(i, basic_track)| PlaylistTrack {
-                    id: None,
-                    track: mappers::convert_basic_track(basic_track, None),
-                    added_at: None,
-                    position: Some(i as u32),
+                .map(|(i, basic_track)| {
+                    // Both flags matter: an uploader can enable downloads and
+                    // still have run out of the quota SoundCloud enforces.
+                    let original_available = Some(
+                        basic_track.track.downloadable && basic_track.track.has_downloads_left,
+                    );
+                    PlaylistTrack {
+                        id: None,
+                        track: mappers::convert_basic_track(basic_track, None),
+                        added_at: None,
+                        position: Some(i as u32),
+                        original_available,
+                    }
                 })
                 .collect());
         }
@@ -691,6 +699,10 @@ impl Source for Soundcloud {
             track,
             added_at: None,
             position: Some(i as u32),
+            // The playlist endpoint returns fully hydrated tracks, but the
+            // conversion above drops the raw flags, so treat it as unknown and
+            // let the caller probe if it cares.
+            original_available: None,
         })
         .collect())
     }

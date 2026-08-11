@@ -47,6 +47,62 @@ pub async fn download_with_ytdlp(
     repack_lossless_to_flac(final_path).await
 }
 
+/// What the source can currently supply, without downloading it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AvailableQuality {
+    /// True when the best selectable format is a lossless original.
+    pub lossless: bool,
+    /// Advertised average bitrate in kbps, when the source reports one.
+    pub bitrate_kbps: Option<u32>,
+}
+
+/// Ask yt-dlp what it *would* download for `url`, without fetching any audio.
+///
+/// This is one metadata request, roughly a second, and it is what makes
+/// upgrade decisions possible: a file already in the library is only worth
+/// re-fetching when the source now offers something better.
+pub async fn probe_available_quality(url: &str) -> SoundomeResult<AvailableQuality> {
+    let config = Config::get();
+    let cookies = config.resolved_cookies_file();
+
+    let stdout = run_ytdlp_with_retry(|| {
+        let mut args = vec![
+            url.to_string(),
+            "-f".to_string(),
+            config.downloader.format_selector(),
+            "--simulate".to_string(),
+            "--print".to_string(),
+            // Extension identifies lossless containers; abr covers the rest.
+            "%(ext)s|%(abr)s".to_string(),
+        ];
+        if let Some(cookies) = cookies.as_deref() {
+            args.push("--cookies".to_string());
+            args.push(cookies.to_string_lossy().into_owned());
+        }
+        append_proxy_arg(&mut args);
+        args
+    })
+    .await?;
+
+    let line = String::from_utf8_lossy(&stdout)
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| line.contains('|'))
+        .map(str::to_string)
+        .ok_or_else(|| Error::NotFound(format!("available formats for {}", url)))?;
+
+    let (ext, abr) = line.split_once('|').unwrap_or((line.as_str(), ""));
+    let ext = ext.trim().to_lowercase();
+
+    Ok(AvailableQuality {
+        lossless: ext == "flac" || UNTAGGABLE_LOSSLESS.contains(&ext.as_str()),
+        // yt-dlp prints "NA" when a format carries no bitrate, which is normal
+        // for lossless originals.
+        bitrate_kbps: abr.trim().parse::<f64>().ok().map(|abr| abr as u32),
+    })
+}
+
 /// Containers that carry lossless audio but cannot hold the tags Soundome
 /// writes. Uploaders most often offer WAV, so these must not be rejected.
 const UNTAGGABLE_LOSSLESS: [&str; 3] = ["wav", "aiff", "aif"];

@@ -1,5 +1,7 @@
 pub mod soundcloud;
 mod utils;
+
+pub use utils::ytdlp::{probe_available_quality, AvailableQuality};
 pub mod youtube;
 pub mod youtube_music;
 

@@ -224,6 +224,8 @@ impl Source for YoutubeMusic {
             .iter()
             .enumerate()
             .map(|(i, track)| PlaylistTrack {
+                // Neither source exposes a lossless original.
+                original_available: Some(false),
                 id: None,
                 track: track.clone(),
                 added_at: None,

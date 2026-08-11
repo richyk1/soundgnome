@@ -139,6 +139,8 @@ pub fn convert_track(track: &FullTrack) -> Track {
 pub fn convert_playlist_item(item: &PlaylistItem, pos: u32) -> Option<PlaylistTrack> {
     item.item.as_ref().and_then(|t| match t {
         PlayableItem::Track(track) => Some(PlaylistTrack {
+            // Neither source exposes a lossless original.
+            original_available: Some(false),
             id: None,
             track: convert_track(track),
             added_at: item.added_at,

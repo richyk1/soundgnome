@@ -66,9 +66,14 @@ impl DownloadService {
 
         tracing::info!("===========\nDownloading track from {:?}\n------", url);
 
-        // Check if track already exists in DB
-        if let Some(t) = self.track_service.get_by_url(conn, url) {
-            return Err(Error::TrackExists(t.display()));
+        // Already owned tracks are refused, unless the source can now supply
+        // better audio. The quality comparison later in the pipeline decides
+        // whether the new file actually replaces the old one.
+        if let Some(existing) = self.track_service.get_by_url(conn, url) {
+            if !self.should_upgrade(&existing, url, None).await {
+                return Err(Error::TrackExists(existing.display()));
+            }
+            tracing::info!("Refetching {} for a quality upgrade", existing.display());
         }
 
         let fetcher = Fetcher::new().await;
@@ -85,6 +90,104 @@ impl DownloadService {
         // Orchestrator workflow
         let final_track = self.orchestrator_workflow(conn, track).await?;
         Ok(final_track)
+    }
+
+    /// Whether an already-owned track is worth downloading again.
+    ///
+    /// Only SoundCloud is considered: it is the one source that hands out
+    /// lossless originals, and only to authenticated clients, so a track first
+    /// grabbed without a session (or before the downloader accepted WAV) is
+    /// often stored well below what the source can give.
+    ///
+    /// `original_available` is the source's own answer, which arrives free with
+    /// the listing. When it is known, no request is made at all. Only an
+    /// unknown answer falls back to asking yt-dlp, because doing that per track
+    /// across a whole library trips SoundCloud's rate limiter (it starts
+    /// answering 403 after roughly seventy requests).
+    async fn should_upgrade(
+        &self,
+        existing: &Track,
+        url: &str,
+        original_available: Option<bool>,
+    ) -> bool {
+        let config = Config::get();
+        if !config.downloader.upgrade_existing {
+            return false;
+        }
+
+        if existing.get_source_platform() != shared::models::Platform::SoundCloud {
+            return false;
+        }
+
+        // No readable file: whatever is on disk cannot be worse than nothing.
+        let Some(stored) = existing.audio_quality() else {
+            tracing::info!(
+                "Upgrade: {} has no readable file, refetching",
+                existing.display()
+            );
+            return true;
+        };
+
+        // Already lossless: SoundCloud has nothing better than the original.
+        if stored.lossless {
+            return false;
+        }
+
+        match original_available {
+            Some(false) => false,
+            Some(true) => {
+                tracing::info!(
+                    "Upgrade: {} is {} kbps lossy and the source offers an original",
+                    existing.display(),
+                    stored.bitrate_bps / 1000
+                );
+                true
+            }
+            None => self.probe_for_upgrade(existing, url, stored).await,
+        }
+    }
+
+    /// Ask yt-dlp what the source would serve. One request, so this is only for
+    /// single-track downloads, never a whole sync.
+    async fn probe_for_upgrade(
+        &self,
+        existing: &Track,
+        url: &str,
+        stored: shared::models::AudioQuality,
+    ) -> bool {
+        let available = match downloader::probe_available_quality(url).await {
+            Ok(available) => available,
+            // A failed probe is not evidence of a better source. Leave the file
+            // alone rather than churn on a rate limit or a flaky network.
+            Err(e) => {
+                tracing::warn!("Upgrade probe failed for {}: {}", url, e);
+                return false;
+            }
+        };
+
+        if available.lossless {
+            tracing::info!(
+                "Upgrade: {} is {} kbps lossy, source offers a lossless original",
+                existing.display(),
+                stored.bitrate_bps / 1000
+            );
+            return true;
+        }
+
+        let stored_kbps = stored.bitrate_bps as f32 / 1000.0;
+        let margin = Config::get().downloader.upgrade_bitrate_margin;
+        match available.bitrate_kbps {
+            Some(available_kbps) if available_kbps as f32 > stored_kbps * margin => {
+                tracing::info!(
+                    "Upgrade: {} is {:.0} kbps, source offers {} kbps",
+                    existing.display(),
+                    stored_kbps,
+                    available_kbps
+                );
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Main entry point for downloading a playlist from a given URL (from any supported platform).
@@ -172,11 +275,29 @@ impl DownloadService {
                 .unwrap_or_else(|| "unknown".to_string());
             let position = pt.position.map(|p| p as i32);
             if let Some(existing) = self.track_service.get_by_url(conn, &track_url) {
+                let track_id = existing.id.expect("persisted track must have an id");
+
+                // Already owned, but the source may now offer better audio. The
+                // download path below re-runs the quality comparison and only
+                // replaces the file when the new one really is better.
+                if self
+                    .should_upgrade(&existing, &track_url, pt.original_available)
+                    .await
+                {
+                    if let Err(e) =
+                        self.playlist_service
+                            .add_track(conn, playlist_id, track_id, position)
+                    {
+                        tracing::error!("Failed to link track {} to playlist: {}", track_id, e);
+                    }
+                    new_tracks.push((position, track.clone()));
+                    continue;
+                }
+
                 tracing::warn!(
                     "   -> Track already exists in DB, linking to playlist: {}",
                     track.display()
                 );
-                let track_id = existing.id.expect("persisted track must have an id");
                 if let Err(e) =
                     self.playlist_service
                         .add_track(conn, playlist_id, track_id, position)
@@ -1211,6 +1332,14 @@ impl DownloadService {
                 "Track saved for manual validation — reason={:?}",
                 track.validation_reason
             );
+
+            // A track that is still pending validation can be re-fetched as an
+            // upgrade. Reuse its row: a second row would split the validation
+            // queue and leave an orphaned staged file behind.
+            if let Some(existing) = self.existing_staged_track(conn, &track) {
+                return self.replace_staged_track(conn, existing, track).await;
+            }
+
             let saved_track = self.save_track(conn, &track).await?;
             return Ok(saved_track);
         }
@@ -1654,6 +1783,51 @@ impl DownloadService {
             tracing::debug!("File location unchanged, no reorganization needed");
             Ok(false)
         }
+    }
+
+    /// The row already holding this source URL, if any.
+    fn existing_staged_track(&self, conn: &mut SqliteConnection, track: &Track) -> Option<Track> {
+        let url = track.get_source().and_then(|s| s.external_url)?;
+        self.track_service.get_by_url(conn, &url)
+    }
+
+    /// Fold a freshly downloaded copy into the row that already exists, keeping
+    /// whichever file is better and deleting the other.
+    async fn replace_staged_track(
+        &self,
+        conn: &mut SqliteConnection,
+        existing: Track,
+        mut track: Track,
+    ) -> SoundomeResult<Track> {
+        let new_is_better = self.track_service.is_better_quality(&existing, &track);
+
+        let discarded = if new_is_better {
+            tracing::info!(
+                "Replacing staged file for {} with the better download",
+                existing.display()
+            );
+            existing.file_path.clone()
+        } else {
+            tracing::info!(
+                "Keeping the existing file for {}, the new download is not better",
+                existing.display()
+            );
+            let new_file = track.file_path.clone();
+            track.file_path = existing.file_path.clone();
+            new_file
+        };
+
+        if let Some(path) = discarded {
+            if Some(&path) != track.file_path.as_ref() {
+                if let Err(e) = std::fs::remove_file(&path) {
+                    tracing::warn!("Could not remove {}: {}", path.display(), e);
+                }
+            }
+        }
+
+        // Same row, so the validation queue keeps one entry per track.
+        track.id = existing.id;
+        self.save_track(conn, &track).await
     }
 
     /// Save the track in the database

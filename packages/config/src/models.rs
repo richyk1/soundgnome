@@ -302,6 +302,21 @@ pub struct DownloaderConfig {
     #[serde(default = "DownloaderConfig::default_prefer_original")]
     pub prefer_original: bool,
 
+    /// Re-download a track already in the library when the source can supply
+    /// better audio, for example a lossless original that was not offered (or
+    /// not reachable) the first time. Costs one metadata request per already
+    /// owned track during a sync.
+    /// ENV: SOUNDOME__DOWNLOADER__UPGRADE_EXISTING
+    #[serde(default = "DownloaderConfig::default_upgrade_existing")]
+    pub upgrade_existing: bool,
+
+    /// How much better a lossy source must be before it replaces a lossy file,
+    /// as a ratio of the stored bitrate. Lossless always wins regardless.
+    /// Keeps a 161 vs 160 kbps difference from causing pointless churn.
+    /// ENV: SOUNDOME__DOWNLOADER__UPGRADE_BITRATE_MARGIN
+    #[serde(default = "DownloaderConfig::default_upgrade_bitrate_margin")]
+    pub upgrade_bitrate_margin: f32,
+
     /// Path to a Netscape-format cookies file passed to yt-dlp `--cookies`.
     /// Enables SoundCloud original (FLAC) downloads and age/region-gated content.
     /// ENV: SOUNDOME__DOWNLOADER__COOKIES_FILE
@@ -314,6 +329,8 @@ impl Default for DownloaderConfig {
             audio_format: Self::default_audio_format(),
             audio_quality: Self::default_audio_quality(),
             prefer_original: Self::default_prefer_original(),
+            upgrade_existing: Self::default_upgrade_existing(),
+            upgrade_bitrate_margin: Self::default_upgrade_bitrate_margin(),
             cookies_file: None,
         }
     }
@@ -328,6 +345,14 @@ impl DownloaderConfig {
     }
     fn default_prefer_original() -> bool {
         true
+    }
+    fn default_upgrade_existing() -> bool {
+        true
+    }
+    /// 15% better, so a re-encode at a nominally similar bitrate does not
+    /// trigger a pointless replace.
+    fn default_upgrade_bitrate_margin() -> f32 {
+        1.15
     }
 
     /// True when the source codec is kept as-is (no re-encode).
@@ -452,12 +477,10 @@ mod downloader_cfg {
             audio_quality: audio_quality.to_string(),
             prefer_original,
             cookies_file: None,
+            ..DownloaderConfig::default()
         }
     }
 
-    /// Every token of a native-mode selector must end with a taggable container
-    /// suffix. Bare `bestaudio`/`best` (which could resolve to Opus/WebM and
-    /// crash tagging) are forbidden in native mode.
     /// Containers a native download may produce. FLAC, M4A and MP3 are tagged
     /// as they are; WAV and AIFF are repacked into FLAC by the downloader
     /// before tagging. Anything else (Opus, WebM) must never be selected.
