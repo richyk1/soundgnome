@@ -8,6 +8,7 @@ pub mod metrics;
 pub mod misc;
 pub mod soundcloud;
 pub mod spotify;
+pub mod spotify_audio;
 pub mod storage;
 pub mod sync_schedules;
 pub mod tasks;

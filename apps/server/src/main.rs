@@ -298,6 +298,9 @@ fn rocket() -> _ {
                 routes::spotify::callback,
                 routes::spotify::logout,
                 routes::spotify::list_likes,
+                routes::spotify_audio::get_status,
+                routes::spotify_audio::login,
+                routes::spotify_audio::disconnect,
                 routes::audio::stream,
             ],
         )

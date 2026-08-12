@@ -729,6 +729,42 @@ export async function logoutSpotify(): Promise<SpotifyStatusDto> {
 }
 
 // ================================================================================================
+// Providers: Spotify audio (librespot)
+// ================================================================================================
+
+export interface SpotifyAudioStatusDto {
+  connected: boolean;
+  username: string | null;
+}
+
+export async function getSpotifyAudioStatus(): Promise<SpotifyAudioStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify-audio`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function connectSpotifyAudio(): Promise<SpotifyAudioStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify-audio/login`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function disconnectSpotifyAudio(): Promise<SpotifyAudioStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify-audio`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+// ================================================================================================
 // SoundCloud likes
 // ================================================================================================
 

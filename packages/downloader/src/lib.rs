@@ -1,4 +1,5 @@
 pub mod soundcloud;
+pub mod spotify;
 mod utils;
 
 pub use utils::ytdlp::{probe_available_quality, AvailableQuality};
@@ -52,6 +53,14 @@ pub async fn search(track: &Track) -> SoundomeResult<Reference> {
 
     match source.platform {
         Platform::Spotify => {
+            // Prefer a direct Spotify (librespot) download when a Premium
+            // session is connected; otherwise match the track on YouTube.
+            if spotify::auth::is_connected() {
+                let sp = spotify::Spotify;
+                if let Ok(reference) = sp.search(track).await {
+                    return Ok(reference);
+                }
+            }
             // we first try to search on youtube music
             match youtube_music.search(track).await {
                 Ok(reference) => Ok(reference),
@@ -116,9 +125,22 @@ pub async fn download(
 
     match source.platform {
         Platform::Spotify => {
-            let mut youtube = youtube::Youtube::new();
-
-            youtube.download(&url, track_title, output_dir).await
+            // A connected librespot session resolves the provider to Spotify
+            // itself; otherwise the provider is a YouTube/YT Music fallback.
+            match provider.platform {
+                Platform::Spotify => {
+                    let mut sp = spotify::Spotify;
+                    sp.download(&url, track_title, output_dir).await
+                }
+                Platform::YoutubeMusic => {
+                    let mut youtube_music = youtube_music::YoutubeMusic::new();
+                    youtube_music.download(&url, track_title, output_dir).await
+                }
+                _ => {
+                    let mut youtube = youtube::Youtube::new();
+                    youtube.download(&url, track_title, output_dir).await
+                }
+            }
         }
         Platform::Youtube => {
             let mut youtube = youtube::Youtube::new();

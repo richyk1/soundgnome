@@ -178,6 +178,19 @@ impl Source for Fetcher {
     }
 
     async fn get_playlist_from_url(&self, url: &str) -> SoundomeResult<Playlist> {
+        // Liked Songs come from the user's own OAuth session, not from the
+        // catalogue client, so they are handled before the per-source dispatch:
+        // there may be no configured Spotify source adapter at all.
+        if Spotify::is_liked_url(url) {
+            return Ok(Playlist {
+                id: None,
+                name: "Spotify Liked Songs".to_string(),
+                source: Platform::Spotify,
+                source_url: Some(Spotify::LIKED_URL.to_string()),
+                cover: None,
+            });
+        }
+
         match url {
             _ if Spotify::is_valid_playlist_url(url) => match &self.spotify {
                 Some(spotify) => spotify.get_playlist_from_url(url).await,
@@ -205,6 +218,22 @@ impl Source for Fetcher {
     }
 
     async fn get_playlist_tracks_from_url(&self, url: &str) -> SoundomeResult<Vec<PlaylistTrack>> {
+        if Spotify::is_liked_url(url) {
+            let saved = spotify::session::saved_tracks().await?;
+            return Ok(saved
+                .into_iter()
+                .enumerate()
+                .map(|(i, saved)| PlaylistTrack {
+                    id: None,
+                    track: saved.to_track(),
+                    added_at: None,
+                    position: Some(i as u32),
+                    // Spotify never offers a lossless original.
+                    original_available: Some(false),
+                })
+                .collect());
+        }
+
         match url {
             _ if Spotify::is_valid_playlist_url(url) => match &self.spotify {
                 Some(spotify) => spotify.get_playlist_tracks_from_url(url).await,

@@ -277,6 +277,54 @@ pub struct SavedTrack {
     pub spotify_url: String,
 }
 
+impl SavedTrack {
+    /// Convert to the shared model, carrying a Spotify `Source` reference so
+    /// the downloader routes it the same way as a pasted Spotify URL.
+    pub fn to_track(&self) -> shared::models::Track {
+        use shared::models::{Album, AlbumType, Artist, Platform, Reference, ReferenceType, Track};
+
+        let artists = vec![Artist {
+            id: None,
+            name: self.artist.clone(),
+            icon: None,
+            references: Vec::new(),
+        }];
+
+        Track {
+            id: None,
+            needs_validation: false,
+            validation_reason: None,
+            soundome_id: None,
+            title: self.title.clone(),
+            artists: artists.clone(),
+            album: self.album.as_ref().map(|title| Album {
+                id: None,
+                title: title.clone(),
+                artists,
+                cover: self.artwork_url.clone(),
+                date: None,
+                album_type: AlbumType::Unknown,
+                references: Vec::new(),
+            }),
+            genre: None,
+            duration: self.duration_secs,
+            track_number: None,
+            disc_number: None,
+            label: None,
+            date: None,
+            cover: self.artwork_url.clone(),
+            file_path: None,
+            references: vec![Reference {
+                id: None,
+                ref_type: ReferenceType::Source,
+                platform: Platform::Spotify,
+                external_id: Some(self.id.clone()),
+                external_url: Some(self.spotify_url.clone()),
+            }],
+        }
+    }
+}
+
 /// Every liked track, newest first.
 ///
 /// Read-only: this lists what the account has saved and downloads nothing.

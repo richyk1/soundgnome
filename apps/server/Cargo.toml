@@ -18,6 +18,7 @@ keywords = [
 [dependencies]
 domain = { path = "../../packages/domain" }
 fetcher = { path = "../../packages/fetcher" }
+downloader = { path = "../../packages/downloader" }
 shared = { path = "../../packages/shared" }
 config = { path = "../../packages/config" }
 database = { path = "../../packages/database" }

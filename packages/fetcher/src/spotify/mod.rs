@@ -31,6 +31,30 @@ pub struct Spotify {
 }
 
 impl Spotify {
+    /// Spotify's own URL for the signed-in user's Liked Songs. Treating it as a
+    /// playlist URL reuses the whole sync, task and schedule pipeline, exactly
+    /// as the SoundCloud likes feed does.
+    pub const LIKED_URL: &'static str = "https://open.spotify.com/collection/tracks";
+
+    /// True for the Liked Songs pseudo-playlist, in the spellings a user might
+    /// paste or a button might send.
+    pub fn is_liked_url(url: &str) -> bool {
+        let trimmed = url
+            .split('?')
+            .next()
+            .unwrap_or(url)
+            .trim_end_matches('/')
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_start_matches("www.")
+            .to_lowercase();
+
+        matches!(
+            trimmed.as_str(),
+            "open.spotify.com/collection/tracks" | "spotify:liked" | "spotify:collection:tracks"
+        )
+    }
+
     pub fn new(client_id: &str, client_secret: &str) -> SoundomeResult<Self> {
         let credentials = Credentials::new(client_id, client_secret);
 
@@ -420,7 +444,7 @@ impl Source for Spotify {
     }
 
     fn is_valid_playlist_url(url: &str) -> bool {
-        url.contains("open.spotify.com/playlist/")
+        Spotify::is_liked_url(url) || url.contains("open.spotify.com/playlist/")
     }
 
     fn is_valid_artist_url(url: &str) -> bool {

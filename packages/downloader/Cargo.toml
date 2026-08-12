@@ -16,5 +16,14 @@ async-trait = "0.1.86"
 slug = "0.1.6"
 ngrammatic = "0.4.0"
 fuzzy-matcher = "0.3.7"
-tokio = { version = "1.44.2", features = ["time", "process", "io-util"] }
+tokio = { version = "1.44.2", features = ["time", "process", "io-util", "rt"] }
 rustypipe = "0.11.4"
+
+# Spotify direct audio download. Depend on the sub-crates directly (not the
+# `librespot` metacrate) so we don't pull in playback/connect/discovery, which
+# the metacrate re-exports unconditionally. rustls to match the workspace TLS
+# stack (fetcher/tagger use rustls) and avoid a system OpenSSL dependency.
+librespot-core = { version = "0.8.0", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-metadata = { version = "0.8.0", default-features = false }
+librespot-audio = { version = "0.8.0", default-features = false }
+librespot-oauth = { version = "0.8.0", default-features = false, features = ["rustls-tls-native-roots"] }

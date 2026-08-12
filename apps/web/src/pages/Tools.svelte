@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud, getSpotifyStatus, connectSpotify, disconnectSpotify, startSpotifyLogin,
-    completeSpotifyLogin, logoutSpotify, downloadUrl } from '../lib/api';
-  import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyStatusDto } from '../lib/api';
+    completeSpotifyLogin, logoutSpotify, getSpotifyAudioStatus, connectSpotifyAudio, disconnectSpotifyAudio, downloadUrl } from '../lib/api';
+  import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyStatusDto, SpotifyAudioStatusDto } from '../lib/api';
 
   // ── Tab ────────────────────────────────────────────────────────────────────
   type Tab = 'storage' | 'sync' | 'providers';
@@ -162,6 +162,7 @@
     loadStorage();
     loadSync();
     loadSoundcloud();
+    loadSpotifyAudio();
 
     // A redirect from Spotify carries the authorization code. Exchange it
     // before reading the status, otherwise the card renders as logged out and
@@ -242,6 +243,24 @@
   // SoundCloud's own likes URL. The backend recognises it and routes it
   // through the normal playlist sync, so this reuses the download endpoint.
   const SOUNDCLOUD_LIKES_URL = 'https://soundcloud.com/you/likes';
+
+  // Spotify's own Liked Songs URL. The backend recognises it and routes it
+  // through the normal playlist sync.
+  const SPOTIFY_LIKED_URL = 'https://open.spotify.com/collection/tracks';
+
+  async function handleSpotifySyncLikes() {
+    spPending = true;
+    spError = null;
+    spSuccess = null;
+    try {
+      await downloadUrl(SPOTIFY_LIKED_URL);
+      spSuccess = 'Likes sync started. Follow its progress on the Tasks page.';
+    } catch (e: unknown) {
+      spError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spPending = false;
+    }
+  }
 
   async function handleSyncLikes() {
     scPending = true;
@@ -339,6 +358,54 @@
       spLoginError = e instanceof Error ? e.message : String(e);
     } finally {
       spLoginPending = false;
+    }
+  }
+
+  // ── Spotify audio (librespot) ─────────────────────────────────────────────────
+  let spaStatus: SpotifyAudioStatusDto | null = $state(null);
+  let spaLoading = $state(true);
+  let spaPending = $state(false);
+  let spaError: string | null = $state(null);
+  let spaSuccess: string | null = $state(null);
+
+  async function loadSpotifyAudio() {
+    spaLoading = true;
+    spaError = null;
+    try {
+      spaStatus = await getSpotifyAudioStatus();
+    } catch (e: unknown) {
+      spaError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spaLoading = false;
+    }
+  }
+
+  async function handleSpotifyAudioConnect() {
+    if (spaPending) return;
+    spaPending = true;
+    spaError = null;
+    spaSuccess = null;
+    try {
+      // Blocks until the operator finishes the browser login on the server host.
+      spaStatus = await connectSpotifyAudio();
+      spaSuccess = 'Spotify audio connected.';
+    } catch (e: unknown) {
+      spaError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spaPending = false;
+    }
+  }
+
+  async function handleSpotifyAudioDisconnect() {
+    spaPending = true;
+    spaError = null;
+    spaSuccess = null;
+    try {
+      spaStatus = await disconnectSpotifyAudio();
+    } catch (e: unknown) {
+      spaError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spaPending = false;
     }
   }
 </script>
@@ -672,6 +739,9 @@
           </p>
           <div class="schedule-actions">
             {#if spStatus.user_connected}
+              <button class="btn-accent" disabled={spPending} onclick={handleSpotifySyncLikes}>
+                {#if spPending}<span class="spinner"></span> Working…{:else}Sync my likes{/if}
+              </button>
               <button class="btn-secondary" disabled={spLoginPending} onclick={handleSpotifyLogout}>
                 {#if spLoginPending}<span class="spinner"></span> Logging out…{:else}Log out{/if}
               </button>
@@ -716,6 +786,57 @@
             Where to find them: create an app at developer.spotify.com/dashboard, set any redirect
             URI, then copy the client id and the client secret.
           </p>
+        {/if}
+      </section>
+
+      <section class="schedule-card">
+        <div class="schedule-header">
+          <div class="schedule-info">
+            <span class="schedule-label">Spotify audio</span>
+          </div>
+          {#if !spaLoading}
+            <div class="schedule-meta">
+              <span
+                class="status-badge"
+                class:enabled={spaStatus?.connected}
+                class:paused={!spaStatus?.connected}
+              >
+                {spaStatus?.connected ? 'Connected' : 'Not connected'}
+              </span>
+            </div>
+          {/if}
+        </div>
+
+        <p class="provider-note">
+          Direct-download session over librespot. Requires Spotify Premium. Connecting opens a
+          browser on the server to authorize (works on a localhost install). Once connected, Spotify
+          tracks download directly from Spotify as AAC instead of being matched on YouTube.
+        </p>
+
+        {#if spaError}
+          <p class="feedback error">{spaError}</p>
+        {/if}
+        {#if spaSuccess}
+          <p class="feedback info">{spaSuccess}</p>
+        {/if}
+
+        {#if spaLoading}
+          <p class="provider-note">Loading…</p>
+        {:else if spaStatus?.connected}
+          <p class="provider-note">
+            Connected as <strong>{spaStatus.username ?? 'your Spotify account'}</strong>
+          </p>
+          <div class="schedule-actions">
+            <button class="btn-danger" disabled={spaPending} onclick={handleSpotifyAudioDisconnect}>
+              {#if spaPending}<span class="spinner"></span> Disconnecting…{:else}Disconnect{/if}
+            </button>
+          </div>
+        {:else}
+          <div class="schedule-actions">
+            <button class="btn-accent" disabled={spaPending} onclick={handleSpotifyAudioConnect}>
+              {#if spaPending}<span class="spinner"></span> Authorizing…{:else}Connect Spotify audio{/if}
+            </button>
+          </div>
         {/if}
       </section>
     </div>

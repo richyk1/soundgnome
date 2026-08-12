@@ -59,6 +59,17 @@ impl Config {
             .join("spotify_credentials.json")
     }
 
+    /// Directory holding librespot's reusable Spotify credentials blob
+    /// (`credentials.json`). Kept beside the database for the same reasons as
+    /// the other stored credentials: it survives restarts and lands on the same
+    /// mounted volume in Docker.
+    pub fn librespot_cache_dir(&self) -> PathBuf {
+        Path::new(&self.database.url)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("spotify_librespot")
+    }
+
     /// The Spotify client id and secret to use, if any.
     ///
     /// A `[providers.spotify]` table in the config file always wins: an
