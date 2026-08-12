@@ -325,6 +325,30 @@ impl SavedTrack {
     }
 }
 
+/// Store a Web API session obtained by another login.
+///
+/// The librespot login runs its PKCE exchange against Spotify's desktop
+/// client, which may also ask for library scopes. Reusing that single approval
+/// means the user does not have to register an app or log in twice.
+pub async fn store_user_token(
+    access_token: String,
+    refresh_token: String,
+    expires_in: u64,
+) -> SoundomeResult<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let user_name = fetch_display_name(&access_token).await;
+    store_session(&SpotifySession {
+        access_token,
+        refresh_token,
+        expires_at: now + expires_in,
+        user_name,
+    })
+}
+
 /// Every liked track, newest first.
 ///
 /// Read-only: this lists what the account has saved and downloads nothing.

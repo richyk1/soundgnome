@@ -31,7 +31,10 @@ const CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
 const REDIRECT_URI: &str = "http://127.0.0.1:8898/login";
 
 /// The minimum scope that unlocks audio-key and file access.
-const SCOPES: &[&str] = &["streaming"];
+// One approval covers audio and the library: `streaming` unlocks the audio key
+// and file access, the rest lets the Web API list Liked Songs and playlists, so
+// the user never registers an app or logs in twice.
+const SCOPES: &[&str] = &["streaming", "user-library-read", "playlist-read-private"];
 
 fn cache_dir() -> PathBuf {
     Config::get().librespot_cache_dir()
@@ -119,16 +122,33 @@ pub async fn begin_login() -> SoundomeResult<String> {
     Ok(url)
 }
 
-/// Exchange the code, then store a reusable credentials blob.
+/// Exchange the code, store a reusable credentials blob, and keep the Web API
+/// half of the same approval.
 async fn finish_login(code: &str, verifier: &str) -> SoundomeResult<String> {
     let token = exchange_code(code, verifier).await?;
+
+    // The same approval also covers the library scopes, so hand the tokens to
+    // the Web API session store. Without this the user would have to register
+    // an app and log in a second time just to list their Liked Songs.
+    if let Some(refresh_token) = token.refresh_token.clone() {
+        if let Err(e) = fetcher::spotify::session::store_user_token(
+            token.access_token.clone(),
+            refresh_token,
+            token.expires_in,
+        )
+        .await
+        {
+            // Audio still works without it, so this is a warning, not a failure.
+            tracing::warn!("Could not store the Spotify Web API session: {e}");
+        }
+    }
 
     // `connect` with `store_credentials = true` swaps the short-lived access
     // token for a reusable blob and writes it into the cache.
     let cache = build_cache()?;
     let session = Session::new(SessionConfig::default(), Some(cache));
     session
-        .connect(Credentials::with_access_token(token), true)
+        .connect(Credentials::with_access_token(token.access_token), true)
         .await
         .map_err(|e| Error::Custom(format!("Spotify session connect failed: {e}")))?;
 
@@ -279,7 +299,7 @@ fn percent_decode(value: &str) -> String {
 }
 
 /// Trade the authorization code for an access token.
-async fn exchange_code(code: &str, verifier: &str) -> SoundomeResult<String> {
+async fn exchange_code(code: &str, verifier: &str) -> SoundomeResult<TokenResponse> {
     let response = HttpClientBuilder::get_reqwest_client()?
         .post("https://accounts.spotify.com/api/token")
         .form(&[
@@ -309,10 +329,32 @@ async fn exchange_code(code: &str, verifier: &str) -> SoundomeResult<String> {
         )));
     }
 
-    body.get("access_token")
+    let access_token = body
+        .get("access_token")
         .and_then(|v| v.as_str())
         .map(str::to_string)
-        .ok_or_else(|| Error::Custom("Spotify returned no access token".to_string()))
+        .ok_or_else(|| Error::Custom("Spotify returned no access token".to_string()))?;
+
+    Ok(TokenResponse {
+        access_token,
+        // Present for the authorization code flow. Absent only if Spotify
+        // changes the contract, in which case the Web API half is skipped.
+        refresh_token: body
+            .get("refresh_token")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        expires_in: body
+            .get("expires_in")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3600),
+    })
+}
+
+/// What Spotify hands back for an authorization code.
+struct TokenResponse {
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_in: u64,
 }
 
 #[cfg(test)]
