@@ -43,6 +43,13 @@ pub struct Soundcloud {
     client: SoundCloudClient,
 }
 
+/// A liked track plus the extras SoundCloud only exposes on the like feed.
+pub struct LikedTrack {
+    pub track: Track,
+    /// Peaks JSON for the SoundCloud waveform, ready to fetch from the browser.
+    pub waveform_url: Option<String>,
+}
+
 impl Soundcloud {
     /// Maximum number of tracks sent to the AI in a single curation request.
     /// Keeping this small helps the model maintain track boundaries and avoids
@@ -108,12 +115,21 @@ impl Soundcloud {
 
     /// The liked tracks as domain models, without touching the database or
     /// downloading anything. Backs the read-only Likes view.
-    pub async fn list_liked_tracks(&self) -> Result<Vec<Track>, Error> {
+    pub async fn list_liked_tracks(&self) -> Result<Vec<LikedTrack>, Error> {
         Ok(self
             .get_all_liked_tracks()
             .await?
             .into_iter()
-            .map(|basic_track| mappers::convert_basic_track(basic_track, None))
+            .map(|basic_track| {
+                // SoundCloud precomputes the waveform and serves the peaks from
+                // a public CDN, so the UI can draw it without decoding audio.
+                let waveform_url =
+                    Some(basic_track.track.waveform_url.clone()).filter(|url| !url.is_empty());
+                LikedTrack {
+                    track: mappers::convert_basic_track(basic_track, None),
+                    waveform_url,
+                }
+            })
             .collect())
     }
 

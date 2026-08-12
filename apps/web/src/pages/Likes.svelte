@@ -42,6 +42,7 @@
       artist: track.artist,
       artwork: track.artwork_url,
       durationSecs: track.duration_secs,
+      waveformUrl: track.waveform_url ?? null,
     };
   }
 

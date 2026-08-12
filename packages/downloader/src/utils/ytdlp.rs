@@ -13,6 +13,16 @@ use tokio::{io::AsyncReadExt, process::Command};
 const MAX_ATTEMPTS: u32 = 3;
 const RETRY_BASE_DELAY: Duration = Duration::from_secs(2);
 
+/// SoundCloud allows roughly 600 requests per 10 minutes and answers 429 past
+/// that. The window only clears with time, so back off in minutes, not seconds.
+const QUOTA_RETRY_DELAY: Duration = Duration::from_secs(120);
+
+/// Seconds yt-dlp waits between its own requests. A single track download costs
+/// several (metadata, format info, media, thumbnail), so an unpaced sync of a
+/// few hundred tracks burns the quota in minutes. One second per request keeps
+/// a long sync just under the limit.
+const SLEEP_BETWEEN_REQUESTS: &str = "1";
+
 pub async fn download_with_ytdlp(
     url: &str,
     file_name: &str,
@@ -200,6 +210,15 @@ fn build_download_args(
         args.push(cookies.to_string_lossy().into_owned());
     }
 
+    // Stay under SoundCloud's quota during long syncs, and let yt-dlp ride out
+    // a block itself before our own retry loop takes over.
+    args.push("--sleep-requests".to_string());
+    args.push(SLEEP_BETWEEN_REQUESTS.to_string());
+    args.push("--extractor-retries".to_string());
+    args.push("3".to_string());
+    args.push("--retry-sleep".to_string());
+    args.push("extractor:30".to_string());
+
     // Download for real and print the final file path after post-processing.
     args.push("--no-simulate".to_string());
     args.push("--print".to_string());
@@ -311,7 +330,14 @@ where
             Err(Error::ExitCode { code, stderr })
                 if attempt < MAX_ATTEMPTS && is_transient_error(&stderr) =>
             {
-                let delay = RETRY_BASE_DELAY * attempt;
+                // SoundCloud's limit is a quota over a ten minute window, so a
+                // two second backoff just burns the remaining attempts. Wait
+                // long enough for the window to actually move.
+                let delay = if is_quota_error(&stderr) {
+                    QUOTA_RETRY_DELAY * attempt
+                } else {
+                    RETRY_BASE_DELAY * attempt
+                };
                 tracing::warn!(
                     "yt-dlp failed with a transient error (exit code {}), retrying in {:?} (attempt {}/{}): {}",
                     code,
@@ -326,6 +352,12 @@ where
             Err(err) => return Err(err),
         }
     }
+}
+
+/// A hard quota rather than a momentary block: waiting seconds will not help.
+fn is_quota_error(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("429") || lower.contains("too many requests") || lower.contains("api rate limit")
 }
 
 /// Heuristic: does this yt-dlp stderr look like a transient rate-limit / bot

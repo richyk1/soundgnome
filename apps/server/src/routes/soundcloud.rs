@@ -128,6 +128,9 @@ pub struct LikedTrack {
     pub artwork_url: Option<String>,
     /// Public track page, and what the download endpoint accepts.
     pub permalink_url: String,
+    /// Peaks JSON for the SoundCloud waveform. The CDN allows cross-origin
+    /// reads, so the browser fetches it directly.
+    pub waveform_url: Option<String>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -161,7 +164,8 @@ pub async fn list_likes() -> Result<Json<LikedTracks>, Error> {
 
     let tracks: Vec<LikedTrack> = tracks
         .into_iter()
-        .filter_map(|track| {
+        .filter_map(|liked| {
+            let track = liked.track;
             // The SoundCloud source reference carries both the numeric id and
             // the public URL. A track without one is unusable here, so drop it
             // rather than surfacing a row that cannot play or download.
@@ -182,6 +186,7 @@ pub async fn list_likes() -> Result<Json<LikedTracks>, Error> {
                 duration_secs: track.duration,
                 artwork_url: track.cover,
                 permalink_url,
+                waveform_url: liked.waveform_url,
             })
         })
         .collect();

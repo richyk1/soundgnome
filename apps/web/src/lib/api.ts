@@ -653,6 +653,7 @@ export interface SoundcloudLikeDto {
   duration_secs: number;
   artwork_url: string | null;
   permalink_url: string;
+  waveform_url?: string | null;
 }
 
 export interface SoundcloudLikesDto {
