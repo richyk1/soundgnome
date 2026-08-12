@@ -223,14 +223,14 @@ provider_order = ["openrouter"]
 # and the first successful result is used.
 # Supported values: "musicbrainz", "bandcamp", "spotify"
 # ENV: SOUNDOME__TAGGER__METADATA_PROVIDERS
-metadata_providers = ["musicbrainz", "bandcamp", "spotify"]
+metadata_providers = ["musicbrainz", "bandcamp"]
 
 # Provider order used specifically when ingesting local audio files.
 # Spotify is placed first because it provides richer metadata (cover art,
 # track_number, ISRC) and avoids the false-match problem that MusicBrainz
 # can exhibit with tracks from the same album.
 # ENV: SOUNDOME__TAGGER__INGEST_METADATA_PROVIDERS
-ingest_metadata_providers = ["spotify", "musicbrainz", "bandcamp"]
+ingest_metadata_providers = ["musicbrainz", "bandcamp"]
 
 
 # =============================================================================
