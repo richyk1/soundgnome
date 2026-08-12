@@ -294,6 +294,10 @@ fn rocket() -> _ {
                 routes::spotify::get_status,
                 routes::spotify::connect,
                 routes::spotify::disconnect,
+                routes::spotify::login,
+                routes::spotify::callback,
+                routes::spotify::logout,
+                routes::spotify::list_likes,
                 routes::audio::stream,
             ],
         )

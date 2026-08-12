@@ -13,7 +13,37 @@
 
   type Page = 'download' | 'validations' | 'tasks' | 'library' | 'tools' | 'ingest' | 'likes';
 
-  let page: Page = $state('library');
+  // Spotify redirects the browser to /spotify/callback with the authorization
+  // code. The exchange has to happen server side (it needs the stored PKCE
+  // verifier), so the code is read here and posted to the API.
+  const entry = readEntryPoint();
+
+  function readEntryPoint(): {
+    page: Page;
+    spotifyMessage: string | null;
+    spotifyCode: { code: string; state: string } | null;
+  } {
+    const url = new URL(window.location.href);
+    const isCallback = url.pathname === '/spotify/callback';
+    const denied = url.searchParams.get('error');
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
+
+    if (!isCallback) return { page: 'library', spotifyMessage: null, spotifyCode: null };
+
+    history.replaceState(null, '', '/');
+
+    if (denied) {
+      return { page: 'tools', spotifyMessage: `Spotify refused the login: ${denied}`, spotifyCode: null };
+    }
+    if (!code || !state) {
+      return { page: 'tools', spotifyMessage: 'Spotify sent no authorization code.', spotifyCode: null };
+    }
+    return { page: 'tools', spotifyMessage: null, spotifyCode: { code, state } };
+  }
+
+  let page: Page = $state(entry.page);
+  let entryConsumed = $state(false);
   let pendingCount = $state(0);
   let activeTasksCount = $state(0);
   let helpOpen = $state(false);
@@ -57,6 +87,8 @@
   function navigate(to: Page) {
     page = to;
     mobileMenuOpen = false;
+    // Manual navigation ends the OAuth landing, so Tools opens on its usual tab afterwards.
+    entryConsumed = true;
     if (to === 'validations') refreshCounts();
   }
 </script>
@@ -188,7 +220,11 @@
   {:else if page === 'library'}
     <Library />
   {:else if page === 'tools'}
-    <Tools />
+    <Tools
+      initialTab={!entryConsumed && entry.page === 'tools' ? 'providers' : 'sync'}
+      spotifyMessage={entryConsumed ? null : entry.spotifyMessage}
+      spotifyCode={entryConsumed ? null : entry.spotifyCode}
+    />
   {:else if page === 'validations'}
     <Validations onDownloaded={refreshCounts} />
   {:else if page === 'ingest'}

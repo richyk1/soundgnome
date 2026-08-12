@@ -1,11 +1,24 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud, getSpotifyStatus, connectSpotify, disconnectSpotify, downloadUrl } from '../lib/api';
+  import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud, getSpotifyStatus, connectSpotify, disconnectSpotify, startSpotifyLogin,
+    completeSpotifyLogin, logoutSpotify, downloadUrl } from '../lib/api';
   import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyStatusDto } from '../lib/api';
 
   // ── Tab ────────────────────────────────────────────────────────────────────
   type Tab = 'storage' | 'sync' | 'providers';
-  let activeTab: Tab = $state('sync');
+
+  let {
+    initialTab = 'sync',
+    spotifyMessage = null,
+    spotifyCode = null,
+  }: {
+    initialTab?: Tab;
+    spotifyMessage?: string | null;
+    /// Authorization code from the Spotify redirect, exchanged on mount.
+    spotifyCode?: { code: string; state: string } | null;
+  } = $props();
+
+  let activeTab: Tab = $state(initialTab);
 
   // ── Storage ─────────────────────────────────────────────────────────────────
   let stats: StorageStatsDto | null = $state(null);
@@ -145,10 +158,28 @@
     return d.toLocaleString();
   }
 
-  onMount(() => {
+  onMount(async () => {
     loadStorage();
     loadSync();
     loadSoundcloud();
+
+    // A redirect from Spotify carries the authorization code. Exchange it
+    // before reading the status, otherwise the card renders as logged out and
+    // then flips a moment later.
+    if (spotifyCode) {
+      spLoading = true;
+      try {
+        spStatus = await completeSpotifyLogin(spotifyCode.code, spotifyCode.state);
+        spSuccess = 'Spotify account connected.';
+      } catch (e: unknown) {
+        spLoginError = e instanceof Error ? e.message : String(e);
+        await loadSpotify();
+      } finally {
+        spLoading = false;
+      }
+      return;
+    }
+
     loadSpotify();
   });
 
@@ -234,6 +265,9 @@
   let spPending = $state(false);
   let spError: string | null = $state(null);
   let spSuccess: string | null = $state(null);
+  // Login errors survive a status refresh, so the message from the OAuth redirect stays visible.
+  let spLoginPending = $state(false);
+  let spLoginError: string | null = $state(spotifyMessage);
 
   async function loadSpotify() {
     spLoading = true;
@@ -271,6 +305,7 @@
     spPending = true;
     spError = null;
     spSuccess = null;
+    spLoginError = null;
     try {
       spStatus = await disconnectSpotify();
       spClientId = '';
@@ -279,6 +314,31 @@
       spError = e instanceof Error ? e.message : String(e);
     } finally {
       spPending = false;
+    }
+  }
+
+  async function handleSpotifyLogin() {
+    if (spLoginPending) return;
+    spLoginPending = true;
+    spLoginError = null;
+    try {
+      window.location.href = await startSpotifyLogin();
+    } catch (e: unknown) {
+      spLoginError = e instanceof Error ? e.message : String(e);
+      spLoginPending = false;
+    }
+  }
+
+  async function handleSpotifyLogout() {
+    if (spLoginPending) return;
+    spLoginPending = true;
+    spLoginError = null;
+    try {
+      spStatus = await logoutSpotify();
+    } catch (e: unknown) {
+      spLoginError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spLoginPending = false;
     }
   }
 </script>
@@ -592,6 +652,9 @@
         {#if spSuccess}
           <p class="feedback info">{spSuccess}</p>
         {/if}
+        {#if spLoginError}
+          <p class="feedback error">{spLoginError}</p>
+        {/if}
 
         {#if spLoading}
           <p class="provider-note">Loading…</p>
@@ -599,7 +662,24 @@
           <p class="provider-note">
             Connected as app <strong>{spStatus.client_id ?? 'unknown app'}</strong>
           </p>
+          {#if spStatus.user_connected}
+            <p class="provider-note">
+              Logged in as <strong>{spStatus.user_name ?? 'your Spotify account'}</strong>
+            </p>
+          {/if}
+          <p class="provider-note">
+            Logging in lets Soundome read your Liked Songs. It does not download anything.
+          </p>
           <div class="schedule-actions">
+            {#if spStatus.user_connected}
+              <button class="btn-secondary" disabled={spLoginPending} onclick={handleSpotifyLogout}>
+                {#if spLoginPending}<span class="spinner"></span> Logging out…{:else}Log out{/if}
+              </button>
+            {:else}
+              <button class="btn-accent" disabled={spLoginPending} onclick={handleSpotifyLogin}>
+                {#if spLoginPending}<span class="spinner"></span> Redirecting…{:else}Log in with Spotify{/if}
+              </button>
+            {/if}
             <button class="btn-danger" disabled={spPending} onclick={handleSpotifyDisconnect}>
               {#if spPending}<span class="spinner"></span> Disconnecting…{:else}Disconnect{/if}
             </button>

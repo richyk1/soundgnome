@@ -649,6 +649,8 @@ export async function disconnectSoundcloud(): Promise<SoundcloudStatusDto> {
 export interface SpotifyStatusDto {
   connected: boolean;
   client_id: string | null;
+  user_connected: boolean;
+  user_name: string | null;
 }
 
 export async function getSpotifyStatus(): Promise<SpotifyStatusDto> {
@@ -678,6 +680,47 @@ export async function connectSpotify(
 
 export async function disconnectSpotify(): Promise<SpotifyStatusDto> {
   const res = await fetch(`${BASE}/providers/spotify`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+/**
+ * Start the Spotify OAuth flow. Returns the authorize URL the browser must navigate to.
+ * Fails with 400 when the app credentials are not stored yet.
+ */
+export async function startSpotifyLogin(): Promise<string> {
+  const res = await fetch(`${BASE}/providers/spotify/login`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  const body: { authorize_url: string } = await res.json();
+  return body.authorize_url;
+}
+
+/** Finish the PKCE login by handing the redirect's code to the server. */
+export async function completeSpotifyLogin(
+  code: string,
+  state: string,
+): Promise<SpotifyStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, state }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+/** Forget the Spotify OAuth session while keeping the stored app credentials. */
+export async function logoutSpotify(): Promise<SpotifyStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify/session`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new Error(body.message ?? res.statusText);
