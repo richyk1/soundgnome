@@ -54,6 +54,17 @@ pub struct SpotifySession {
     /// Unix seconds.
     pub expires_at: u64,
     pub user_name: Option<String>,
+    /// Which client the refresh token was issued to.
+    ///
+    /// A refresh must be sent to the same client that minted the token, and
+    /// two different clients can mint one: the app credentials pasted into the
+    /// Providers tab, and Spotify's desktop client used by the librespot login.
+    /// Sending the wrong one fails with `invalid_client` about an hour after
+    /// logging in, which is a miserable thing to debug.
+    ///
+    /// Optional so sessions stored before this field existed still load.
+    #[serde(default)]
+    pub client_id: Option<String>,
 }
 
 impl SpotifySession {
@@ -161,7 +172,7 @@ pub async fn complete_login(code: &str, state: &str) -> SoundomeResult<SpotifySe
         .await
         .map_err(|e| Error::Custom(format!("Spotify token exchange failed: {}", e)))?;
 
-    let session = session_from_response(response, None).await?;
+    let session = session_from_response(response, None, client_id).await?;
     let _ = fs::remove_file(pending_path());
     store_session(&session)?;
     Ok(session)
@@ -176,7 +187,13 @@ pub async fn access_token() -> SoundomeResult<String> {
         return Ok(session.access_token);
     }
 
-    let client_id = client_id()?;
+    // Refresh against whichever client minted the token, not whatever happens
+    // to be configured now. Falls back to the configured pair for sessions
+    // stored before the field existed.
+    let client_id = match session.client_id.clone() {
+        Some(client_id) => client_id,
+        None => client_id()?,
+    };
     let response = HttpClientBuilder::get_reqwest_client()?
         .post(TOKEN_URL)
         .form(&[
@@ -190,7 +207,7 @@ pub async fn access_token() -> SoundomeResult<String> {
 
     // Spotify may omit the refresh token on a refresh, in which case the old
     // one stays valid.
-    let refreshed = session_from_response(response, Some(&session)).await?;
+    let refreshed = session_from_response(response, Some(&session), client_id).await?;
     store_session(&refreshed)?;
     Ok(refreshed.access_token)
 }
@@ -198,6 +215,7 @@ pub async fn access_token() -> SoundomeResult<String> {
 async fn session_from_response(
     response: reqwest::Response,
     previous: Option<&SpotifySession>,
+    issued_by: String,
 ) -> SoundomeResult<SpotifySession> {
     let status = response.status();
     let body: serde_json::Value = response
@@ -241,6 +259,7 @@ async fn session_from_response(
         refresh_token,
         expires_at: now + expires_in,
         user_name: previous.and_then(|p| p.user_name.clone()),
+        client_id: Some(issued_by),
     };
 
     if session.user_name.is_none() {
@@ -334,6 +353,7 @@ pub async fn store_user_token(
     access_token: String,
     refresh_token: String,
     expires_in: u64,
+    client_id: String,
 ) -> SoundomeResult<()> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -346,6 +366,7 @@ pub async fn store_user_token(
         refresh_token,
         expires_at: now + expires_in,
         user_name,
+        client_id: Some(client_id),
     })
 }
 
@@ -535,6 +556,7 @@ mod tests {
             refresh_token: "r".into(),
             expires_at,
             user_name: None,
+            client_id: None,
         };
 
         assert!(session(now + 3600).is_fresh());
@@ -543,5 +565,28 @@ mod tests {
             !session(now.saturating_sub(1)).is_fresh(),
             "already expired"
         );
+    }
+
+    #[test]
+    fn a_session_refreshes_against_the_client_that_minted_it() {
+        // The two logins use different clients: the pasted app credentials and
+        // Spotify's desktop client. Refreshing with the wrong one fails with
+        // invalid_client an hour after logging in.
+        let session = SpotifySession {
+            access_token: "a".into(),
+            refresh_token: "r".into(),
+            expires_at: 0,
+            user_name: None,
+            client_id: Some("desktop-client".into()),
+        };
+        assert_eq!(session.client_id.as_deref(), Some("desktop-client"));
+
+        // Sessions written before the field existed must still load, falling
+        // back to the configured pair.
+        let legacy: SpotifySession = serde_json::from_str(
+            r#"{"access_token":"a","refresh_token":"r","expires_at":0,"user_name":null}"#,
+        )
+        .expect("legacy session must still deserialise");
+        assert_eq!(legacy.client_id, None);
     }
 }

@@ -135,6 +135,7 @@ async fn finish_login(code: &str, verifier: &str) -> SoundomeResult<String> {
             token.access_token.clone(),
             refresh_token,
             token.expires_in,
+            CLIENT_ID.to_string(),
         )
         .await
         {
