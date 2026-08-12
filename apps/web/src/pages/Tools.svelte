@@ -386,14 +386,35 @@
     spaError = null;
     spaSuccess = null;
     try {
-      // Blocks until the operator finishes the browser login on the server host.
-      spaStatus = await connectSpotifyAudio();
-      spaSuccess = 'Spotify audio connected.';
+      const authorizeUrl = await connectSpotifyAudio();
+      // Approval happens in Spotify, the server catches the callback, so poll
+      // until the credentials land rather than blocking the request.
+      window.open(authorizeUrl, '_blank', 'noopener');
+      spaSuccess = 'Approve the Spotify tab, then this card updates on its own.';
+      await pollSpotifyAudio();
     } catch (e: unknown) {
       spaError = e instanceof Error ? e.message : String(e);
     } finally {
       spaPending = false;
     }
+  }
+
+  /// Watch for the background callback to complete, for up to five minutes.
+  async function pollSpotifyAudio() {
+    for (let i = 0; i < 100; i++) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      try {
+        const status = await getSpotifyAudioStatus();
+        if (status.connected) {
+          spaStatus = status;
+          spaSuccess = `Spotify audio connected as ${status.username ?? 'your account'}.`;
+          return;
+        }
+      } catch {
+        // A transient failure while waiting is not worth surfacing.
+      }
+    }
+    spaError = 'Authorization did not complete. Try connecting again.';
   }
 
   async function handleSpotifyAudioDisconnect() {
@@ -808,9 +829,13 @@
         </div>
 
         <p class="provider-note">
-          Direct-download session over librespot. Requires Spotify Premium. Connecting opens a
-          browser on the server to authorize (works on a localhost install). Once connected, Spotify
-          tracks download directly from Spotify as AAC instead of being matched on YouTube.
+          Direct-download session over librespot. Requires Spotify Premium. Once connected, Spotify
+          tracks download from Spotify itself as 320 kbps Ogg Vorbis, kept as is with no re-encode,
+          instead of being matched on YouTube.
+        </p>
+        <p class="provider-note">
+          Authorizing needs a browser that can reach port 8898 on the server host. The link is
+          printed in the server log; open it, approve, and this card flips to connected.
         </p>
 
         {#if spaError}

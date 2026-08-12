@@ -1163,6 +1163,7 @@ name = "downloader"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "config 0.1.0",
  "fetcher",
  "fuzzy-matcher",
@@ -1171,9 +1172,11 @@ dependencies = [
  "librespot-metadata",
  "librespot-oauth",
  "ngrammatic",
+ "rand 0.8.5",
  "rustypipe",
  "serde",
  "serde_json",
+ "sha2",
  "shared",
  "slug",
  "tokio",

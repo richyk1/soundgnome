@@ -18,6 +18,12 @@ use serde::Serialize;
 use crate::utils::error::{CustomError, Error};
 
 #[derive(Serialize, JsonSchema)]
+pub struct SpotifyAudioLogin {
+    /// Where the browser must go to approve the streaming session.
+    pub authorize_url: String,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub struct SpotifyAudioStatus {
     /// True when a reusable librespot credentials blob is stored.
     pub connected: bool,
@@ -57,23 +63,18 @@ pub fn get_status() -> Json<SpotifyAudioStatus> {
     Json(SpotifyAudioStatus::current())
 }
 
-/// Run the interactive OAuth login and persist a reusable credentials blob.
+/// Start the login and hand back the URL to approve.
 ///
-/// Blocks until the operator finishes the browser authorization on the server
-/// host. Requires a Spotify Premium account.
+/// Returns immediately: the callback is caught in the background, so the UI can
+/// open the link itself instead of the operator reading a server log.
 #[openapi]
 #[post("/providers/spotify-audio/login")]
-pub async fn login() -> Result<Json<SpotifyAudioStatus>, Error> {
-    let username = auth::login()
+pub async fn login() -> Result<Json<SpotifyAudioLogin>, Error> {
+    let authorize_url = auth::begin_login()
         .await
-        .map_err(|e| bad_request("LoginFailed", e.to_string()))?;
+        .map_err(|e| bad_request("LoginUnavailable", e.to_string()))?;
 
-    tracing::info!("Spotify audio (librespot) connected for {}", username);
-
-    Ok(Json(SpotifyAudioStatus {
-        connected: true,
-        username: Some(username),
-    }))
+    Ok(Json(SpotifyAudioLogin { authorize_url }))
 }
 
 /// Forget the stored Spotify audio (librespot) credentials.

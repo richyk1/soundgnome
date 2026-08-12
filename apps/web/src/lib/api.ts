@@ -746,13 +746,18 @@ export async function getSpotifyAudioStatus(): Promise<SpotifyAudioStatusDto> {
   return res.json();
 }
 
-export async function connectSpotifyAudio(): Promise<SpotifyAudioStatusDto> {
+/**
+ * Start the librespot login. Returns the URL to approve; the server catches the
+ * callback in the background, so poll the status afterwards.
+ */
+export async function connectSpotifyAudio(): Promise<string> {
   const res = await fetch(`${BASE}/providers/spotify-audio/login`, { method: 'POST' });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new Error(body.message ?? res.statusText);
   }
-  return res.json();
+  const body: { authorize_url: string } = await res.json();
+  return body.authorize_url;
 }
 
 export async function disconnectSpotifyAudio(): Promise<SpotifyAudioStatusDto> {
