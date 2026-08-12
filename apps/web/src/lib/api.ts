@@ -643,6 +643,49 @@ export async function disconnectSoundcloud(): Promise<SoundcloudStatusDto> {
 }
 
 // ================================================================================================
+// Providers: Spotify
+// ================================================================================================
+
+export interface SpotifyStatusDto {
+  connected: boolean;
+  client_id: string | null;
+}
+
+export async function getSpotifyStatus(): Promise<SpotifyStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function connectSpotify(
+  clientId: string,
+  clientSecret: string,
+): Promise<SpotifyStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function disconnectSpotify(): Promise<SpotifyStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+// ================================================================================================
 // SoundCloud likes
 // ================================================================================================
 

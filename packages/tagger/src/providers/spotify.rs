@@ -23,22 +23,17 @@ impl Spotify {
 
     pub fn new() -> Option<Self> {
         let config = Config::get();
-        let spotify_cfg = match config.providers.spotify.as_ref() {
-            Some(c) => c,
+        // Config file first, then whatever the Providers tab stored. This is
+        // the metadata path only: enrichment, never a source of audio.
+        let (client_id, client_secret) = match config.resolved_spotify_credentials() {
+            Some(pair) => pair,
             None => {
-                tracing::debug!("Spotify metadata provider: no credentials in config, skipping");
+                tracing::debug!("Spotify metadata provider: no credentials, skipping");
                 return None;
             }
         };
-        let client_id = &spotify_cfg.client_id;
-        let client_secret = &spotify_cfg.client_secret;
 
-        if client_id.is_empty() || client_secret.is_empty() {
-            tracing::warn!("Spotify metadata provider: missing credentials, skipping");
-            return None;
-        }
-
-        let credentials = Credentials::new(client_id, client_secret);
+        let credentials = Credentials::new(&client_id, &client_secret);
 
         // If proxy is enabled and ALL_PROXY is not set, set it using the proxy rotator
         if let Some(proxy_config) = config.proxy.as_ref() {

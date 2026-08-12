@@ -291,6 +291,9 @@ fn rocket() -> _ {
                 routes::soundcloud::disconnect,
                 routes::soundcloud::list_likes,
                 routes::soundcloud::stream_url,
+                routes::spotify::get_status,
+                routes::spotify::connect,
+                routes::spotify::disconnect,
                 routes::audio::stream,
             ],
         )

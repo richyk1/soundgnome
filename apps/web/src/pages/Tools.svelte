@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud, downloadUrl } from '../lib/api';
-  import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto } from '../lib/api';
+  import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud, getSpotifyStatus, connectSpotify, disconnectSpotify, downloadUrl } from '../lib/api';
+  import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyStatusDto } from '../lib/api';
 
   // ── Tab ────────────────────────────────────────────────────────────────────
   type Tab = 'storage' | 'sync' | 'providers';
@@ -149,6 +149,7 @@
     loadStorage();
     loadSync();
     loadSoundcloud();
+    loadSpotify();
   });
 
   function switchTab(tab: Tab) {
@@ -222,6 +223,62 @@
       scError = e instanceof Error ? e.message : String(e);
     } finally {
       scPending = false;
+    }
+  }
+
+  // ── Spotify ──────────────────────────────────────────────────────────────────
+  let spStatus: SpotifyStatusDto | null = $state(null);
+  let spLoading = $state(true);
+  let spClientId = $state('');
+  let spClientSecret = $state('');
+  let spPending = $state(false);
+  let spError: string | null = $state(null);
+  let spSuccess: string | null = $state(null);
+
+  async function loadSpotify() {
+    spLoading = true;
+    spError = null;
+    try {
+      spStatus = await getSpotifyStatus();
+    } catch (e: unknown) {
+      spError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spLoading = false;
+    }
+  }
+
+  async function handleSpotifyConnect(e: SubmitEvent) {
+    e.preventDefault();
+    const clientId = spClientId.trim();
+    const clientSecret = spClientSecret.trim();
+    if (!clientId || !clientSecret || spPending) return;
+    spPending = true;
+    spError = null;
+    spSuccess = null;
+    try {
+      spStatus = await connectSpotify(clientId, clientSecret);
+      spClientId = '';
+      spClientSecret = '';
+      spSuccess = 'Spotify app credentials saved.';
+    } catch (e: unknown) {
+      spError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spPending = false;
+    }
+  }
+
+  async function handleSpotifyDisconnect() {
+    spPending = true;
+    spError = null;
+    spSuccess = null;
+    try {
+      spStatus = await disconnectSpotify();
+      spClientId = '';
+      spClientSecret = '';
+    } catch (e: unknown) {
+      spError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spPending = false;
     }
   }
 </script>
@@ -431,7 +488,9 @@
   <!-- ── Providers tab ───────────────────────────────────────────────────────── -->
   {#if activeTab === 'providers'}
     <div class="tab-content">
-      <p class="sync-subtitle">Connect external accounts so downloads can use your own session.</p>
+      <p class="sync-subtitle">
+        Connect external accounts so downloads and metadata can use your own access.
+      </p>
 
       <section class="schedule-card">
         <div class="schedule-header">
@@ -500,6 +559,82 @@
             Where to find it: log in to soundcloud.com, open your browser devtools, go to Application
             or Storage, then Cookies, then soundcloud.com, and copy the value of the oauth_token
             cookie.
+          </p>
+        {/if}
+      </section>
+
+      <section class="schedule-card">
+        <div class="schedule-header">
+          <div class="schedule-info">
+            <span class="schedule-label">Spotify connection</span>
+          </div>
+          {#if !spLoading}
+            <div class="schedule-meta">
+              <span
+                class="status-badge"
+                class:enabled={spStatus?.connected}
+                class:paused={!spStatus?.connected}
+              >
+                {spStatus?.connected ? 'Connected' : 'Not connected'}
+              </span>
+            </div>
+          {/if}
+        </div>
+
+        <p class="provider-note">
+          Spotify is used to enrich metadata such as cover art, release date and track numbers. It
+          never supplies audio.
+        </p>
+
+        {#if spError}
+          <p class="feedback error">{spError}</p>
+        {/if}
+        {#if spSuccess}
+          <p class="feedback info">{spSuccess}</p>
+        {/if}
+
+        {#if spLoading}
+          <p class="provider-note">Loading…</p>
+        {:else if spStatus?.connected}
+          <p class="provider-note">
+            Connected as app <strong>{spStatus.client_id ?? 'unknown app'}</strong>
+          </p>
+          <div class="schedule-actions">
+            <button class="btn-danger" disabled={spPending} onclick={handleSpotifyDisconnect}>
+              {#if spPending}<span class="spinner"></span> Disconnecting…{:else}Disconnect{/if}
+            </button>
+          </div>
+        {:else}
+          <form class="form-row form-row--split" onsubmit={handleSpotifyConnect}>
+            <input
+              class="credential-input"
+              type="text"
+              placeholder="Client id"
+              bind:value={spClientId}
+              disabled={spPending}
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <input
+              class="credential-input"
+              type="password"
+              placeholder="Client secret"
+              bind:value={spClientSecret}
+              disabled={spPending}
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button
+              type="submit"
+              class="btn-accent"
+              disabled={spPending || !spClientId.trim() || !spClientSecret.trim()}
+            >
+              {#if spPending}<span class="spinner"></span> Connecting…{:else}Connect{/if}
+            </button>
+          </form>
+          <p class="provider-note">
+            Where to find them: create an app at developer.spotify.com/dashboard, set any redirect
+            URI, then copy the client id and the client secret.
           </p>
         {/if}
       </section>
@@ -1069,5 +1204,14 @@
 
   .schedule-card .feedback {
     margin: 0;
+  }
+
+  /* Providers stack their cards directly in the tab, without a .schedule-list wrapper. */
+  .tab-content > .schedule-card + .schedule-card {
+    margin-top: 0.65rem;
+  }
+
+  .form-row .credential-input {
+    min-width: 12rem;
   }
 </style>

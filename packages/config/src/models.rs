@@ -49,6 +49,40 @@ impl Config {
         let stored = self.soundcloud_cookies_path();
         stored.is_file().then_some(stored)
     }
+
+    /// Where Spotify app credentials submitted through the UI are stored.
+    /// Kept beside the SoundCloud session for the same reasons.
+    pub fn spotify_credentials_path(&self) -> PathBuf {
+        Path::new(&self.database.url)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("spotify_credentials.json")
+    }
+
+    /// The Spotify client id and secret to use, if any.
+    ///
+    /// A `[providers.spotify]` table in the config file always wins: an
+    /// operator who deployed credentials should not have them replaced by a
+    /// pair typed into the UI.
+    pub fn resolved_spotify_credentials(&self) -> Option<(String, String)> {
+        if let Some(spotify) = self.providers.spotify.as_ref() {
+            if !spotify.client_id.is_empty() && !spotify.client_secret.is_empty() {
+                return Some((spotify.client_id.clone(), spotify.client_secret.clone()));
+            }
+        }
+
+        let stored = std::fs::read_to_string(self.spotify_credentials_path()).ok()?;
+        let parsed: StoredSpotifyCredentials = serde_json::from_str(&stored).ok()?;
+        (!parsed.client_id.is_empty() && !parsed.client_secret.is_empty())
+            .then_some((parsed.client_id, parsed.client_secret))
+    }
+}
+
+/// On-disk shape of the credentials the Providers tab writes.
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct StoredSpotifyCredentials {
+    pub client_id: String,
+    pub client_secret: String,
 }
 
 // ===============================================================================

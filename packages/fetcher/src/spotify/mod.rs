@@ -1,3 +1,5 @@
+pub mod auth;
+
 mod mappers;
 
 use std::env;
