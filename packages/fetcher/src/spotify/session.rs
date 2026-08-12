@@ -13,7 +13,8 @@
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use config::Config;
@@ -25,6 +26,15 @@ use shared::{errors::Error, http::HttpClientBuilder, types::SoundomeResult};
 const AUTHORIZE_URL: &str = "https://accounts.spotify.com/authorize";
 const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
 const ME_URL: &str = "https://api.spotify.com/v1/me";
+
+/// Total time to spend waiting out 429s before giving up on a fetch.
+const MAX_RATE_LIMIT_WAIT_SECS: u64 = 90;
+
+/// How long a fetched Liked Songs list stays usable.
+///
+/// Without this every call re-pages the whole library, which is what got the
+/// account rate limited in the first place: 720 likes is 15 requests per call.
+const LIKES_CACHE_TTL: Duration = Duration::from_secs(300);
 
 /// Read-only access to the signed-in user's library. Nothing here can modify
 /// the account, and no playback scopes are requested.
@@ -172,7 +182,8 @@ pub async fn complete_login(code: &str, state: &str) -> SoundomeResult<SpotifySe
         .await
         .map_err(|e| Error::Custom(format!("Spotify token exchange failed: {}", e)))?;
 
-    let session = session_from_response(response, None, client_id).await?;
+    let mut session = session_from_response(response, None, client_id).await?;
+    session.user_name = fetch_display_name(&session.access_token).await;
     let _ = fs::remove_file(pending_path());
     store_session(&session)?;
     Ok(session)
@@ -262,10 +273,9 @@ async fn session_from_response(
         client_id: Some(issued_by),
     };
 
-    if session.user_name.is_none() {
-        session.user_name = fetch_display_name(&session.access_token).await;
-    }
-
+    // Deliberately not fetching the display name here. This runs on every
+    // refresh, and while /me is throttled the name stays None, so it would ask
+    // again forever. Logins set it once instead.
     Ok(session)
 }
 
@@ -286,6 +296,7 @@ async fn fetch_display_name(access_token: &str) -> Option<String> {
 }
 
 /// One entry of the signed-in user's Liked Songs.
+#[derive(Clone)]
 pub struct SavedTrack {
     pub id: String,
     pub title: String,
@@ -361,6 +372,8 @@ pub async fn store_user_token(
         .unwrap_or(0);
 
     let user_name = fetch_display_name(&access_token).await;
+    // A new session may belong to a different account.
+    clear_likes_cache();
     store_session(&SpotifySession {
         access_token,
         refresh_token,
@@ -374,12 +387,50 @@ pub async fn store_user_token(
 ///
 /// Read-only: this lists what the account has saved and downloads nothing.
 pub async fn saved_tracks() -> SoundomeResult<Vec<SavedTrack>> {
+    if let Some(cached) = cached_likes() {
+        tracing::debug!("Serving {} liked tracks from cache", cached.len());
+        return Ok(cached);
+    }
+
+    let fetched = fetch_saved_tracks().await?;
+    store_likes(&fetched);
+    Ok(fetched)
+}
+
+/// Cached copy of the last full fetch, with the moment it was taken.
+static LIKES_CACHE: LazyLock<Mutex<Option<(Instant, Vec<SavedTrack>)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+fn cached_likes() -> Option<Vec<SavedTrack>> {
+    let cache = LIKES_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let (taken_at, tracks) = cache.as_ref()?;
+    (taken_at.elapsed() < LIKES_CACHE_TTL).then(|| tracks.clone())
+}
+
+fn store_likes(tracks: &[SavedTrack]) {
+    let mut cache = LIKES_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    *cache = Some((Instant::now(), tracks.to_vec()));
+}
+
+/// Drop the cached list, so the next read reflects a different account or a
+/// library the user has just changed.
+pub fn clear_likes_cache() {
+    let mut cache = LIKES_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    *cache = None;
+}
+
+async fn fetch_saved_tracks() -> SoundomeResult<Vec<SavedTrack>> {
     let token = access_token().await?;
     let client = HttpClientBuilder::get_reqwest_client()?;
 
     let limit = 50;
     let mut offset = 0;
     let mut tracks = Vec::new();
+
+    // Spotify answers 429 with a Retry-After in seconds. Paging a large
+    // library is exactly when that happens, and giving up loses the whole
+    // fetch, so wait it out within a total budget.
+    let mut waited = 0u64;
 
     loop {
         let response = client
@@ -389,6 +440,36 @@ pub async fn saved_tracks() -> SoundomeResult<Vec<SavedTrack>> {
             .send()
             .await
             .map_err(|e| Error::Custom(format!("Spotify saved tracks request failed: {}", e)))?;
+
+        if response.status().as_u16() == 429 {
+            let wait = response
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(5)
+                .max(1);
+
+            // Capping each wait would mean coming back before Spotify is
+            // ready and re-tripping the limit, so cap the total instead.
+            waited += wait;
+            if waited > MAX_RATE_LIMIT_WAIT_SECS {
+                return Err(Error::Custom(format!(
+                    "Spotify is rate limiting the saved tracks request and asked to wait {}s. \
+                     Try again later.",
+                    wait
+                )));
+            }
+
+            tracing::warn!(
+                "Spotify rate limited the saved tracks request, waiting {}s ({}s of {}s budget)",
+                wait,
+                waited,
+                MAX_RATE_LIMIT_WAIT_SECS
+            );
+            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            continue;
+        }
 
         if !response.status().is_success() {
             return Err(Error::Custom(format!(
@@ -472,6 +553,7 @@ fn store_session(session: &SpotifySession) -> SoundomeResult<()> {
 
 /// Forget the login. App credentials are left alone.
 pub fn clear_session() -> SoundomeResult<()> {
+    clear_likes_cache();
     for path in [session_path(), pending_path()] {
         match fs::remove_file(&path) {
             Ok(()) => {}

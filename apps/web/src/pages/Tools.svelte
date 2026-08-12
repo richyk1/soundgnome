@@ -746,10 +746,12 @@
 
         {#if spLoading}
           <p class="provider-note">Loading…</p>
-        {:else if spStatus?.connected}
-          <p class="provider-note">
-            Connected as app <strong>{spStatus.client_id ?? 'unknown app'}</strong>
-          </p>
+        {:else if spStatus?.connected || spStatus?.user_connected}
+          {#if spStatus.client_id}
+            <p class="provider-note">
+              Connected as app <strong>{spStatus.client_id}</strong>
+            </p>
+          {/if}
           {#if spStatus.user_connected}
             <p class="provider-note">
               Logged in as <strong>{spStatus.user_name ?? 'your Spotify account'}</strong>
