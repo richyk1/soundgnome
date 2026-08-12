@@ -834,8 +834,8 @@
           instead of being matched on YouTube.
         </p>
         <p class="provider-note">
-          Authorizing needs a browser that can reach port 8898 on the server host. The link is
-          printed in the server log; open it, approve, and this card flips to connected.
+          Connecting opens a Spotify tab. Approve it and this card updates on its own. Only one
+          authorization can be in flight at a time; a pending one expires after five minutes.
         </p>
 
         {#if spaError}

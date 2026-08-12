@@ -113,18 +113,20 @@ pub struct Fetcher {
 impl Fetcher {
     pub async fn new() -> Self {
         Self {
-            // Config file only, deliberately. Credentials pasted into the
-            // Providers tab enable metadata enrichment, not the URL download
-            // path: that path sources audio from YouTube Music, which is not
-            // what connecting Spotify is meant to switch on.
-            spotify: Config::get().providers.spotify.as_ref().and_then(|cfg| {
-                Spotify::new(&cfg.client_id, &cfg.client_secret)
-                    .map_err(|e| {
-                        tracing::error!("Failed to initialize Spotify source: {:?}", e);
-                        e
-                    })
-                    .ok()
-            }),
+            // Credentials from the config file or the Providers tab. Enabling
+            // this no longer implies YouTube-sourced audio: a Spotify track is
+            // downloaded from Spotify, or it fails (see
+            // `downloader::search`).
+            spotify: Config::get().resolved_spotify_credentials().and_then(
+                |(client_id, client_secret)| {
+                    Spotify::new(&client_id, &client_secret)
+                        .map_err(|e| {
+                            tracing::error!("Failed to initialize Spotify source: {:?}", e);
+                            e
+                        })
+                        .ok()
+                },
+            ),
             youtube: Youtube::new()
                 .map_err(|e| {
                     tracing::error!("Failed to initialize YouTube source: {:?}", e);

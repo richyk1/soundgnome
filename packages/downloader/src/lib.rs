@@ -53,14 +53,32 @@ pub async fn search(track: &Track) -> SoundomeResult<Reference> {
 
     match source.platform {
         Platform::Spotify => {
-            // Prefer a direct Spotify (librespot) download when a Premium
-            // session is connected; otherwise match the track on YouTube.
+            // A Spotify track should come from Spotify. librespot handles that
+            // when a Premium session is connected.
             if spotify::auth::is_connected() {
                 let sp = spotify::Spotify;
-                if let Ok(reference) = sp.search(track).await {
-                    return Ok(reference);
+                match sp.search(track).await {
+                    Ok(reference) => return Ok(reference),
+                    Err(e) => tracing::warn!(
+                        "Spotify audio lookup failed for '{}': {}",
+                        track.display(),
+                        e
+                    ),
                 }
             }
+
+            // Matching the title on YouTube is a different recording at a
+            // different quality, so it is opt-in rather than a silent
+            // substitution.
+            if !config::Config::get().downloader.allow_youtube_for_spotify {
+                return Err(Error::Custom(format!(
+                    "Spotify audio is not connected, so '{}' cannot be downloaded from Spotify. \
+                     Connect it in Tools, then Providers, or set \
+                     downloader.allow_youtube_for_spotify to match it on YouTube instead.",
+                    track.display()
+                )));
+            }
+
             // we first try to search on youtube music
             match youtube_music.search(track).await {
                 Ok(reference) => Ok(reference),

@@ -362,6 +362,13 @@ pub struct DownloaderConfig {
     #[serde(default = "DownloaderConfig::default_upgrade_bitrate_margin")]
     pub upgrade_bitrate_margin: f32,
 
+    /// Match Spotify tracks on YouTube when Spotify audio is not connected.
+    /// Off by default: a YouTube match is a different recording at a different
+    /// quality, so substituting one silently is worse than failing.
+    /// ENV: SOUNDOME__DOWNLOADER__ALLOW_YOUTUBE_FOR_SPOTIFY
+    #[serde(default)]
+    pub allow_youtube_for_spotify: bool,
+
     /// Path to a Netscape-format cookies file passed to yt-dlp `--cookies`.
     /// Enables SoundCloud original (FLAC) downloads and age/region-gated content.
     /// ENV: SOUNDOME__DOWNLOADER__COOKIES_FILE
@@ -376,6 +383,7 @@ impl Default for DownloaderConfig {
             prefer_original: Self::default_prefer_original(),
             upgrade_existing: Self::default_upgrade_existing(),
             upgrade_bitrate_margin: Self::default_upgrade_bitrate_margin(),
+            allow_youtube_for_spotify: false,
             cookies_file: None,
         }
     }
