@@ -51,6 +51,11 @@ pub fn tag_file_with_track_and_cover(
     track: &Track,
     cover_bytes: Option<&[u8]>,
 ) -> SoundomeResult<()> {
+    // Ogg carries Vorbis comments, which audiotags cannot write.
+    if crate::ogg::handles(file_path) {
+        return crate::ogg::tag_file(file_path, track, cover_bytes, track.soundome_id.as_deref());
+    }
+
     let mut tag = Tag::new()
         .read_from_path(file_path)
         .map_err(|e| Error::Custom(format!("Error reading audio tags: {:?}", e)))?;
@@ -92,6 +97,7 @@ pub fn write_soundome_id_tag(file_path: &PathBuf, soundome_id: &str) -> Soundome
         "mp3" => write_soundome_id_id3(file_path, soundome_id),
         "flac" => write_soundome_id_flac(file_path, soundome_id),
         "m4a" | "mp4" | "aac" => write_soundome_id_mp4(file_path, soundome_id),
+        "ogg" | "oga" | "opus" => crate::ogg::write_soundome_id(file_path, soundome_id),
         // For unknown / unsupported formats log a warning and continue.
         other => {
             tracing::warn!(
@@ -116,6 +122,7 @@ pub fn read_soundome_id_from_file(file_path: &PathBuf) -> Option<String> {
         "mp3" => read_soundome_id_id3(file_path),
         "flac" => read_soundome_id_flac(file_path),
         "m4a" | "mp4" | "aac" => read_soundome_id_mp4(file_path),
+        "ogg" | "oga" | "opus" => crate::ogg::read_soundome_id(file_path),
         _ => None,
     }
 }

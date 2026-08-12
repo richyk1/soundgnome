@@ -16,7 +16,6 @@ pub mod auth;
 use std::{
     io::{Seek, SeekFrom},
     path::PathBuf,
-    process::Stdio,
 };
 
 use async_trait::async_trait;
@@ -28,7 +27,6 @@ use shared::{
     models::{Platform, Reference, ReferenceType, Track},
     types::SoundomeResult,
 };
-use tokio::process::Command;
 
 use crate::Provider;
 
@@ -71,49 +69,6 @@ fn extract_track_id(value: &str) -> SoundomeResult<String> {
     Err(Error::Custom(format!(
         "cannot extract a Spotify track id from '{value}'"
     )))
-}
-
-/// Transcode the decrypted Ogg Vorbis stream to AAC/`.m4a`, removing the
-/// intermediate `.ogg`. AAC uses ffmpeg's built-in encoder (no external codec
-/// library) and is taggable by the pipeline, unlike Ogg Vorbis.
-async fn transcode_to_m4a(ogg_path: PathBuf) -> SoundomeResult<PathBuf> {
-    let m4a_path = ogg_path.with_extension("m4a");
-
-    let output = Command::new("ffmpeg")
-        // See ytdlp::repack_lossless_to_flac: -nostdin + null stdin stops
-        // ffmpeg from grabbing the TTY and stalling the serial task queue.
-        .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i"])
-        .arg(&ogg_path)
-        .args(["-c:a", "aac", "-b:a", "256k"])
-        .arg(&m4a_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .output()
-        .await
-        .map_err(|e| {
-            Error::Custom(format!(
-                "ffmpeg is required to transcode Spotify audio: {e}"
-            ))
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(Error::Custom(format!(
-            "ffmpeg failed to transcode {} to m4a: {}",
-            ogg_path.display(),
-            stderr.trim()
-        )));
-    }
-
-    if let Err(e) = tokio::fs::remove_file(&ogg_path).await {
-        tracing::warn!(
-            "Could not remove {} after transcode: {}",
-            ogg_path.display(),
-            e
-        );
-    }
-
-    Ok(m4a_path)
 }
 
 #[async_trait]
@@ -190,7 +145,10 @@ impl Provider for Spotify {
         // Keep `session` alive until the stream is fully drained above.
         drop(session);
 
-        transcode_to_m4a(ogg_path).await
+        // No transcode. The stream is already 320 kbps Vorbis, and re-encoding
+        // it to AAC would lose quality for nothing: the tagger writes Vorbis
+        // comments directly (see `tagger::ogg`).
+        Ok(ogg_path)
     }
 
     fn is_valid_url(url: &str) -> bool {

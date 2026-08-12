@@ -13,6 +13,9 @@ audiotags = "0.5.0"
 id3 = "1.16.2"
 metaflac = "0.2.8"
 mp4ameta = "0.11.0"
+# Ogg Vorbis is the one container the others cannot tag, and it is what
+# Spotify audio arrives as.
+lofty = "0.22"
 chrono = "0.4.39"
 musicbrainz_rs = "0.9.0"
 bandcamp = "0.3.4"
@@ -21,3 +24,6 @@ rspotify = { version = "0.16.1", default-features = false, features = [
   "client-ureq",
   "ureq-rustls-tls",
 ] }
+
+[dev-dependencies]
+lofty = "0.22"
