@@ -173,7 +173,11 @@ impl DownloadService {
                         if let Some(id) = track.id {
                             track.cover = Some(url);
                             if let Err(e) = self.track_service.update(conn, id, &track) {
-                                tracing::warn!("Backfill: could not persist cover for {}: {}", id, e);
+                                tracing::warn!(
+                                    "Backfill: could not persist cover for {}: {}",
+                                    id,
+                                    e
+                                );
                             }
                         }
                     }
@@ -1810,7 +1814,11 @@ impl DownloadService {
     }
 
     /// Tag the downloaded file with the track metadata, then move it to the correct location
-    async fn process_track_file(&self, track: &mut Track, file_path: &Path) -> SoundgnomeResult<()> {
+    async fn process_track_file(
+        &self,
+        track: &mut Track,
+        file_path: &Path,
+    ) -> SoundgnomeResult<()> {
         // Assign a SOUNDOME_ID if the track does not already have one.
         if track.soundome_id.is_none() {
             track.soundome_id = Some(Uuid::new_v4().to_string());

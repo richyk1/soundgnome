@@ -39,7 +39,13 @@ pub async fn download_with_ytdlp(
     // SoundCloud from the UI while the server is running.
     let cookies = config.resolved_cookies_file();
     let stdout = run_ytdlp_with_retry(|| {
-        build_download_args(url, &output_path, &config.downloader, cookies.as_deref(), youtube)
+        build_download_args(
+            url,
+            &output_path,
+            &config.downloader,
+            cookies.as_deref(),
+            youtube,
+        )
     })
     .await?;
 
@@ -251,7 +257,8 @@ fn build_download_args(
         args.push(selector.to_string());
         args.push("--extractor-args".to_string());
         args.push(
-            "youtube:formats=duplicate;player_client=web_music;webpage_client=web_music".to_string(),
+            "youtube:formats=duplicate;player_client=web_music;webpage_client=web_music"
+                .to_string(),
         );
     } else {
         args.push(config.format_selector());

@@ -86,7 +86,10 @@ impl Source for Spotify {
         webapi::get_playlist(&id, url).await
     }
 
-    async fn get_playlist_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<PlaylistTrack>> {
+    async fn get_playlist_tracks_from_url(
+        &self,
+        url: &str,
+    ) -> SoundgnomeResult<Vec<PlaylistTrack>> {
         let id = Self::url_to_id(url)?;
         webapi::get_playlist_tracks(&id, ReferenceType::Source).await
     }

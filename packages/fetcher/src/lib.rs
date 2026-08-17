@@ -78,7 +78,8 @@ pub trait Source {
     async fn get_track_from_url(&self, url: &str) -> SoundgnomeResult<Track>;
     async fn get_tracks_from_query(&self, search: &str) -> SoundgnomeResult<Vec<Track>>;
     async fn get_playlist_from_url(&self, url: &str) -> SoundgnomeResult<Playlist>;
-    async fn get_playlist_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<PlaylistTrack>>;
+    async fn get_playlist_tracks_from_url(&self, url: &str)
+        -> SoundgnomeResult<Vec<PlaylistTrack>>;
     async fn get_artist_from_url(&self, url: &str) -> SoundgnomeResult<Artist>;
     async fn get_artist_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<Track>>;
     async fn get_artists_from_query(&self, search: &str) -> SoundgnomeResult<Vec<Artist>>;
@@ -212,7 +213,10 @@ impl Source for Fetcher {
         }
     }
 
-    async fn get_playlist_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<PlaylistTrack>> {
+    async fn get_playlist_tracks_from_url(
+        &self,
+        url: &str,
+    ) -> SoundgnomeResult<Vec<PlaylistTrack>> {
         if Spotify::is_liked_url(url) {
             let saved = spotify::session::saved_tracks().await?;
             return Ok(saved

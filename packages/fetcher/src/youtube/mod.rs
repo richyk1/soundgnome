@@ -200,7 +200,10 @@ impl Source for Youtube {
         })
     }
 
-    async fn get_playlist_tracks_from_url(&self, _url: &str) -> SoundgnomeResult<Vec<PlaylistTrack>> {
+    async fn get_playlist_tracks_from_url(
+        &self,
+        _url: &str,
+    ) -> SoundgnomeResult<Vec<PlaylistTrack>> {
         Err(Error::NotImplemented(
             "YouTube playlist track retrieval is not yet implemented".to_string(),
         ))

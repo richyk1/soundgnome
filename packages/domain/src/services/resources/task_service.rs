@@ -22,7 +22,10 @@ impl TaskService {
         self.task_repo.get_by_id(conn, id)
     }
 
-    pub fn get_all(&self, conn: &mut SqliteConnection) -> shared::types::SoundgnomeResult<Vec<Task>> {
+    pub fn get_all(
+        &self,
+        conn: &mut SqliteConnection,
+    ) -> shared::types::SoundgnomeResult<Vec<Task>> {
         self.task_repo.get_all(conn)
     }
 

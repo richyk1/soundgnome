@@ -162,7 +162,10 @@ mod tests {
     fn ytdlp_format_error_is_surfaced_cleanly() {
         let stderr = "[youtube] rN7jdDyI7Zc: Downloading webpage\n\
                       ERROR: [youtube] rN7jdDyI7Zc: Requested format is not available. Use --list-formats for a list of available formats";
-        let e = Error::ExitCode { code: 1, stderr: stderr.to_string() };
+        let e = Error::ExitCode {
+            code: 1,
+            stderr: stderr.to_string(),
+        };
         assert_eq!(
             e.to_string(),
             "Requested format is not available. Use --list-formats for a list of available formats"
@@ -190,7 +193,10 @@ mod tests {
 
     #[test]
     fn empty_stderr_falls_back_to_generic() {
-        let e = Error::ExitCode { code: 1, stderr: String::new() };
+        let e = Error::ExitCode {
+            code: 1,
+            stderr: String::new(),
+        };
         assert_eq!(e.to_string(), "process failed with no error output");
     }
 }

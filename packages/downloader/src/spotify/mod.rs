@@ -133,7 +133,10 @@ pub async fn liked_tracks() -> SoundgnomeResult<Vec<fetcher::spotify::session::S
         next = find_next_page_url(&json);
     }
 
-    tracing::info!("Spotify collection: {} liked track uris across all pages", uris.len());
+    tracing::info!(
+        "Spotify collection: {} liked track uris across all pages",
+        uris.len()
+    );
 
     let total = uris.len();
     let mut out = Vec::new();
@@ -172,7 +175,10 @@ pub async fn liked_tracks() -> SoundgnomeResult<Vec<fetcher::spotify::session::S
             "Spotify collection returned no resolvable liked tracks".to_string(),
         ));
     }
-    tracing::info!("Spotify collection: {} liked tracks ready to sync", out.len());
+    tracing::info!(
+        "Spotify collection: {} liked tracks ready to sync",
+        out.len()
+    );
     Ok(out)
 }
 

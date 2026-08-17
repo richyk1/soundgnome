@@ -88,7 +88,11 @@ impl AlbumService {
     }
 
     /// Delete a single reference row by its own ID.
-    pub fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundgnomeResult<()> {
+    pub fn delete_reference(
+        &self,
+        conn: &mut SqliteConnection,
+        ref_id: i32,
+    ) -> SoundgnomeResult<()> {
         self.album_repo.delete_reference(conn, ref_id)
     }
 

@@ -18,7 +18,11 @@ impl SyncScheduleService {
         self.repo.get_all(conn)
     }
 
-    pub fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<SyncSchedule> {
+    pub fn get_by_id(
+        &self,
+        conn: &mut SqliteConnection,
+        id: i32,
+    ) -> SoundgnomeResult<SyncSchedule> {
         self.repo.get_by_id(conn, id)
     }
 

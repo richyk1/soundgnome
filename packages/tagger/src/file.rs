@@ -245,17 +245,17 @@ fn convert_track_to_tag(tag: &mut Box<dyn AudioTag + Send + Sync>, track: &Track
 
     tag.set_comment(
         "Downloaded by Soundgnome\n---".to_string(), // + "\nSource: "
-                                                   // + track
-                                                   //     .source
-                                                   //     .as_ref()
-                                                   //     .unwrap_or(&TrackSource::Unknown)
-                                                   //     .as_ref()
-                                                   // + "\nProvider: "
-                                                   // + track
-                                                   //     .provider
-                                                   //     .as_ref()
-                                                   //     .unwrap_or(&TrackProvider::Unknown)
-                                                   //     .as_ref(),
+                                                     // + track
+                                                     //     .source
+                                                     //     .as_ref()
+                                                     //     .unwrap_or(&TrackSource::Unknown)
+                                                     //     .as_ref()
+                                                     // + "\nProvider: "
+                                                     // + track
+                                                     //     .provider
+                                                     //     .as_ref()
+                                                     //     .unwrap_or(&TrackProvider::Unknown)
+                                                     //     .as_ref(),
     );
 }
 

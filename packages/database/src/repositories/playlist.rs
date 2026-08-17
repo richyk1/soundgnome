@@ -55,7 +55,11 @@ impl PlaylistRepository for DieselPlaylistRepository {
         Ok(entity.map(PlaylistEntity::convert_to_domain))
     }
 
-    fn create(&self, conn: &mut SqliteConnection, playlist: &Playlist) -> SoundgnomeResult<Playlist> {
+    fn create(
+        &self,
+        conn: &mut SqliteConnection,
+        playlist: &Playlist,
+    ) -> SoundgnomeResult<Playlist> {
         let new_entity = NewPlaylistEntity::convert_from_domain(playlist);
         diesel::insert_into(schema::playlist::table)
             .values(&new_entity)

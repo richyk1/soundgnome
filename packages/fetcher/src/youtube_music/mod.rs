@@ -193,7 +193,10 @@ impl Source for YoutubeMusic {
         })
     }
 
-    async fn get_playlist_tracks_from_url(&self, _url: &str) -> SoundgnomeResult<Vec<PlaylistTrack>> {
+    async fn get_playlist_tracks_from_url(
+        &self,
+        _url: &str,
+    ) -> SoundgnomeResult<Vec<PlaylistTrack>> {
         let playlist_id = self
             .get_playlist_id_from_url(_url)
             .ok_or(Error::InvalidUrl(_url.to_string()))?;

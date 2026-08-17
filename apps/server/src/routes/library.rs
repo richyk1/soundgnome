@@ -304,9 +304,7 @@ pub async fn ingest_all(
 /// re-downloads audio.
 #[openapi(tag = "library")]
 #[post("/library/embed-artwork")]
-pub async fn embed_artwork(
-    executor: &rocket::State<Arc<TaskExecutor>>,
-) -> Json<serde_json::Value> {
+pub async fn embed_artwork(executor: &rocket::State<Arc<TaskExecutor>>) -> Json<serde_json::Value> {
     executor.enqueue_embed_artwork();
     Json(serde_json::json!({ "started": true }))
 }

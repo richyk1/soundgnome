@@ -80,8 +80,11 @@ pub trait AlbumRepository: Send + Sync {
         album_id: i32,
         references: &[shared::models::Reference],
     ) -> SoundgnomeResult<()>;
-    fn create_or_ignore(&self, conn: &mut SqliteConnection, album: &Album)
-        -> SoundgnomeResult<Album>;
+    fn create_or_ignore(
+        &self,
+        conn: &mut SqliteConnection,
+        album: &Album,
+    ) -> SoundgnomeResult<Album>;
     fn count(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64>;
     /// Count the number of tracks linked to this album.
     fn count_tracks(&self, conn: &mut SqliteConnection, album_id: i32) -> SoundgnomeResult<i64>;
@@ -200,7 +203,11 @@ pub trait PlaylistRepository: Send + Sync {
         conn: &mut SqliteConnection,
         url: &str,
     ) -> SoundgnomeResult<Option<Playlist>>;
-    fn create(&self, conn: &mut SqliteConnection, playlist: &Playlist) -> SoundgnomeResult<Playlist>;
+    fn create(
+        &self,
+        conn: &mut SqliteConnection,
+        playlist: &Playlist,
+    ) -> SoundgnomeResult<Playlist>;
     fn update_last_sync(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()>;
     /// Link a track to a playlist. Silently ignores duplicate entries.
     fn add_track(
@@ -235,15 +242,23 @@ pub trait TaskRepository: Send + Sync {
         total: i32,
     ) -> SoundgnomeResult<()>;
     fn set_completed(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()>;
-    fn set_failed(&self, conn: &mut SqliteConnection, id: i32, error: &str) -> SoundgnomeResult<()>;
+    fn set_failed(&self, conn: &mut SqliteConnection, id: i32, error: &str)
+        -> SoundgnomeResult<()>;
     fn set_cancelled(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()>;
-    fn get_by_status(&self, conn: &mut SqliteConnection, status: &str)
-        -> SoundgnomeResult<Vec<Task>>;
+    fn get_by_status(
+        &self,
+        conn: &mut SqliteConnection,
+        status: &str,
+    ) -> SoundgnomeResult<Vec<Task>>;
     fn reset_for_retry(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()>;
     fn count_by_status(&self, conn: &mut SqliteConnection, status: &str) -> SoundgnomeResult<i64>;
     /// Update the task label in-place (e.g. to the fetched playlist/artist/album name).
-    fn update_label(&self, conn: &mut SqliteConnection, id: i32, label: &str)
-        -> SoundgnomeResult<()>;
+    fn update_label(
+        &self,
+        conn: &mut SqliteConnection,
+        id: i32,
+        label: &str,
+    ) -> SoundgnomeResult<()>;
     /// Persist the live per-category stats (downloaded / to_validate / skipped / errors).
     fn update_stats(
         &self,

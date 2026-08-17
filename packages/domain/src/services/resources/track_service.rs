@@ -59,7 +59,11 @@ impl TrackService {
         self.track_repo.get_all(conn)
     }
 
-    pub fn create(&self, conn: &mut SqliteConnection, new_track: &Track) -> SoundgnomeResult<Track> {
+    pub fn create(
+        &self,
+        conn: &mut SqliteConnection,
+        new_track: &Track,
+    ) -> SoundgnomeResult<Track> {
         self.track_repo.create(conn, new_track)
     }
 
@@ -386,7 +390,11 @@ impl TrackService {
     }
 
     /// Delete a single reference row by its own ID.
-    pub fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundgnomeResult<()> {
+    pub fn delete_reference(
+        &self,
+        conn: &mut SqliteConnection,
+        ref_id: i32,
+    ) -> SoundgnomeResult<()> {
         self.track_repo.delete_reference(conn, ref_id)
     }
 }

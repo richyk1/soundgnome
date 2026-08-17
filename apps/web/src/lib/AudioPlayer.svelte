@@ -45,11 +45,6 @@
     upNext?: PlayerTrack[];
   } = $props();
 
-  // Keep `active` in sync with whether a track is loaded.
-  $effect(() => {
-    active = current != null;
-    upNext = qIndex >= 0 ? queue.slice(qIndex + 1) : [];
-  });
 
   let audio: HTMLAudioElement | null = $state(null);
   let current: PlayerTrack | null = $state(null);
@@ -71,11 +66,17 @@
   let shuffle = $state(false);
   let repeat: 'off' | 'all' | 'one' = $state('off');
   let canStep = $derived(queue.length > 1);
+  // Keep `active` in sync with whether a track is loaded.
+  $effect(() => {
+    active = current != null;
+    upNext = qIndex >= 0 ? queue.slice(qIndex + 1) : [];
+  });
 
-  let total = $derived(
-    Number.isFinite(duration) && duration > 0 ? duration : (current?.durationSecs ?? 0),
-  );
-  let waveUrl = $derived(current?.waveformUrl ?? null);
+  let total = $derived.by(() => {
+    if (Number.isFinite(duration) && duration > 0) return duration;
+    return current ? (current.durationSecs ?? 0) : 0;
+  });
+  let waveUrl = $derived.by(() => (current ? (current.waveformUrl ?? null) : null));
   // The resolved audio URL of the current track, so the waveform can decode it.
   let srcUrl: string | null = $state(null);
   // Album art resolved on demand (Spotify oEmbed) when the track carries none.

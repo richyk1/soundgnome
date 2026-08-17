@@ -18,8 +18,8 @@ impl Config {
 
     pub fn load() -> Result<Self, config::ConfigError> {
         // get config toml dir from env, with default
-        let config_path =
-            std::env::var("SOUNDGNOME_CONFIG_PATH").unwrap_or_else(|_| String::from("./config.toml"));
+        let config_path = std::env::var("SOUNDGNOME_CONFIG_PATH")
+            .unwrap_or_else(|_| String::from("./config.toml"));
 
         let config = config::Config::builder()
             // Add in config toml (optional, allows config-from-env-only setup)

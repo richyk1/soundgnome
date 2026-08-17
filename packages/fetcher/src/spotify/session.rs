@@ -11,8 +11,8 @@
 //! async runtime stall the worker. rspotify still backs the metadata provider.
 
 use std::fs;
-use std::io::Write;
 use std::future::Future;
+use std::io::Write;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::{LazyLock, Mutex, OnceLock};
@@ -37,8 +37,9 @@ pub struct MintedToken {
 /// directly. Using the librespot session as the token source removes the
 /// fragile OAuth refresh token, which Spotify revokes if it is refreshed from
 /// anywhere else.
-type TokenMinter =
-    Box<dyn Fn() -> Pin<Box<dyn Future<Output = SoundgnomeResult<MintedToken>> + Send>> + Send + Sync>;
+type TokenMinter = Box<
+    dyn Fn() -> Pin<Box<dyn Future<Output = SoundgnomeResult<MintedToken>> + Send>> + Send + Sync,
+>;
 
 static MINTER: OnceLock<TokenMinter> = OnceLock::new();
 

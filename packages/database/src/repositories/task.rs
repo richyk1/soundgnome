@@ -98,7 +98,12 @@ impl TaskRepository for DieselTaskRepository {
         Ok(())
     }
 
-    fn set_failed(&self, conn: &mut SqliteConnection, id: i32, error: &str) -> SoundgnomeResult<()> {
+    fn set_failed(
+        &self,
+        conn: &mut SqliteConnection,
+        id: i32,
+        error: &str,
+    ) -> SoundgnomeResult<()> {
         diesel::update(schema::task::table.filter(schema::task::id.eq(id)))
             .set((
                 schema::task::status.eq("Failed"),

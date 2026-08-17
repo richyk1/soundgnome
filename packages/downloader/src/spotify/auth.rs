@@ -116,11 +116,10 @@ pub fn register_token_minter() {
     fetcher::spotify::session::set_token_minter(Box::new(|| {
         Box::pin(async {
             let session = session().await?;
-            let token = session
-                .login5()
-                .auth_token()
-                .await
-                .map_err(|e| Error::Custom(format!("Spotify login5 token request failed: {e}")))?;
+            let token =
+                session.login5().auth_token().await.map_err(|e| {
+                    Error::Custom(format!("Spotify login5 token request failed: {e}"))
+                })?;
             Ok(fetcher::spotify::session::MintedToken {
                 access_token: token.access_token,
                 expires_in: token.expires_in.as_secs(),

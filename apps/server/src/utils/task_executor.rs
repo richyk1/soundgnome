@@ -241,12 +241,10 @@ async fn run_job(
             // dropped the connection). Nothing else to do.
             let _ = responder.send(result);
         }
-        QueuedJob::EmbedArtwork => {
-            match services.download_service.backfill_artwork(conn).await {
-                Ok(summary) => tracing::info!("Artwork backfill finished: {:?}", summary),
-                Err(e) => tracing::error!("Artwork backfill failed: {}", e),
-            }
-        }
+        QueuedJob::EmbedArtwork => match services.download_service.backfill_artwork(conn).await {
+            Ok(summary) => tracing::info!("Artwork backfill finished: {:?}", summary),
+            Err(e) => tracing::error!("Artwork backfill failed: {}", e),
+        },
     }
 }
 
