@@ -139,6 +139,33 @@ fn rocket() -> _ {
     }
     */
 
+    // Maintenance backfills (fingerprint / artwork) cannot resume across a restart
+    // and would otherwise wedge their Tools page showing "Running" forever. Mark any
+    // left over from a previous run as failed so the page frees up; both are
+    // idempotent and cheap to re-run from the button.
+    {
+        let db_url = Config::get().database.url.clone();
+        let conn = &mut database::init_connection(&db_url);
+        if let Ok(stale) = services.task_service.get_stale_running(conn) {
+            for task in stale {
+                let is_backfill = matches!(
+                    task.task_type,
+                    shared::models::TaskType::EmbedArtworkBackfill
+                        | shared::models::TaskType::FingerprintBackfill
+                );
+                if is_backfill {
+                    if let Some(id) = task.id {
+                        let _ = services.task_service.set_failed(
+                            conn,
+                            id,
+                            "Interrupted by a server restart",
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     // Spawn the background sync scheduler (checks every 60 seconds)
     {
         let db_url = Config::get().database.url.clone();

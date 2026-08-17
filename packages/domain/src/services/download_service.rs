@@ -194,7 +194,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         task_id: Option<i32>,
     ) -> SoundgnomeResult<ArtworkBackfillSummary> {
-        let tracks = self.track_service.get_all(conn)?;
+        let tracks = self.track_service.get_all_finalized(conn)?;
         let total = tracks.len();
         let mut s = ArtworkBackfillSummary {
             total,
@@ -296,7 +296,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         task_id: Option<i32>,
     ) -> SoundgnomeResult<FingerprintBackfillSummary> {
-        let tracks = self.track_service.get_all(conn)?;
+        let tracks = self.track_service.get_all_finalized(conn)?;
         let total = tracks.len();
         let mut s = FingerprintBackfillSummary {
             total,

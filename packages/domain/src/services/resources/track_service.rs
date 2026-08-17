@@ -59,6 +59,12 @@ impl TrackService {
         self.track_repo.get_all(conn)
     }
 
+    /// Tracks that have a non-null `file_path` (finalized library files, excluding
+    /// staged `needs_validation` entries).
+    pub fn get_all_finalized(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>> {
+        self.track_repo.get_all_finalized(conn)
+    }
+
     pub fn create(
         &self,
         conn: &mut SqliteConnection,

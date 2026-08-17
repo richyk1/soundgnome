@@ -357,6 +357,7 @@
         icon="gallery"
         taskType="EmbedArtworkBackfill"
         okLabel="embedded"
+        skipHint="Skipped = no cover art could be resolved for the track, or the audio file is missing from disk."
         note="Runs in the background on the shared task queue, so it is safe to leave and come back to. Files that already have embedded art are refreshed in place."
         start={embedArtwork}
       />
@@ -372,6 +373,7 @@
         icon="fingerprint-1"
         taskType="FingerprintBackfill"
         okLabel="fingerprinted"
+        skipHint="Skipped = the track is already fingerprinted (safe to re-run), or its audio file is missing from disk."
         note="Runs in the background and is idempotent: already-fingerprinted tracks are skipped, so re-running is cheap. Expect roughly a second or two per track."
         start={backfillFingerprints}
       />

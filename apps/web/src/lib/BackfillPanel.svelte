@@ -16,11 +16,13 @@
     okLabel: string;
     /** Optional footnote (idempotency, cost, etc.). */
     note?: string;
+    /** Short explanation of what "skipped" means for this pass. */
+    skipHint?: string;
     /** Kick off the pass; resolves with the tracking task id. */
     start: () => Promise<{ task_id: number }>;
   }
 
-  let { title, description, icon, taskType, okLabel, note, start }: Props = $props();
+  let { title, description, icon, taskType, okLabel, note, skipHint, start }: Props = $props();
 
   let task = $state<TaskDto | null>(null);
   let starting = $state(false);
@@ -70,7 +72,7 @@
       <h2>{title}</h2>
     </div>
     <button class="btn-accent" onclick={run} disabled={active || starting}>
-      {#if starting}<span class="spinner"></span>Starting{:else if active}<span class="spinner"></span>Running{:else}<i class="lni lni-play" aria-hidden="true"></i>{task?.status === 'Completed' ? 'Run again' : 'Run'}{/if}
+      {#if starting}<span class="spinner"></span>Starting{:else if active}<span class="spinner"></span>Running{:else}{task?.status === 'Completed' ? 'Run again' : 'Run'}{/if}
     </button>
   </header>
 
@@ -120,6 +122,9 @@
             <span class="stat err">{task.stats.backfill.errors} errors</span>
           {/if}
         </div>
+        {#if skipHint && task.stats.backfill.skipped > 0}
+          <p class="bf-hint">{skipHint}</p>
+        {/if}
       {/if}
 
       {#if task.error}
@@ -142,6 +147,75 @@
 </section>
 
 <style>
+  /* Button + spinner + callout: the app's shared classes are page-scoped, so a
+     standalone component must restate them to stay on-theme. */
+  .btn-accent {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.55rem 1rem;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      filter 0.12s ease,
+      opacity 0.12s ease;
+  }
+  .btn-accent:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+  .btn-accent:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .spinner {
+    width: 13px;
+    height: 13px;
+    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    font-size: 0.9rem;
+  }
+  .callout-error {
+    background: var(--error-bg);
+    border-color: color-mix(in srgb, var(--error) 45%, transparent);
+    color: var(--error);
+  }
+  .callout-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .callout-body strong {
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+
   .backfill {
     display: flex;
     flex-direction: column;
@@ -260,6 +334,11 @@
   .bf-when {
     margin: 0;
     font-size: 0.8rem;
+    color: var(--muted-2);
+  }
+  .bf-hint {
+    margin: 0.1rem 0 0;
+    font-size: 0.78rem;
     color: var(--muted-2);
   }
 
