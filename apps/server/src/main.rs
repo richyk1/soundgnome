@@ -166,6 +166,27 @@ fn rocket() -> _ {
         }
     }
 
+    // Warm the audio-quality cache in the background. The library list probes every
+    // track's file for its format/bitrate; on a cold cache that scales with the
+    // library and is the dominant cost of the first Tracks page load. Doing it here
+    // moves that work off the request path so the page is fast for the user.
+    {
+        let db_url = Config::get().database.url.clone();
+        let services_for_warm = services.clone();
+        std::thread::spawn(move || {
+            let conn = &mut database::init_connection(&db_url);
+            match services_for_warm.track_service.get_all_finalized(conn) {
+                Ok(tracks) => {
+                    for track in &tracks {
+                        let _ = soundgnome_server::utils::quality_cache::probe(track);
+                    }
+                    tracing::info!("Quality cache warmed for {} track(s)", tracks.len());
+                }
+                Err(e) => tracing::warn!("Quality cache warm-up failed: {}", e),
+            }
+        });
+    }
+
     // Spawn the background sync scheduler (checks every 60 seconds)
     {
         let db_url = Config::get().database.url.clone();

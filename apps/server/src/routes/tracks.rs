@@ -49,6 +49,24 @@ pub fn reference_to_dto(r: Reference) -> ReferenceDto {
     }
 }
 
+/// True for internal bookkeeping references (acoustic fingerprint, content hash)
+/// stored under the `soundome:` URL scheme. They are dedup metadata, not
+/// user-facing links, and the fingerprint blob is large (~8 KB each), so they are
+/// excluded from API responses.
+pub fn is_internal_reference(r: &Reference) -> bool {
+    r.external_url
+        .as_deref()
+        .is_some_and(|u| u.starts_with("soundome:"))
+}
+
+/// Map a track's references to DTOs, dropping internal bookkeeping references.
+pub fn references_to_dto(refs: Vec<Reference>) -> Vec<ReferenceDto> {
+    refs.into_iter()
+        .filter(|r| !is_internal_reference(r))
+        .map(reference_to_dto)
+        .collect()
+}
+
 /// Body for manually adding a reference to any entity.
 ///
 /// `platform` and `external_id` are optional: when omitted (or blank/"Unknown"),
@@ -219,7 +237,7 @@ impl TrackDto {
                 .and_then(|p| p.to_str().map(|s| s.to_string())),
             needs_validation: track.needs_validation,
             quality,
-            references: track.references.into_iter().map(reference_to_dto).collect(),
+            references: references_to_dto(track.references),
         })
     }
 }
@@ -480,7 +498,7 @@ pub async fn get_references(
     let services = Arc::clone(services);
     db.run(move |conn| services.track_service.get_by_id(conn, id))
         .await
-        .map(|track| Json(track.references.into_iter().map(reference_to_dto).collect()))
+        .map(|track| Json(references_to_dto(track.references)))
         .map_err(|err| {
             crate::utils::error::Error::Custom(CustomError {
                 status: Status::NotFound,
@@ -508,7 +526,7 @@ pub async fn add_reference(
 
     db.run(move |conn| services.track_service.add_reference(conn, id, reference))
         .await
-        .map(|refs| Json(refs.into_iter().map(reference_to_dto).collect()))
+        .map(|refs| Json(references_to_dto(refs)))
         .map_err(|err| {
             crate::utils::error::Error::Custom(CustomError {
                 status: Status::InternalServerError,

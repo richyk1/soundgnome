@@ -91,7 +91,12 @@ impl PendingValidationDto {
                 .file_path
                 .and_then(|p| p.to_str().map(|s| s.to_string())),
             validation_reason: track.validation_reason,
-            references: track.references.into_iter().map(reference_to_dto).collect(),
+            references: track
+                .references
+                .into_iter()
+                .filter(|r| !crate::routes::tracks::is_internal_reference(r))
+                .map(reference_to_dto)
+                .collect(),
         })
     }
 }

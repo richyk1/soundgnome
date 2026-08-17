@@ -81,6 +81,15 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Tracks page loads fast.** The library list returned every track with all of
+  its references embedded, including the ~8 KB acoustic-fingerprint blobs, so the
+  payload ballooned to ~19 MB for ~1.5k tracks. Internal `soundome:` references
+  (fingerprint, content hash) are now excluded from API responses (they are dedup
+  bookkeeping, not user-facing links), cutting the response to ~1.4 MB. The
+  library list queries were also de-N+1'd (four bulk queries instead of `1 + 3N`),
+  and the audio-quality cache is warmed in the background at startup so the first
+  load no longer probes every file on the request path. First render dropped from
+  ~12 s to well under a second.
 - **Validations page loads fast.** `get_pending_validations` hydrated each track
   with its own album/artists/references queries (a `1 + 3N` fan-out, thousands of
   serial queries for a large review queue). It now uses four bulk queries total,

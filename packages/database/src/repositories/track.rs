@@ -100,42 +100,7 @@ impl TrackRepository for DieselTrackRepository {
                 shared::errors::Error::Database(format!("Failed to get recent tracks: {}", err))
             })?;
 
-        let mut result = Vec::new();
-        for track in tracks {
-            let album = if let Some(album_id) = track.album_id {
-                schema::album::table
-                    .filter(schema::album::id.eq(album_id))
-                    .first::<AlbumEntity>(conn)
-                    .ok()
-            } else {
-                None
-            };
-
-            let artists: Vec<ArtistEntity> = schema::artist_tracks::table
-                .inner_join(
-                    schema::artist::table
-                        .on(schema::artist_tracks::artist_id.eq(schema::artist::id)),
-                )
-                .filter(schema::artist_tracks::track_id.eq(track.id))
-                .select(schema::artist::all_columns)
-                .load(conn)
-                .map_err(|err| {
-                    shared::errors::Error::Database(format!("Failed to get recent tracks: {}", err))
-                })?;
-
-            let references: Vec<TrackRefEntity> = schema::track_ref::table
-                .filter(schema::track_ref::track_id.eq(track.id))
-                .load(conn)
-                .map_err(|err| {
-                    shared::errors::Error::Database(format!("Failed to get recent tracks: {}", err))
-                })?;
-
-            result.push(TrackEntity::convert_to_domain(
-                track, album, artists, references,
-            ));
-        }
-
-        Ok(result)
+        hydrate_tracks(conn, tracks)
     }
 
     fn get_pending_validations(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>> {
@@ -384,42 +349,7 @@ impl TrackRepository for DieselTrackRepository {
             shared::errors::Error::Database(format!("Failed to get all resources: {}", err))
         })?;
 
-        let mut result = Vec::new();
-        for track in tracks {
-            let album = if let Some(album_id) = track.album_id {
-                schema::album::table
-                    .filter(schema::album::id.eq(album_id))
-                    .first::<AlbumEntity>(conn)
-                    .ok()
-            } else {
-                None
-            };
-
-            let artists: Vec<ArtistEntity> = schema::artist_tracks::table
-                .inner_join(
-                    schema::artist::table
-                        .on(schema::artist_tracks::artist_id.eq(schema::artist::id)),
-                )
-                .filter(schema::artist_tracks::track_id.eq(track.id))
-                .select(schema::artist::all_columns)
-                .load(conn)
-                .map_err(|err| {
-                    shared::errors::Error::Database(format!("Failed to get all resources: {}", err))
-                })?;
-
-            let references: Vec<TrackRefEntity> = schema::track_ref::table
-                .filter(schema::track_ref::track_id.eq(track.id))
-                .load(conn)
-                .map_err(|err| {
-                    shared::errors::Error::Database(format!("Failed to get all resources: {}", err))
-                })?;
-
-            result.push(TrackEntity::convert_to_domain(
-                track, album, artists, references,
-            ));
-        }
-
-        Ok(result)
+        hydrate_tracks(conn, tracks)
     }
 
     fn create(&self, conn: &mut SqliteConnection, new_track: &Track) -> SoundgnomeResult<Track> {
@@ -584,48 +514,7 @@ impl TrackRepository for DieselTrackRepository {
                 shared::errors::Error::Database(format!("Failed to get finalized tracks: {}", err))
             })?;
 
-        let mut result = Vec::new();
-        for track in tracks {
-            let album = if let Some(album_id) = track.album_id {
-                schema::album::table
-                    .filter(schema::album::id.eq(album_id))
-                    .first::<AlbumEntity>(conn)
-                    .ok()
-            } else {
-                None
-            };
-
-            let artists: Vec<ArtistEntity> = schema::artist_tracks::table
-                .inner_join(
-                    schema::artist::table
-                        .on(schema::artist_tracks::artist_id.eq(schema::artist::id)),
-                )
-                .filter(schema::artist_tracks::track_id.eq(track.id))
-                .select(schema::artist::all_columns)
-                .load(conn)
-                .map_err(|err| {
-                    shared::errors::Error::Database(format!(
-                        "Failed to get finalized tracks: {}",
-                        err
-                    ))
-                })?;
-
-            let references: Vec<TrackRefEntity> = schema::track_ref::table
-                .filter(schema::track_ref::track_id.eq(track.id))
-                .load(conn)
-                .map_err(|err| {
-                    shared::errors::Error::Database(format!(
-                        "Failed to get finalized tracks: {}",
-                        err
-                    ))
-                })?;
-
-            result.push(TrackEntity::convert_to_domain(
-                track, album, artists, references,
-            ));
-        }
-
-        Ok(result)
+        hydrate_tracks(conn, tracks)
     }
 
     fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundgnomeResult<()> {
