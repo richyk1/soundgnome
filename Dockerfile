@@ -25,26 +25,6 @@ FROM base AS libs
              "https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/${YTDLP_BIN}"; \
         chmod +x /yt-dlp
 
-    # ffmpeg: static build for the target architecture.
-    RUN set -e; \
-        case "$TARGETARCH" in \
-          amd64) FFMPEG_ARCH="amd64" ;; \
-          arm64) FFMPEG_ARCH="arm64" ;; \
-          *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
-        esac; \
-        FFMPEG_URL="https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${FFMPEG_ARCH}-static.tar.xz"; \
-        echo "Downloading ffmpeg from: $FFMPEG_URL"; \
-        curl --http1.1 -L -f --retry 3 --retry-delay 2 \
-             -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" \
-             -H "Accept: application/octet-stream" \
-             -o /tmp/ffmpeg.tar.xz "$FFMPEG_URL"; \
-        echo "Extracting ffmpeg archive..."; \
-        tar -xf /tmp/ffmpeg.tar.xz -C /tmp --strip-components=1; \
-        echo "Setting up ffmpeg binary..."; \
-        mv /tmp/ffmpeg /ffmpeg; \
-        chmod +x /ffmpeg; \
-        rm /tmp/ffmpeg.tar.xz; \
-        echo "ffmpeg setup complete"  
 
 # ==================
 # == web builder ===
@@ -120,7 +100,9 @@ FROM base AS runner
 
     # copy external tools from the libs stage (cached independently from the Rust build)
     COPY --from=libs /yt-dlp /usr/local/bin/yt-dlp
-    COPY --from=libs /ffmpeg /usr/local/bin/ffmpeg
+    # ffmpeg: install from Alpine's repo (the runner is Alpine). Avoids depending
+    # on an external static-build host that blocks CI IPs.
+    RUN apk add --no-cache ffmpeg
 
     # ensure runtime directories exist and belong to the app user.
     # note: when bind-mounted from the host, the host directory permissions take
