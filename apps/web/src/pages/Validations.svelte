@@ -64,16 +64,30 @@
   });
 
   // ── Handlers ──────────────────────────────────────────────────────────────
+  // Shown as a dismissible banner above the list; a failed approve/reject (e.g.
+  // the track's audio file is missing) must not silently do nothing.
+  let actionError: string | null = $state(null);
+
   async function handleApprove(id: number, patch: PatchValidationBody) {
-    await approveValidation(id, patch);
-    tracks = tracks.filter((t) => t.id !== id);
-    onDownloaded?.();
+    actionError = null;
+    try {
+      await approveValidation(id, patch);
+      tracks = tracks.filter((t) => t.id !== id);
+      onDownloaded?.();
+    } catch (e: unknown) {
+      actionError = e instanceof Error ? e.message : String(e);
+    }
   }
 
   async function handleReject(id: number) {
-    await rejectValidation(id);
-    tracks = tracks.filter((t) => t.id !== id);
-    onDownloaded?.();
+    actionError = null;
+    try {
+      await rejectValidation(id);
+      tracks = tracks.filter((t) => t.id !== id);
+      onDownloaded?.();
+    } catch (e: unknown) {
+      actionError = e instanceof Error ? e.message : String(e);
+    }
   }
 </script>
 
@@ -94,6 +108,17 @@
       {/if}
     </button>
   </header>
+
+  {#if actionError}
+    <div class="callout callout-error" role="alert">
+      <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+      <div class="callout-body">
+        <strong>Couldn't apply that change.</strong>
+        <span>{actionError}</span>
+      </div>
+      <button class="btn-secondary btn-sm" onclick={() => (actionError = null)}>Dismiss</button>
+    </div>
+  {/if}
 
   {#if loading}
     <ul class="skeleton-list" aria-hidden="true">

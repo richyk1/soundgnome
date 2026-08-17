@@ -81,6 +81,10 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Validation Select/Approve errors are surfaced.** A failed approve or candidate
+  Select (e.g. the track's audio file is missing) was swallowed as an unhandled
+  promise rejection, so the button appeared to do nothing. The Validations page
+  now shows the error in a dismissible banner and keeps the card in place.
 - **Tracks page loads fast.** The library list returned every track with all of
   its references embedded, including the ~8 KB acoustic-fingerprint blobs, so the
   payload ballooned to ~19 MB for ~1.5k tracks. Internal `soundome:` references
