@@ -24,7 +24,7 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import type { PlayerTrack, TrackSource } from './player';
   import Waveform from './Waveform.svelte';
 
@@ -46,30 +46,94 @@
   } = $props();
 
 
+  // -- Persistence: keep the queue + current track across page reloads --------
+  const STORAGE_KEY = 'soundgnome:player:v1';
+  interface PersistedPlayer {
+    current: PlayerTrack | null;
+    queue: PlayerTrack[];
+    qIndex: number;
+    currentTime: number;
+    paused: boolean;
+    shuffle: boolean;
+    repeat: 'off' | 'all' | 'one';
+    volume: number;
+    muted: boolean;
+  }
+  function readPersisted(): PersistedPlayer | null {
+    if (typeof localStorage === 'undefined') return null;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const s = JSON.parse(raw) as PersistedPlayer;
+      if (!s || !Array.isArray(s.queue)) return null;
+      return s;
+    } catch {
+      return null;
+    }
+  }
+  const persisted = readPersisted();
+
   let audio: HTMLAudioElement | null = $state(null);
-  let current: PlayerTrack | null = $state(null);
+  let current: PlayerTrack | null = $state(persisted?.current ?? null);
   let resolvingId: number | null = $state(null);
   let resolvingSource: TrackSource | undefined = $state(undefined);
   let paused = $state(true);
   let currentTime = $state(0);
   let duration = $state(0);
-  let volume = $state(1);
-  let muted = $state(false);
+  let volume = $state(persisted?.volume ?? 1);
+  let muted = $state(persisted?.muted ?? false);
   // Whether the current track's waveform loaded; drives the fall back to a plain range.
   let waveReady = $state(false);
   // Some sources hand out signed URLs that expire: allow exactly one silent re-resolve per track.
   let retriedCurrent = false;
 
   // Queue + transport — feature parity with offtop (shuffle, prev/next, repeat).
-  let queue: PlayerTrack[] = $state([]);
-  let qIndex = $state(0);
-  let shuffle = $state(false);
-  let repeat: 'off' | 'all' | 'one' = $state('off');
+  let queue: PlayerTrack[] = $state(persisted?.queue ?? []);
+  let qIndex = $state(persisted?.qIndex ?? 0);
+  let shuffle = $state(persisted?.shuffle ?? false);
+  let repeat: 'off' | 'all' | 'one' = $state(persisted?.repeat ?? 'off');
   let canStep = $derived(queue.length > 1);
   // Keep `active` in sync with whether a track is loaded.
   $effect(() => {
     active = current != null;
     upNext = qIndex >= 0 ? queue.slice(qIndex + 1) : [];
+  });
+
+  // Persist the queue + current track (with position) so a reload restores them.
+  // `currentTime` is written but not a dependency (untrack), so per-tick playback
+  // updates never thrash localStorage; pagehide/visibilitychange capture the
+  // final position just before the page goes away.
+  function writeSnapshot() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          current,
+          queue,
+          qIndex,
+          currentTime,
+          paused,
+          shuffle,
+          repeat,
+          volume,
+          muted,
+        } satisfies PersistedPlayer)
+      );
+    } catch {
+      /* storage unavailable/full: playback still works, just no persistence */
+    }
+  }
+  $effect(() => {
+    void current;
+    void queue;
+    void qIndex;
+    void paused;
+    void shuffle;
+    void repeat;
+    void volume;
+    void muted;
+    untrack(writeSnapshot);
   });
 
   let total = $derived.by(() => {
@@ -120,6 +184,62 @@
       resolvingSource = undefined;
     }
   }
+
+  // -- Restore after a reload -------------------------------------------------
+  // Applied once a track's metadata is ready: setting currentTime before the
+  // browser has the media duration is ignored, so the seek waits for that event.
+  let pendingSeek: number | null = null;
+  let resumeOnLoad = false;
+  function onLoadedMetadata() {
+    const el = audio;
+    if (!el) return;
+    if (pendingSeek != null) {
+      el.currentTime = pendingSeek;
+      pendingSeek = null;
+    }
+    if (resumeOnLoad) {
+      resumeOnLoad = false;
+      // Best-effort: autoplay without a gesture is blocked, so this may reject,
+      // leaving the track loaded and paused at the saved position.
+      el.play().catch(() => {});
+    }
+  }
+
+  /** Reload the persisted track's audio (seeked, without auto-erroring). Unlike
+     `playTrack`, a resolve failure here is silent: the track stays shown in the
+     bar and pressing play surfaces the real error through the normal path. */
+  async function restoreTrack(track: PlayerTrack, position: number, wasPaused: boolean) {
+    const el = audio;
+    if (!el) return;
+    try {
+      const src = await resolveSrc(track);
+      if (current?.id !== track.id) return; // user already started something else
+      srcUrl = src;
+      pendingSeek = position > 0 ? position : null;
+      resumeOnLoad = !wasPaused;
+      el.src = src;
+    } catch {
+      /* track no longer resolvable (deleted/moved): leave it shown, paused */
+    }
+  }
+
+  onMount(() => {
+    const save = () => writeSnapshot();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') writeSnapshot();
+    };
+    window.addEventListener('pagehide', save);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    if (persisted?.current) {
+      restoreTrack(persisted.current, persisted.currentTime ?? 0, persisted.paused ?? true);
+    }
+
+    return () => {
+      window.removeEventListener('pagehide', save);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  });
 
   function playIndex(i: number) {
     if (i < 0 || i >= queue.length) return;
@@ -281,6 +401,7 @@
     bind:muted
     onerror={onAudioError}
     onended={onEndedInternal}
+    onloadedmetadata={onLoadedMetadata}
   ></audio>
 
   {#if current}

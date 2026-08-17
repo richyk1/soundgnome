@@ -32,6 +32,11 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 - **Click-to-play track rows.** The whole track row is the play control; the `#`
   column doubles as the play/pause affordance. The per-row play button was
   removed.
+- **Player state persists across reloads.** The queue, the current track, its
+  playback position, and volume/shuffle/repeat are saved to local storage, so a
+  page reload restores the bar and queue instead of clearing them. The track is
+  reloaded seeked to where you left off (paused, since browsers block autoplay
+  without a gesture); the audio URL is re-resolved rather than persisted.
 - **Artwork embedding + backfill.** Cover art is embedded into the audio file at
   tag time, plus a one-shot backfill endpoint and Storage-page button that
   embeds artwork into every existing library file in place (offline-safe).
