@@ -1,0 +1,127 @@
+use crate::error::{Error, Result};
+use crate::types::credits::CreditsResponse;
+use crate::utils::retry::operations::GET_BALANCE;
+use crate::utils::{retry::execute_with_retry_builder, retry::handle_response_json};
+use reqwest::Client;
+
+/// API endpoint for credits management.
+pub struct CreditsApi {
+    pub(crate) client: Client,
+    pub(crate) config: crate::client::ApiConfig,
+}
+
+impl CreditsApi {
+    /// Creates a new CreditsApi with given reqwest client and configuration.
+    #[must_use = "returns an API client that should be used for API calls"]
+    pub fn new(client: Client, config: &crate::client::ClientConfig) -> Result<Self> {
+        Ok(Self {
+            client,
+            config: config.to_api_config()?,
+        })
+    }
+
+    /// Retrieves the current credit balance and usage information.
+    ///
+    /// This endpoint returns the total credits purchased and used for the authenticated user.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `CreditsResponse` containing:
+    /// - `total_credits`: Total credits purchased by the user
+    /// - `total_usage`: Total credits used by the user
+    ///
+    /// The response also provides convenience methods to calculate:
+    /// - Remaining credits: `total_credits - total_usage`
+    /// - Usage percentage: `total_usage / total_credits`
+    /// - Whether credits are available: `remaining > 0`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The API request fails (network issues, authentication, etc.)
+    /// - The response cannot be parsed
+    /// - The server returns an error status code
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use openrouter_api::OpenRouterClient;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let client = OpenRouterClient::from_env()?;
+    ///     let credits = client.credits()?.get_balance().await?;
+    ///
+    ///     println!("Total credits: ${:.2}", credits.total_credits());
+    ///     println!("Usage: ${:.2}", credits.total_usage());
+    ///     println!("Remaining: ${:.2}", credits.remaining_credits());
+    ///     println!("Usage: {:.1}%", credits.usage_percentage() * 100.0);
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn get_balance(&self) -> Result<CreditsResponse> {
+        // Build the URL.
+        let url = self
+            .config
+            .base_url
+            .join("credits")
+            .map_err(|e| Error::ApiError {
+                code: 400,
+                message: format!("Invalid URL for credits endpoint: {e}"),
+                metadata: None,
+            })?;
+
+        // Execute request with retry logic
+        let response = execute_with_retry_builder(&self.config.retry_config, GET_BALANCE, || {
+            self.client
+                .get(url.clone())
+                .headers((*self.config.headers).clone())
+        })
+        .await?;
+
+        // Handle response with consistent error parsing
+        handle_response_json::<CreditsResponse>(response, GET_BALANCE).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_credits_api_new() {
+        use crate::tests::test_helpers::test_client_config;
+
+        let config = test_client_config();
+        let client = Client::new();
+        let credits_api = CreditsApi::new(client, &config).unwrap();
+
+        // Verify that the API config was created successfully
+        // The API key should NOT be stored in the API config for security reasons
+        // headers is now Arc<HeaderMap>, but Arc implements Deref so methods work the same
+        assert!(!credits_api.config.headers.is_empty());
+        assert!(credits_api.config.headers.contains_key("authorization"));
+    }
+
+    #[test]
+    fn test_credits_api_base_url_resolves_correct_path() {
+        use crate::tests::test_helpers::test_client_config;
+
+        let config = test_client_config();
+        let client = Client::new();
+        let credits_api = CreditsApi::new(client, &config).unwrap();
+        let url = credits_api.config.base_url.join("credits").unwrap();
+
+        assert!(
+            url.path().ends_with("/credits"),
+            "Expected path ending with /credits, got: {}",
+            url.path()
+        );
+        assert!(
+            !url.path().contains("/api/v1/api/v1/"),
+            "credits endpoint must not duplicate /api/v1/: {}",
+            url.path()
+        );
+    }
+}
