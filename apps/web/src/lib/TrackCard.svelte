@@ -218,7 +218,7 @@
     {#if track.cover}
       <img src={track.cover} alt="cover" />
     {:else}
-      <div class="cover-placeholder">♪</div>
+      <div class="cover-placeholder"><i class="lni lni-music-note" aria-hidden="true"></i></div>
     {/if}
   </div>
 
@@ -276,22 +276,23 @@
 
         <div class="row meta">
           {#if track.album}
-            <span class="chip">💿 {track.album.title}</span>
+            <span class="chip">{track.album.title}</span>
           {/if}
           {#if track.date}
-            <span class="chip">📅 {track.date}</span>
+            <span class="chip">{track.date}</span>
           {/if}
           {#if track.genre}
-            <span class="chip">🎵 {track.genre}</span>
+            <span class="chip">{track.genre}</span>
           {/if}
           {#if track.duration}
-            <span class="chip">⏱ {formatDuration(track.duration)}</span>
+            <span class="chip chip-duration">{formatDuration(track.duration)}</span>
           {/if}
         </div>
 
         {#if track.validation_reason}
           <div class="reason">
-            ⚠️ {reasonLabel(track.validation_reason)}
+            <i class="lni lni-info-triangle" aria-hidden="true"></i>
+            <span>{reasonLabel(track.validation_reason)}</span>
           </div>
         {/if}
 
@@ -366,13 +367,13 @@
                    </div>
                    <div class="match-meta">
                      {#if candidate.album}
-                       <span class="chip">💿 {candidate.album.title}</span>
+                       <span class="chip">{candidate.album.title}</span>
                      {/if}
                      {#if candidate.date}
-                       <span class="chip">📅 {candidate.date}</span>
+                       <span class="chip">{candidate.date}</span>
                      {/if}
                      {#if candidate.duration}
-                       <span class="chip">⏱ {formatDuration(candidate.duration)}</span>
+                       <span class="chip chip-duration">{formatDuration(candidate.duration)}</span>
                      {/if}
                      <span class="chip match-score">{formatScore(candidate.score)}</span>
                      <span class="chip match-provider">{candidate.provider}</span>
@@ -395,8 +396,8 @@
     display: flex;
     gap: 1rem;
     padding: 1rem;
-    background: var(--float);
-    border: 1px solid var(--float-border);
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
     border-radius: 10px;
     box-shadow: var(--rim), var(--shadow-sm);
     transition: border-color 0.15s;
@@ -427,6 +428,8 @@
   .cover-placeholder {
     font-size: 1.8rem;
     color: var(--muted);
+    display: flex;
+    line-height: 1;
   }
 
   .body {
@@ -479,9 +482,24 @@
     white-space: nowrap;
   }
 
+  .chip-duration {
+    font-family: var(--font-mono);
+  }
+
   .reason {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     font-size: 0.75rem;
-    color: var(--warning, #f59e0b);
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--warning) 14%, transparent);
+    color: var(--warning);
+  }
+
+  .reason .lni {
+    font-size: 0.95rem;
+    flex-shrink: 0;
   }
 
   .filepath {
@@ -589,7 +607,7 @@
   }
 
   .btn-approve {
-    background: #16a34a;
+    background: var(--accent);
     color: #fff;
   }
 
@@ -599,12 +617,12 @@
 
   .btn-reject {
     background: transparent;
-    border-color: #dc2626;
-    color: #dc2626;
+    border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+    color: var(--error);
   }
 
   .btn-reject:hover:not(:disabled) {
-    background: #dc2626;
+    background: var(--error);
     color: #fff;
   }
 
@@ -619,12 +637,12 @@
   }
 
   .btn-youtube {
-    border-color: #dc2626;
-    color: #dc2626;
+    border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+    color: var(--error);
   }
 
   .btn-youtube:hover:not(:disabled) {
-    background: #dc2626;
+    background: var(--error);
     color: #fff;
   }
 
@@ -633,9 +651,9 @@
   .matches-panel {
     margin-top: 0.75rem;
     padding: 0.75rem;
-    background: var(--float);
+    background: var(--surface);
     border-radius: 10px;
-    border: 1px solid var(--float-border);
+    border: 1px solid var(--border-soft);
     box-shadow: var(--rim), var(--shadow-sm);
   }
 
@@ -671,8 +689,8 @@
     align-items: center;
     gap: 0.75rem;
     padding: 0.5rem;
-    background: var(--float);
-    border: 1px solid var(--float-border);
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
     border-radius: 10px;
     box-shadow: var(--rim), var(--shadow-sm);
     transition: border-color 0.15s;
@@ -724,19 +742,19 @@
   }
 
   .match-score {
-    background: #16a34a22;
-    color: #16a34a;
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+    color: var(--success);
     font-weight: 600;
   }
 
   .match-provider {
-    background: var(--accent-muted, rgba(99, 102, 241, 0.15));
+    background: var(--accent-muted);
     color: var(--accent);
   }
 
   .btn-select {
     flex-shrink: 0;
-    background: #16a34a;
+    background: var(--accent);
     color: #fff;
     font-size: 0.75rem;
     padding: 0.25rem 0.6rem;

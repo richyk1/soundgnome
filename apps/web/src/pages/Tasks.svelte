@@ -136,39 +136,63 @@
 </script>
 
 <div class="tasks-page">
-  <h2>Tasks</h2>
+  <header class="page-header">
+    <div class="header-text">
+      <h1>Activity</h1>
+      <p class="lede">Background sync and download tasks, with live progress and per-track results.</p>
+    </div>
+  </header>
 
   {#if loading}
-    <p class="empty">Loading…</p>
+    <ul class="task-list" aria-hidden="true">
+      {#each [0, 1, 2] as _}
+        <li class="task-panel skeleton">
+          <div class="sk sk-head"></div>
+          <div class="sk sk-bar"></div>
+          <div class="sk sk-stats"></div>
+        </li>
+      {/each}
+    </ul>
   {:else if tasks.length === 0}
-    <p class="empty">No tasks.</p>
+    <div class="empty">
+      <i class="lni lni-list-music-4" aria-hidden="true"></i>
+      <p class="empty-title">No activity yet</p>
+      <p class="empty-hint">Downloads and syncs you start will show up here with live progress.</p>
+    </div>
   {:else}
     <ul class="task-list">
       {#each tasks as task (task.id)}
-        <li class="task-card">
-          <div class="task-header">
-            <span class="task-label">{taskLabel(task)}</span>
-            <div class="task-header-right">
+        <li class="task-panel">
+          <div class="task-head">
+            <div class="task-ident">
+              <span class="task-label">{taskLabel(task)}</span>
+              <span class="task-id">#{task.id}</span>
+            </div>
+            <div class="task-actions">
               {#if canCancel(task.status)}
                 <button
-                  class="cancel-btn"
+                  class="btn-danger btn-sm"
                   disabled={cancelling.has(task.id)}
                   onclick={() => handleCancel(task)}
                 >
                   {#if cancelling.has(task.id)}
                     <span class="spinner"></span> Cancelling…
                   {:else}
-                    Cancel
+                    <i class="lni lni-xmark" aria-hidden="true"></i> Cancel
                   {/if}
                 </button>
               {/if}
               {#if canRetry(task.status)}
                 <button
-                  class="retry-btn"
+                  class="btn-ghost btn-sm"
                   disabled={retrying.has(task.id)}
                   onclick={() => handleRetry(task)}
                 >
-                  {retrying.has(task.id) ? '…' : 'Retry'}
+                  {#if retrying.has(task.id)}
+                    <span class="spinner"></span>
+                  {:else}
+                    <i class="lni lni-redo" aria-hidden="true"></i> Retry
+                  {/if}
                 </button>
               {/if}
               <span class="status-badge {statusClass(task.status)}">{statusLabel(task.status)}</span>
@@ -177,101 +201,110 @@
 
           {#if task.status === 'Running' || task.status === 'Completed' || task.status === 'Cancelled'}
             <div class="progress-row">
-              <div class="progress-bar">
+              <div class="progress-track">
                 <div
                   class="progress-fill {statusClass(task.status)}"
-                  style="width: {progressPercent(task)}%"
+                  style="transform: scaleX({progressPercent(task) / 100})"
                 ></div>
               </div>
-              <span class="progress-text">
+              <span class="progress-label">
                 {task.progress}{task.total != null ? ` / ${task.total}` : ''}
               </span>
             </div>
           {/if}
 
           {#if task.status === 'Running' && task.stats?.ai_curation && task.source_platform === 'soundcloud'}
-            <div class="ai-curation-row">
-              <span class="spinner ai-spinner"></span>
-              <span class="ai-curation-text">
+            <div class="status-line">
+              <span class="spinner"></span>
+              <span>
                 Curating metadata with AI: {task.stats.ai_curation.processed} / {task.stats.ai_curation.total} tracks
               </span>
             </div>
           {:else if task.status === 'Running' && (task.stats?.downloaded ?? 0) === 0}
-            <div class="fetching-row">
-              <span class="spinner fetch-spinner"></span>
-              <span class="fetching-text">Fetching tracks…</span>
+            <div class="status-line">
+              <span class="spinner"></span>
+              <span>Fetching tracks…</span>
             </div>
           {/if}
 
           {#if hasStats(task)}
             <div class="stats-row">
               {#if task.stats!.downloaded > 0}
-                <span class="stat-chip downloaded">✓ {task.stats!.downloaded} downloaded</span>
+                <span class="stat stat-ok">
+                  <i class="lni lni-check-circle-1" aria-hidden="true"></i>
+                  {task.stats!.downloaded} downloaded
+                </span>
               {/if}
               {#if task.stats!.to_validate > 0}
                 {#if task.stats!.to_validate_tracks && task.stats!.to_validate_tracks.length > 0}
                   <button
-                    class="stat-chip to-validate"
+                    class="stat stat-warn stat-btn"
                     onclick={() => toggleValidations(task.id)}
                     title="View tracks pending validation"
                   >
-                    ⚠ {task.stats!.to_validate} pending validation
-                    <span class="chevron">{expandedValidations.has(task.id) ? '▲' : '▼'}</span>
+                    <i class="lni lni-flag-1" aria-hidden="true"></i>
+                    {task.stats!.to_validate} pending validation
+                    <i class="lni {expandedValidations.has(task.id) ? 'lni-chevron-down' : 'lni-chevron-right'} chevron" aria-hidden="true"></i>
                   </button>
                 {:else}
                   <button
-                    class="stat-chip to-validate"
+                    class="stat stat-warn stat-btn"
                     onclick={() => onNavigateValidations?.()}
                     title="Go to Validations"
                   >
-                    ⚠ {task.stats!.to_validate} pending validation
+                    <i class="lni lni-flag-1" aria-hidden="true"></i>
+                    {task.stats!.to_validate} pending validation
                   </button>
                 {/if}
               {/if}
               {#if task.stats!.skipped > 0}
-                <span class="stat-chip skipped">↩ {task.stats!.skipped} skipped</span>
+                <span class="stat stat-muted">
+                  <i class="lni lni-undo" aria-hidden="true"></i>
+                  {task.stats!.skipped} skipped
+                </span>
               {/if}
               {#if task.stats!.errors.length > 0}
                 <button
-                  class="stat-chip errors"
+                  class="stat stat-err stat-btn"
                   onclick={() => toggleErrors(task.id)}
                   title="View error details"
                 >
-                  ✕ {task.stats!.errors.length} error{task.stats!.errors.length > 1 ? 's' : ''}
-                  <span class="chevron">{expandedErrors.has(task.id) ? '▲' : '▼'}</span>
+                  <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+                  {task.stats!.errors.length} error{task.stats!.errors.length > 1 ? 's' : ''}
+                  <i class="lni {expandedErrors.has(task.id) ? 'lni-chevron-down' : 'lni-chevron-right'} chevron" aria-hidden="true"></i>
                 </button>
               {/if}
             </div>
 
             {#if task.stats!.errors.length > 0 && expandedErrors.has(task.id)}
-              <ul class="error-list">
+              <ul class="detail-list">
                 {#each task.stats!.errors as err}
-                  <li class="error-item">
+                  <li class="detail-row error-row">
                     {#if err.provider_url}
-                      <a href={err.provider_url} target="_blank" rel="noopener noreferrer" class="error-track-link">
+                      <a href={err.provider_url} target="_blank" rel="noopener noreferrer" class="detail-track detail-link">
                         {err.track}
-                        <span class="external-icon">↗</span>
+                        <i class="lni lni-share-1 ext-icon" aria-hidden="true"></i>
                       </a>
                     {:else}
-                      <span class="error-track">{err.track}</span>
+                      <span class="detail-track">{err.track}</span>
                     {/if}
-                    <span class="error-reason">{err.reason}</span>
+                    <span class="detail-reason">{err.reason}</span>
                   </li>
                 {/each}
               </ul>
             {/if}
 
             {#if task.stats!.to_validate_tracks && task.stats!.to_validate_tracks.length > 0 && expandedValidations.has(task.id)}
-              <ul class="validation-list">
+              <ul class="detail-list">
                 {#each task.stats!.to_validate_tracks as item}
-                  <li class="validation-item">
-                    <span class="validation-track">{item.track}</span>
-                    <span class="validation-reason">{reasonLabel(item.reason)}</span>
+                  <li class="detail-row validation-row">
+                    <span class="detail-track">{item.track}</span>
+                    <span class="detail-reason">{reasonLabel(item.reason)}</span>
                   </li>
                 {/each}
-                <li class="validation-item validation-action">
-                  <button class="go-validate-btn" onclick={() => onNavigateValidations?.()}>
-                    Review in Validations →
+                <li class="detail-row detail-action">
+                  <button class="btn-ghost btn-sm" onclick={() => onNavigateValidations?.()}>
+                    Review in Validations <i class="lni lni-arrow-right" aria-hidden="true"></i>
                   </button>
                 </li>
               </ul>
@@ -279,7 +312,10 @@
           {/if}
 
           {#if task.error}
-            <p class="task-error">⚠ {task.error}</p>
+            <div class="callout callout-error" role="alert">
+              <i class="lni lni-error-circle" aria-hidden="true"></i>
+              <div class="callout-body"><span>{task.error}</span></div>
+            </div>
           {/if}
 
           {#if task.updated_at}
@@ -293,495 +329,432 @@
 
 <style>
   .tasks-page {
-    max-width: 800px;
-    margin: 1rem auto;
-    padding: 0 0.75rem;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 1.5rem 2rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
   }
 
-  @media (min-width: 640px) {
-    .tasks-page {
-      margin: 1.5rem auto;
-      padding: 0 1rem;
-    }
+  /* ── Header ──────────────────────────────────────────────────────────── */
+  .page-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
   }
-
+  .header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 60ch;
+  }
+  h1 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0;
+  }
   @media (min-width: 768px) {
-    .tasks-page {
-      margin: 2rem auto;
+    h1 {
+      font-size: 1.5rem;
     }
   }
-
-  h2 {
+  .lede {
+    margin: 0;
+    color: var(--muted);
     font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+  .btn-ghost,
+  .btn-danger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 1rem;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.875rem;
     font-weight: 600;
-    margin-bottom: 1rem;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      filter 0.12s ease,
+      background 0.12s ease,
+      opacity 0.12s ease;
+  }
+  .btn-ghost {
+    background: var(--surface);
+    border: 1px solid var(--border);
     color: var(--text);
   }
-
-  @media (min-width: 640px) {
-    h2 {
-      font-size: 1.1rem;
-      margin-bottom: 1.25rem;
-    }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+  .btn-danger {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+    color: var(--error);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--error-bg);
+  }
+  .btn-ghost:disabled,
+  .btn-danger:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .btn-ghost .lni,
+  .btn-danger .lni {
+    font-size: 15px;
+  }
+  .btn-sm {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.82rem;
   }
 
-  .empty {
-    color: var(--muted);
-    font-size: 0.8rem;
-  }
-
-  @media (min-width: 640px) {
-    .empty {
-      font-size: 0.9rem;
-    }
-  }
-
+  /* ── Task list + panels ──────────────────────────────────────────────── */
   .task-list {
     list-style: none;
     padding: 0;
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.75rem;
   }
-
-  @media (min-width: 640px) {
-    .task-list {
-      gap: 0.75rem;
-    }
-  }
-
-  .task-card {
-    background: var(--float);
-    border: 1px solid var(--float-border);
-    border-radius: 10px;
-    box-shadow: var(--rim), var(--shadow-sm);
-    padding: 0.7rem 0.75rem;
+  .task-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 0.7rem;
+    padding: 1rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
   }
-
-  @media (min-width: 640px) {
-    .task-card {
-      padding: 0.85rem 1rem;
-      gap: 0.5rem;
-    }
-  }
-
-  .task-header {
+  .task-head {
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    align-items: center;
-    gap: 0.4rem;
+    gap: 0.75rem;
     flex-wrap: wrap;
   }
-
-  @media (min-width: 640px) {
-    .task-header {
-      gap: 0.5rem;
-      flex-wrap: nowrap;
-    }
-  }
-
-  .task-header-right {
+  .task-ident {
     display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    flex-shrink: 0;
-    flex-wrap: wrap;
-  }
-
-  @media (min-width: 640px) {
-    .task-header-right {
-      gap: 0.5rem;
-    }
-  }
-
-  .retry-btn {
-    font-size: 0.65rem;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 99px;
-    border: 1px solid #555;
-    background: transparent;
-    color: #aaa;
-    cursor: pointer;
-  }
-
-  @media (min-width: 768px) {
-    .retry-btn {
-      font-size: 0.72rem;
-      padding: 2px 8px;
-    }
-  }
-
-  .retry-btn:hover:not(:disabled) {
-    background: #2a2a2a;
-    color: #fff;
-  }
-  .retry-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .cancel-btn {
-    font-size: 0.65rem;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 99px;
-    border: 1px solid #b91c1c;
-    background: transparent;
-    color: #f87171;
-    cursor: pointer;
-  }
-
-  @media (min-width: 768px) {
-    .cancel-btn {
-      font-size: 0.72rem;
-      padding: 2px 8px;
-    }
-  }
-
-  .cancel-btn:hover:not(:disabled) {
-    background: #3b1a1a;
-    color: #fca5a5;
-  }
-  .cancel-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .task-label {
-    font-size: 0.8rem;
-    font-weight: 500;
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
+    align-items: baseline;
+    gap: 0.6rem;
     min-width: 0;
   }
-
-  @media (min-width: 640px) {
-    .task-label {
-      font-size: 0.9rem;
-    }
-  }
-
-  .status-badge {
-    font-size: 0.65rem;
+  .task-label {
+    font-size: 0.95rem;
     font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 99px;
+    color: var(--text-bright);
+  }
+  .task-id {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--muted-2);
+  }
+  .task-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     flex-shrink: 0;
   }
 
-  @media (min-width: 768px) {
-    .status-badge {
-      font-size: 0.72rem;
-      padding: 2px 8px;
-    }
+  /* ── Status badge ────────────────────────────────────────────────────── */
+  .status-badge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .status-badge.completed {
+    background: color-mix(in srgb, var(--success) 18%, transparent);
+    color: var(--success);
+  }
+  .status-badge.running,
+  .status-badge.pending {
+    background: var(--accent-muted);
+    color: var(--accent-2);
+  }
+  .status-badge.failed {
+    background: var(--error-bg);
+    color: var(--error);
+  }
+  .status-badge.cancelled,
+  .status-badge.cancelling {
+    background: var(--surface-2);
+    color: var(--muted);
   }
 
-  .status-badge.pending    { background: #3b3b3b; color: #aaa; }
-  .status-badge.running    { background: #1e3a5f; color: #60a5fa; }
-  .status-badge.completed  { background: #1a3326; color: #4ade80; }
-  .status-badge.failed     { background: #3b1a1a; color: #f87171; }
-  .status-badge.cancelled  { background: #3b2a1a; color: #fb923c; }
-  .status-badge.cancelling { background: #3b2a1a; color: #fbbf24; }
-
+  /* ── Progress ────────────────────────────────────────────────────────── */
   .progress-row {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.75rem;
   }
-
-  @media (min-width: 640px) {
-    .progress-row {
-      gap: 0.6rem;
-    }
-  }
-
-  .progress-bar {
+  .progress-track {
     flex: 1;
-    height: 5px;
-    background: var(--surface-2, #2a2a2a);
-    border-radius: 3px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--surface-2);
     overflow: hidden;
-    min-width: 0;
   }
-
-  @media (min-width: 640px) {
-    .progress-bar {
-      height: 6px;
-    }
-  }
-
   .progress-fill {
     height: 100%;
-    border-radius: 3px;
-    transition: width 0.4s ease;
+    width: 100%;
+    background: var(--accent);
+    transform-origin: left;
+    transition: transform 0.3s ease;
   }
-  .progress-fill.running    { background: #60a5fa; }
-  .progress-fill.completed  { background: #4ade80; }
-  .progress-fill.cancelled  { background: #fb923c; }
+  .progress-fill.completed {
+    background: var(--success);
+  }
+  .progress-fill.cancelled {
+    background: var(--muted-2);
+  }
+  .progress-label {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--muted-2);
+    flex-shrink: 0;
+  }
 
-  .progress-text {
-    font-size: 0.65rem;
+  /* ── Transient status line ───────────────────────────────────────────── */
+  .status-line {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
     color: var(--muted);
-    white-space: nowrap;
-    min-width: 45px;
-    text-align: right;
   }
 
-  @media (min-width: 640px) {
-    .progress-text {
-      font-size: 0.75rem;
-      min-width: 50px;
-    }
-  }
-
-  /* ── Stats chips ── */
+  /* ── Stat pills ──────────────────────────────────────────────────────── */
   .stats-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.3rem;
-    margin-top: 0.1rem;
+    gap: 0.4rem;
   }
-
-  @media (min-width: 640px) {
-    .stats-row {
-      gap: 0.4rem;
-    }
-  }
-
-  .stat-chip {
+  .stat {
     display: inline-flex;
     align-items: center;
-    gap: 0.2rem;
-    font-size: 0.65rem;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 99px;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+  }
+  .stat .lni {
+    font-size: 13px;
+  }
+  .stat-btn {
+    border: none;
+    font-family: inherit;
+    cursor: pointer;
+    transition: filter 0.12s ease;
+  }
+  .stat-btn:hover {
+    filter: brightness(1.12);
+  }
+  .stat-ok {
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+    color: var(--success);
+  }
+  .stat-warn {
+    background: var(--warning-bg);
+    color: var(--warning);
+  }
+  .stat-muted {
+    background: var(--surface-2);
+    color: var(--muted);
+  }
+  .stat-err {
+    background: var(--error-bg);
+    color: var(--error);
+  }
+  .stat .chevron {
+    font-size: 11px;
+  }
+
+  /* ── Detail lists (errors + validations) ─────────────────────────────── */
+  .detail-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .detail-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.4rem 0.65rem;
+    border-radius: 8px;
+    font-size: 0.82rem;
+  }
+  .error-row {
+    background: color-mix(in srgb, var(--error) 10%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
+  }
+  .validation-row {
+    background: color-mix(in srgb, var(--warning) 10%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
+  }
+  .detail-track {
+    color: var(--text);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  @media (min-width: 768px) {
-    .stat-chip {
-      font-size: 0.72rem;
-      padding: 2px 8px;
-      gap: 0.25rem;
-    }
-  }
-
-  .stat-chip.downloaded { background: #1a3326; color: #4ade80; }
-  .stat-chip.to-validate {
-    background: #3b3000;
-    color: #fbbf24;
-    border: none;
-    cursor: pointer;
-  }
-  .stat-chip.to-validate:hover { background: #4a3d00; }
-
-  .stat-chip.skipped    { background: #2a2a2a; color: #9ca3af; }
-  .stat-chip.errors     {
-    background: #3b1a1a;
-    color: #f87171;
-    border: none;
-    cursor: pointer;
-  }
-  .stat-chip.errors:hover { background: #4a2020; }
-
-  .chevron {
-    font-size: 0.55rem;
-    opacity: 0.7;
-  }
-
-  @media (min-width: 768px) {
-    .chevron {
-      font-size: 0.6rem;
-    }
-  }
-
-  /* ── Error detail list ── */
-  .error-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    border-left: 2px solid #5a2020;
-    padding-left: 0.6rem;
-  }
-
-  @media (min-width: 640px) {
-    .error-list {
-      gap: 0.3rem;
-      padding-left: 0.75rem;
-    }
-  }
-
-  .error-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.08rem;
-  }
-
-  .error-track {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #f87171;
-  }
-
-  @media (min-width: 768px) {
-    .error-track {
-      font-size: 0.78rem;
-    }
-  }
-
-  .error-track-link {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #f87171;
-    text-decoration: none;
+  .detail-link {
     display: inline-flex;
     align-items: center;
-    gap: 0.2rem;
-    border-bottom: 1px solid #f8717166;
-    cursor: pointer;
-    transition: color 0.2s, border-color 0.2s;
+    gap: 0.35rem;
+    text-decoration: none;
+  }
+  .detail-link:hover {
+    color: var(--text-bright);
+  }
+  .ext-icon {
+    font-size: 12px;
+    color: var(--muted-2);
+    flex-shrink: 0;
+  }
+  .detail-reason {
+    font-size: 0.75rem;
+    color: var(--muted);
+    flex-shrink: 0;
+    text-align: right;
+  }
+  .detail-action {
+    justify-content: flex-end;
+    padding: 0.25rem 0;
+    background: none;
+    border: none;
   }
 
-  @media (min-width: 768px) {
-    .error-track-link {
-      font-size: 0.78rem;
-      gap: 0.25rem;
-    }
+  /* ── Task error callout ──────────────────────────────────────────────── */
+  .callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    font-size: 0.88rem;
   }
-
-  .error-track-link:hover {
-    color: #fb8181;
-    border-bottom-color: #f87171;
+  .callout .lni {
+    font-size: 18px;
+    flex-shrink: 0;
   }
-
-  .external-icon {
-    font-size: 0.6rem;
-    opacity: 0.7;
-  }
-
-  .error-reason {
-    font-size: 0.72rem;
-    color: #9ca3af;
-    word-break: break-word;
-  }
-
-  /* ── Validation detail list ── */
-  .validation-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
+  .callout-body {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
-    border-left: 2px solid #78520a;
-    padding-left: 0.75rem;
+    gap: 0.15rem;
+    min-width: 0;
   }
-
-  .validation-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-  }
-
-  .validation-track {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: #fbbf24;
-  }
-
-  .validation-reason {
-    font-size: 0.72rem;
-    color: #9ca3af;
-  }
-
-  .validation-action {
-    margin-top: 0.2rem;
-  }
-
-  .go-validate-btn {
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 3px 10px;
-    border-radius: 99px;
-    border: 1px solid #fbbf24;
-    background: transparent;
-    color: #fbbf24;
-    cursor: pointer;
-  }
-  .go-validate-btn:hover {
-    background: #3b3000;
-  }
-
-  .task-error {
-    font-size: 0.78rem;
-    color: #f87171;
-    margin: 0;
+  .callout-error {
+    background: var(--error-bg);
+    border-color: color-mix(in srgb, var(--error) 45%, transparent);
+    color: var(--error);
   }
 
   .task-date {
-    font-size: 0.72rem;
-    color: var(--muted);
     margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--muted-2);
+  }
+
+  /* ── Empty state ─────────────────────────────────────────────────────── */
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.35rem;
+    padding: 3rem 1rem;
+  }
+  .empty .lni {
+    font-size: 30px;
+    color: var(--muted-2);
+    margin-bottom: 0.3rem;
+  }
+  .empty-title {
+    margin: 0;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .empty-hint {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+    max-width: 40ch;
+  }
+
+  /* ── Loading skeleton ────────────────────────────────────────────────── */
+  .task-panel.skeleton {
+    gap: 0.85rem;
+  }
+  .sk {
+    border-radius: 6px;
+    background: var(--surface-2);
+    animation: sk-pulse 1.3s ease-in-out infinite;
+  }
+  .sk-head {
+    height: 1rem;
+    width: 40%;
+  }
+  .sk-bar {
+    height: 6px;
+    width: 100%;
+  }
+  .sk-stats {
+    height: 0.9rem;
+    width: 60%;
+  }
+  @keyframes sk-pulse {
+    50% {
+      opacity: 0.45;
+    }
   }
 
   .spinner {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border: 2px solid #f8717155;
-    border-top-color: #f87171;
+    width: 13px;
+    height: 13px;
+    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-top-color: currentColor;
     border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-    vertical-align: middle;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
   }
-
-  .ai-curation-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-top: 0.4rem;
-  }
-
-  .ai-spinner {
-    border-color: #a78bfa55;
-    border-top-color: #a78bfa;
-  }
-
-  .ai-curation-text {
-    font-size: 0.78rem;
-    color: #a78bfa;
-  }
-
-  .fetching-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-top: 0.4rem;
-  }
-
-  .fetch-spinner {
-    border-color: #60a5fa55;
-    border-top-color: #60a5fa;
-  }
-
-  .fetching-text {
-    font-size: 0.78rem;
-    color: #60a5fa;
-  }
-
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sk,
+    .spinner,
+    .progress-fill,
+    .chevron {
+      animation: none;
+      transition: none;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .tasks-page {
+      padding: 1.25rem 1rem 1.5rem;
+    }
   }
 </style>

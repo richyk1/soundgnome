@@ -21,8 +21,10 @@
   class="help-dialog"
 >
   <div class="dialog-header">
-    <h3>Soundgnome — help</h3>
-    <button class="dialog-close" onclick={onClose} aria-label="Close">&times;</button>
+    <h3>Soundgnome help</h3>
+    <button class="dialog-close" onclick={onClose} aria-label="Close">
+      <i class="lni lni-xmark" aria-hidden="true"></i>
+    </button>
   </div>
 
   <div class="dialog-body">
@@ -65,9 +67,9 @@
         <tbody>
           <tr><td><kbd>S</kbd></td><td>Focus the search field</td></tr>
           <tr><td><kbd>E</kbd></td><td>Edit the item under the cursor</td></tr>
-          <tr><td><kbd>⌫ Backspace</kbd></td><td>Go up one level (album → artist → list)</td></tr>
+          <tr><td><kbd>Backspace</kbd></td><td>Go up one level (album to artist to list)</td></tr>
           <tr><td><kbd>Shift</kbd> + click</td><td>Select an artist or album for merge</td></tr>
-          <tr><td><kbd>M</kbd></td><td>Start merge (requires ≥ 2 artists or albums selected)</td></tr>
+          <tr><td><kbd>M</kbd></td><td>Start merge (requires 2 or more artists or albums selected)</td></tr>
           <tr><td><kbd>Esc</kbd></td><td>Cancel merge / clear selection</td></tr>
         </tbody>
       </table>
@@ -100,10 +102,10 @@
     <section>
       <h4>Tips</h4>
       <ul class="tips-list">
-        <li>Playlist URLs queue a background sync task — follow progress in <strong>Tasks</strong>.</li>
+        <li>Playlist URLs queue a background sync task. Follow progress in <strong>Tasks</strong>.</li>
         <li>Tracks marked <span class="badge-warn">review</span> in the recent-downloads list are waiting in <strong>Validations</strong>.</li>
         <li>In the Validations page, <strong>Show matches</strong> fetches alternative metadata candidates when the reason is a partial match.</li>
-        <li>In Library → Artists or Albums, the <strong>Similar</strong> filter highlights items whose names/titles are close — useful for spotting duplicates before merging.</li>
+        <li>In Library, under Artists or Albums, the <strong>Similar</strong> filter highlights items whose names or titles are close. This is useful for spotting duplicates before merging.</li>
         <li>Full API docs are available at <a href="/swagger" target="_blank" rel="noopener noreferrer">/swagger</a>.</li>
       </ul>
     </section>
@@ -113,96 +115,136 @@
 
 <style>
   .help-dialog {
-    background: var(--float);
-    border: 1px solid var(--float-border);
-    border-radius: 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
     padding: 0;
-    width: min(640px, 94vw);
+    width: min(560px, 94vw);
     max-height: 88vh;
     overflow-y: auto;
     color: var(--text);
-    font-family: inherit;
-    box-shadow: var(--rim), var(--float-shadow);
+    font-family: var(--font-body);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   }
 
   .help-dialog::backdrop {
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(3px);
+    background: color-mix(in srgb, #000 70%, transparent);
+    backdrop-filter: blur(2px);
+  }
+
+  .help-dialog[open] {
+    animation: help-in 160ms ease-out;
+  }
+
+  .help-dialog[open]::backdrop {
+    animation: help-backdrop-in 160ms ease-out;
+  }
+
+  @keyframes help-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes help-backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .help-dialog[open],
+    .help-dialog[open]::backdrop {
+      animation: none;
+    }
   }
 
   .dialog-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1.1rem 1.4rem 0.8rem;
-    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+    padding: 1.25rem 1.5rem 1rem;
+    border-bottom: 1px solid var(--border-soft);
     position: sticky;
     top: 0;
-    background: var(--surface);
+    background: var(--panel);
     z-index: 1;
   }
 
   .dialog-header h3 {
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-bright);
   }
 
   .dialog-close {
-    background: none;
-    border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
     color: var(--muted);
-    font-size: 1.4rem;
+    font-size: 1.05rem;
     line-height: 1;
     cursor: pointer;
-    padding: 0 0.2rem;
+    transition: background 120ms ease, color 120ms ease;
   }
 
   .dialog-close:hover {
-    color: var(--text);
+    background: var(--surface-2);
+    color: var(--text-bright);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dialog-close { transition: none; }
   }
 
   .dialog-body {
-    padding: 1.2rem 1.4rem 1.4rem;
+    padding: 1.25rem 1.5rem 1.5rem;
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1.75rem;
   }
 
   section {
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
+    gap: 0.75rem;
   }
 
   h4 {
-    font-size: 0.7rem;
+    font-size: 0.72rem;
     font-weight: 700;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--muted);
+    color: var(--muted-2);
     margin: 0;
   }
 
   h5 {
-    font-size: 0.78rem;
+    font-size: 0.82rem;
     font-weight: 600;
-    color: var(--muted);
-    margin: 0.4rem 0 0.2rem;
+    color: var(--text);
+    margin: 0.5rem 0 0.1rem;
   }
 
-  /* ── Pages table ──────────────────────────────────────────────────── */
-
+  /* Pages table */
   .help-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.855rem;
+    font-size: 0.875rem;
   }
 
   .help-table td {
-    padding: 0.42rem 0.6rem;
+    padding: 0.5rem 0.65rem;
     vertical-align: top;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--muted);
+    line-height: 1.5;
   }
 
   .help-table tr:last-child td {
@@ -213,55 +255,54 @@
     font-weight: 600;
     white-space: nowrap;
     width: 1%;
-    padding-right: 1rem;
-    color: var(--accent);
+    padding-right: 1.25rem;
+    color: var(--text-bright);
   }
 
-  /* ── Shortcut table ───────────────────────────────────────────────── */
-
+  /* Shortcut table */
   .shortcut-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.845rem;
+    font-size: 0.875rem;
   }
 
   .shortcut-table td {
-    padding: 0.3rem 0.4rem;
+    padding: 0.35rem 0.4rem;
     vertical-align: middle;
+    color: var(--muted);
   }
 
   .shortcut-table td:first-child {
     white-space: nowrap;
     width: 1%;
-    padding-right: 1.2rem;
+    padding-right: 1.5rem;
   }
 
   kbd {
     display: inline-block;
-    padding: 0.12rem 0.4rem;
+    padding: 0.15rem 0.45rem;
     background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font-family: inherit;
-    font-size: 0.8rem;
+    border: 1px solid var(--border-soft);
+    border-radius: 5px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
     line-height: 1.4;
     color: var(--text);
   }
 
-  /* ── Tips list ────────────────────────────────────────────────────── */
-
+  /* Tips list */
   .tips-list {
     margin: 0;
     padding: 0 0 0 1.2rem;
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
-    font-size: 0.845rem;
+    gap: 0.5rem;
+    font-size: 0.875rem;
     color: var(--muted);
   }
 
   .tips-list li {
-    line-height: 1.5;
+    line-height: 1.55;
   }
 
   .tips-list strong {
@@ -270,7 +311,7 @@
   }
 
   .tips-list a {
-    color: var(--accent);
+    color: var(--accent-2);
     text-decoration: none;
   }
 
@@ -279,11 +320,12 @@
   }
 
   .badge-warn {
+    font-family: var(--font-mono);
     font-size: 0.7rem;
-    padding: 0.1rem 0.35rem;
-    background: color-mix(in srgb, var(--warning, #f59e0b) 20%, transparent);
-    border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 40%, transparent);
-    color: var(--warning, #f59e0b);
-    border-radius: 4px;
+    padding: 0.1rem 0.4rem;
+    background: var(--warning-bg);
+    border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+    color: var(--warning);
+    border-radius: 5px;
   }
 </style>
