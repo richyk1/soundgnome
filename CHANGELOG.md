@@ -46,6 +46,15 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   skips byte-identical re-uploads before enrichment, so re-pushing songs already
   in the library is sorted out cheaply. The hash is stored as a track reference
   (no schema migration); metadata-based dedup still handles non-identical copies.
+- **Acoustic-fingerprint deduplication.** Ingest computes a
+  [Chromaprint](https://acoustid.org/chromaprint) acoustic fingerprint (pure-Rust
+  [rusty-chromaprint](https://crates.io/crates/rusty-chromaprint), decoded through
+  the bundled ffmpeg) and, before enrichment, matches it against stored
+  fingerprints of tracks with a comparable duration. This catches the same
+  recording re-encoded to a different bitrate or format, which the exact hash and
+  (for weakly-tagged files) the title/artist tier both miss. Fingerprints are
+  stored as track references, so there is no schema migration and the match is a
+  narrow, offline, in-process comparison.
 
 ### Changed
 

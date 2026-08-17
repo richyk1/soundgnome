@@ -7,6 +7,7 @@ use std::{
 use config::Config;
 use diesel::SqliteConnection;
 use fetcher::{curate_source_url, Fetcher, Source};
+use rusty_chromaprint::{match_fingerprints, Configuration, Fingerprinter};
 use sha2::{Digest, Sha256};
 use shared::models::ReferenceType;
 use shared::{
@@ -1101,6 +1102,36 @@ impl DownloadService {
             external_url: Some(content_key),
         });
 
+        // Step 1d: Acoustic-fingerprint short-circuit (Tier 1). Catches the same
+        // recording re-encoded to a different bitrate or format, which the exact
+        // hash misses and which weakly-tagged files hide from the title/artist tier.
+        // Best-effort: a decode or fingerprint failure just falls through to the
+        // metadata pipeline. The fingerprint is stored as a Metadata reference so
+        // future re-encodes match against this file too.
+        let fingerprint = match compute_fingerprint(file_path) {
+            Ok(fp) => Some(fp),
+            Err(e) => {
+                tracing::warn!("Ingest: fingerprint unavailable for {file_path:?}: {e}");
+                None
+            }
+        };
+        if let Some(fp) = &fingerprint {
+            if let Some(existing) = self.dedupe_by_fingerprint(conn, &track, fp).await {
+                tracing::info!(
+                    "Ingest: acoustic duplicate of {}, skipping",
+                    existing.display()
+                );
+                return Ok((existing, IngestOutcome::Duplicate));
+            }
+            track.references.push(Reference {
+                id: None,
+                ref_type: ReferenceType::Metadata,
+                platform: Platform::Unknown,
+                external_id: None,
+                external_url: Some(format!("{CHROMAPRINT_PREFIX}{}", encode_fingerprint(fp))),
+            });
+        }
+
         // Step 2: Enrich metadata using the ingest-specific provider order (Spotify first).
         // `enrich_metada` may set `needs_validation` on the track.
         let (should_validate, existing_track_opt) =
@@ -1873,6 +1904,64 @@ impl DownloadService {
         }
     }
 
+    /// Acoustic (Chromaprint) deduplication: compare `new_fp` against the stored
+    /// fingerprints of tracks with a comparable duration and return the first that
+    /// overlaps strongly enough to be the same recording. Catches re-encodes and
+    /// format changes that the exact-hash and title/artist tiers miss.
+    async fn dedupe_by_fingerprint(
+        &self,
+        conn: &mut SqliteConnection,
+        track: &Track,
+        new_fp: &[u32],
+    ) -> Option<Track> {
+        let (min_secs, max_secs) = match track.duration {
+            Some(d) => (
+                d - FINGERPRINT_DURATION_TOLERANCE_SECS,
+                d + FINGERPRINT_DURATION_TOLERANCE_SECS,
+            ),
+            None => (i32::MIN, i32::MAX),
+        };
+
+        let candidates = self
+            .track_service
+            .fingerprint_candidates(conn, min_secs, max_secs)
+            .unwrap_or_else(|e| {
+                tracing::warn!("Ingest: fingerprint candidate lookup failed: {e}");
+                Vec::new()
+            });
+
+        for (track_id, encoded) in candidates {
+            let Some(cand_fp) = encoded
+                .strip_prefix(CHROMAPRINT_PREFIX)
+                .and_then(decode_fingerprint)
+            else {
+                continue;
+            };
+            let overlap = matched_overlap_secs(new_fp, &cand_fp);
+            let is_match = match track.duration {
+                Some(d) if d > 0 => overlap >= FINGERPRINT_MIN_COVERAGE * d as f32,
+                _ => overlap >= FINGERPRINT_MIN_ABS_MATCH_SECS,
+            };
+            if is_match {
+                tracing::info!(
+                    "Ingest: acoustic fingerprint match (track_id={}, overlap={:.1}s)",
+                    track_id,
+                    overlap
+                );
+                if let Ok(existing) = self.track_service.get_by_id(conn, track_id) {
+                    return Some(existing);
+                }
+            } else if overlap > 0.0 {
+                tracing::debug!(
+                    "Ingest: fingerprint near-miss (track_id={}, overlap={:.1}s)",
+                    track_id,
+                    overlap
+                );
+            }
+        }
+        None
+    }
+
     /// Tag the downloaded file with the track metadata, then move it to the correct location
     async fn process_track_file(
         &self,
@@ -2113,6 +2202,102 @@ fn sha256_file(path: &Path) -> SoundgnomeResult<String> {
     std::io::copy(&mut file, &mut hasher)
         .map_err(|e| Error::Custom(format!("Failed to hash {path:?}: {e}")))?;
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// URL prefix under which a track's Chromaprint acoustic fingerprint is stored as a
+/// Metadata reference. MUST match the LIKE pattern in
+/// `DieselTrackRepository::fingerprint_candidates`.
+const CHROMAPRINT_PREFIX: &str = "soundome:chromaprint:";
+
+/// Duration window (seconds) for narrowing acoustic dedup candidates: only tracks
+/// whose length is within this many seconds of the incoming file are compared.
+const FINGERPRINT_DURATION_TOLERANCE_SECS: i32 = 8;
+
+/// A matched segment counts toward coverage only when its alignment score is at or
+/// below this. Chromaprint scores are Hamming-distance based (0 = identical), so
+/// re-encodes of the same master score very low while unrelated audio scores high.
+const FINGERPRINT_MAX_SEGMENT_SCORE: f64 = 8.0;
+
+/// Fraction of the incoming track that low-score matched segments must cover for
+/// the two recordings to be treated as the same.
+const FINGERPRINT_MIN_COVERAGE: f32 = 0.50;
+
+/// Absolute matched seconds required when the incoming track's duration is unknown
+/// (so coverage-by-fraction cannot be computed).
+const FINGERPRINT_MIN_ABS_MATCH_SECS: f32 = 45.0;
+
+/// Decode `path` to 44.1 kHz stereo PCM via ffmpeg and compute its Chromaprint
+/// acoustic fingerprint. Decoding leans on the ffmpeg binary already required for
+/// downloads, so every ingestable format (opus, m4a, ...) is handled uniformly.
+fn compute_fingerprint(path: &Path) -> SoundgnomeResult<Vec<u32>> {
+    let output = std::process::Command::new("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error", "-i"])
+        .arg(path)
+        .args(["-f", "s16le", "-ac", "2", "-ar", "44100", "-"])
+        .output()
+        .map_err(|e| Error::Custom(format!("ffmpeg spawn failed for {path:?}: {e}")))?;
+
+    if !output.status.success() {
+        return Err(Error::Custom(format!(
+            "ffmpeg decode failed for {path:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+
+    let samples: Vec<i16> = output
+        .stdout
+        .chunks_exact(2)
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect();
+
+    let config = Configuration::preset_test2();
+    let mut printer = Fingerprinter::new(&config);
+    printer
+        .start(44100, 2)
+        .map_err(|e| Error::Custom(format!("fingerprinter init failed: {e:?}")))?;
+    printer.consume(&samples);
+    printer.finish();
+
+    let fp = printer.fingerprint().to_vec();
+    if fp.is_empty() {
+        return Err(Error::Custom(format!("empty fingerprint for {path:?}")));
+    }
+    Ok(fp)
+}
+
+/// Encode a fingerprint as fixed-width hex (8 chars per `u32`) for storage in a
+/// reference URL. Zero-dependency and round-trips exactly.
+fn encode_fingerprint(fp: &[u32]) -> String {
+    let mut s = String::with_capacity(fp.len() * 8);
+    for v in fp {
+        s.push_str(&format!("{v:08x}"));
+    }
+    s
+}
+
+/// Inverse of [`encode_fingerprint`]. Returns `None` on any malformed input.
+fn decode_fingerprint(encoded: &str) -> Option<Vec<u32>> {
+    if encoded.is_empty() || !encoded.len().is_multiple_of(8) {
+        return None;
+    }
+    (0..encoded.len())
+        .step_by(8)
+        .map(|i| u32::from_str_radix(&encoded[i..i + 8], 16).ok())
+        .collect()
+}
+
+/// Seconds of well-aligned (low-score) overlap between two fingerprints. Zero when
+/// they do not match.
+fn matched_overlap_secs(fp_a: &[u32], fp_b: &[u32]) -> f32 {
+    let config = Configuration::preset_test2();
+    let Ok(segments) = match_fingerprints(fp_a, fp_b, &config) else {
+        return 0.0;
+    };
+    segments
+        .iter()
+        .filter(|s| s.score <= FINGERPRINT_MAX_SEGMENT_SCORE)
+        .map(|s| s.duration(&config))
+        .sum()
 }
 
 fn normalize_album_and_artist_refs_as_metadata(track: &mut Track) {

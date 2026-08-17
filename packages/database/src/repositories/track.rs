@@ -143,6 +143,39 @@ impl TrackRepository for DieselTrackRepository {
         self.get_by_id(conn, track_ref.track_id)
     }
 
+    fn fingerprint_candidates(
+        &self,
+        conn: &mut SqliteConnection,
+        min_secs: i32,
+        max_secs: i32,
+    ) -> SoundgnomeResult<Vec<(i32, String)>> {
+        // Encoded fingerprints are stored as Metadata references whose URL carries
+        // this prefix (see download_service::CHROMAPRINT_PREFIX). Narrow by track
+        // duration so only acoustically plausible candidates are compared; rows with
+        // an unknown duration are always included.
+        let rows: Vec<(i32, Option<String>)> = schema::track_ref::table
+            .inner_join(schema::track::table)
+            .filter(schema::track_ref::external_url.like("soundome:chromaprint:%"))
+            .filter(
+                schema::track::duration
+                    .between(min_secs, max_secs)
+                    .or(schema::track::duration.is_null()),
+            )
+            .select((schema::track_ref::track_id, schema::track_ref::external_url))
+            .load::<(i32, Option<String>)>(conn)
+            .map_err(|err| {
+                shared::errors::Error::Database(format!(
+                    "Failed to load fingerprint candidates: {}",
+                    err
+                ))
+            })?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, url)| url.map(|u| (id, u)))
+            .collect())
+    }
+
     fn create_references(
         &self,
         conn: &mut SqliteConnection,

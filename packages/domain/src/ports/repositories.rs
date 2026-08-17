@@ -32,6 +32,15 @@ pub trait TrackRepository: Send + Sync {
     fn get_recent(&self, conn: &mut SqliteConnection, limit: i64) -> SoundgnomeResult<Vec<Track>>;
     fn get_pending_validations(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>>;
     fn get_by_url(&self, conn: &mut SqliteConnection, url: &str) -> SoundgnomeResult<Track>;
+    /// Fetch stored acoustic-fingerprint references as `(track_id, encoded_fingerprint)`
+    /// for tracks whose duration is within `[min_secs, max_secs]` or unknown. Used to
+    /// narrow acoustic (Chromaprint) dedup candidates before pairwise comparison.
+    fn fingerprint_candidates(
+        &self,
+        conn: &mut SqliteConnection,
+        min_secs: i32,
+        max_secs: i32,
+    ) -> SoundgnomeResult<Vec<(i32, String)>>;
     fn count(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64>;
     fn count_pending_validations(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64>;
     fn create_references(

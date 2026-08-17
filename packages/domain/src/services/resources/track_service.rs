@@ -97,6 +97,18 @@ impl TrackService {
         self.track_repo.get_by_url(conn, url).ok()
     }
 
+    /// Stored acoustic-fingerprint candidates `(track_id, encoded_fingerprint)` for
+    /// tracks whose duration is within `[min_secs, max_secs]` or unknown.
+    pub fn fingerprint_candidates(
+        &self,
+        conn: &mut SqliteConnection,
+        min_secs: i32,
+        max_secs: i32,
+    ) -> SoundgnomeResult<Vec<(i32, String)>> {
+        self.track_repo
+            .fingerprint_candidates(conn, min_secs, max_secs)
+    }
+
     pub fn get_recent(
         &self,
         conn: &mut SqliteConnection,

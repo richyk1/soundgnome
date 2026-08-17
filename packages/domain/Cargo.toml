@@ -24,3 +24,4 @@ serde = { version = "1.0", features = ["derive"] }
 schemars = "0.8"
 cron = "0.12"
 sha2 = "0.10"
+rusty-chromaprint = "0.3"
