@@ -293,6 +293,8 @@ fn rocket() -> _ {
                 routes::library::ingest,
                 routes::library::list_ingest_files,
                 routes::library::ingest_all,
+                routes::library::upload,
+                routes::library::ingest_session,
                 routes::library::embed_artwork,
                 routes::storage::storage_stats,
                 routes::soundcloud::get_status,

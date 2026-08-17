@@ -230,6 +230,18 @@ async fn run_job(
                 .download_service
                 .ingest_local_dir(conn, &ingest_dir, task_id)
                 .await;
+            // Browser uploads are staged under `<ingest_dir>/_uploads/<session>/`.
+            // Once ingested they are redundant copies, so remove the session dir on
+            // success. The shared server ingest dir (never under `_uploads`) is left
+            // untouched so manual ingest stays non-destructive.
+            if result.is_ok()
+                && ingest_dir.components().any(|c| c.as_os_str() == "_uploads")
+                && ingest_dir.file_name().is_some_and(|n| n != "_uploads")
+            {
+                if let Err(e) = std::fs::remove_dir_all(&ingest_dir) {
+                    tracing::warn!("Failed to clean upload session dir {:?}: {}", ingest_dir, e);
+                }
+            }
             finalize_task(services, registry, conn, task_id, result);
         }
         QueuedJob::SingleTrack { url, responder } => {

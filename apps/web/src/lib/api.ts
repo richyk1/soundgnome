@@ -572,6 +572,67 @@ export async function ingestAll(): Promise<{ task_id: number }> {
   return res.json();
 }
 
+export interface UploadResponse {
+  stored_path: string;
+  size_bytes: number;
+}
+
+/**
+ * Upload one file into a session folder on the server. Uses XHR (not fetch) so
+ * we get real upload progress. Returns a handle whose `promise` resolves when the
+ * file is stored, plus an `abort()` to cancel it.
+ */
+export function uploadFile(
+  session: string,
+  relativePath: string,
+  file: File,
+  onProgress?: (loaded: number, total: number) => void,
+): { promise: Promise<UploadResponse>; abort: () => void } {
+  const xhr = new XMLHttpRequest();
+  const url = `${BASE}/library/upload?session=${encodeURIComponent(session)}&path=${encodeURIComponent(relativePath)}`;
+  const promise = new Promise<UploadResponse>((resolve, reject) => {
+    xhr.open('POST', url);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as UploadResponse);
+        } catch {
+          resolve({ stored_path: '', size_bytes: file.size });
+        }
+      } else {
+        let msg = xhr.statusText;
+        try {
+          msg = JSON.parse(xhr.responseText).message ?? msg;
+        } catch {
+          /* keep statusText */
+        }
+        reject(new Error(msg || `Upload failed (${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.onabort = () => reject(new DOMException('Upload aborted', 'AbortError'));
+    xhr.send(file);
+  });
+  return { promise, abort: () => xhr.abort() };
+}
+
+/** Ingest every file uploaded under `session`. Returns a task_id to poll. */
+export async function ingestSession(session: string): Promise<{ task_id: number }> {
+  const res = await fetch(`${BASE}/library/ingest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
 // ================================================================================================
 // Storage Stats
 // ================================================================================================

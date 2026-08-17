@@ -37,6 +37,15 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   embeds artwork into every existing library file in place (offline-safe).
 - **YouTube 256k requirement toggle** (`downloader.youtube_require_256k`): fall
   back to the next best audio when no 256k AAC master exists, or fail strictly.
+- **Browser file & folder upload for ingestion.** The Ingest page can now upload
+  audio files (or whole folders, preserving structure) straight from the browser
+  into a per-session staging area, with bounded-concurrency uploads, per-file
+  progress, and an aggregate result (added / duplicate / to-review). Uploads are
+  then ingested server-side and the session folder is cleaned up on success.
+- **Exact-duplicate ingest skip.** Ingest now hashes each file (SHA-256) and
+  skips byte-identical re-uploads before enrichment, so re-pushing songs already
+  in the library is sorted out cheaply. The hash is stored as a track reference
+  (no schema migration); metadata-based dedup still handles non-identical copies.
 
 ### Changed
 

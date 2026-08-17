@@ -7,6 +7,7 @@ use std::{
 use config::Config;
 use diesel::SqliteConnection;
 use fetcher::{curate_source_url, Fetcher, Source};
+use sha2::{Digest, Sha256};
 use shared::models::ReferenceType;
 use shared::{
     errors::Error,
@@ -25,6 +26,20 @@ use super::{
     track_service::{TrackService, ValidationPatch},
 };
 pub use tagger::enricher::MatchCandidate;
+
+/// Outcome of ingesting one local file, so the batch job can categorize results
+/// (new vs. duplicate vs. needs-review) for the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IngestOutcome {
+    /// New track added to the library.
+    New,
+    /// Matched an existing track; the new file was better and replaced it.
+    Replaced,
+    /// Matched an existing track; kept the existing audio (metadata merged).
+    Duplicate,
+    /// Saved for manual validation (enrichment inconclusive).
+    NeedsValidation,
+}
 
 /// A collision-free staging file name. Many tracks share a sanitized title
 /// (e.g. "Lust", "Intro", "Stone cold."), so staging under the title alone
@@ -932,12 +947,21 @@ impl DownloadService {
     ) -> SoundgnomeResult<()> {
         let audio_extensions = ["mp3", "flac", "m4a", "mp4", "aac", "ogg", "opus", "wav"];
 
+        // When ingesting the shared server dir, skip the `_uploads` staging subtree:
+        // those belong to browser uploads and are ingested via their own session
+        // dir. When `ingest_dir` is itself a session dir (already under `_uploads`),
+        // this exclusion is inert and its files are ingested normally.
+        let root_is_upload = ingest_dir.components().any(|c| c.as_os_str() == "_uploads");
+
         // Collect all audio files first so we know the total upfront.
         let files: Vec<PathBuf> = walkdir::WalkDir::new(ingest_dir)
             .follow_links(false)
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
+            .filter(|e| {
+                root_is_upload || !e.path().components().any(|c| c.as_os_str() == "_uploads")
+            })
             .filter(|e| {
                 e.path()
                     .extension()
@@ -957,8 +981,8 @@ impl DownloadService {
             tracing::info!("Ingesting [{}/{}]: {:?}", i + 1, total, file_path);
 
             match self.ingest_local_file(conn, file_path).await {
-                Ok(t) => {
-                    if t.needs_validation {
+                Ok((t, outcome)) => match outcome {
+                    IngestOutcome::NeedsValidation => {
                         stats.to_validate += 1;
                         stats
                             .to_validate_tracks
@@ -967,10 +991,24 @@ impl DownloadService {
                                 track_id: t.id,
                                 reason: t.validation_reason.clone(),
                             });
-                    } else {
+                    }
+                    IngestOutcome::New => {
                         stats.downloaded += 1;
                     }
-                }
+                    IngestOutcome::Replaced | IngestOutcome::Duplicate => {
+                        stats.skipped += 1;
+                        stats
+                            .skipped_tracks
+                            .push(shared::models::TaskTrackValidation {
+                                track: t.display(),
+                                track_id: t.id,
+                                reason: Some(match outcome {
+                                    IngestOutcome::Replaced => "Upgraded existing copy".to_string(),
+                                    _ => "Already in library".to_string(),
+                                }),
+                            });
+                    }
+                },
                 Err(e) => {
                     tracing::error!("Failed to ingest {:?}: {}", file_path, e);
                     stats.errors.push(shared::models::TaskTrackError {
@@ -1022,7 +1060,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         file_path: &Path,
-    ) -> SoundgnomeResult<Track> {
+    ) -> SoundgnomeResult<(Track, IngestOutcome)> {
         tracing::info!("===========\nIngesting local file: {:?}\n------", file_path);
 
         // Step 1: Read tags from the file.
@@ -1041,6 +1079,28 @@ impl DownloadService {
 
         tracing::info!("Read tags from file: {}", track.display());
 
+        // Step 1c: Exact-duplicate short-circuit. Hash the raw file and skip if a
+        // byte-identical file was already ingested. This catches re-uploads of the
+        // same file regardless of metadata quality — including files that would
+        // otherwise land in the review queue on every upload. The hash is stored as
+        // a Metadata reference and looked up via the existing `track_ref` URL index,
+        // so no schema change is needed.
+        let content_key = format!("soundome:sha256:{}", sha256_file(file_path)?);
+        if let Some(existing) = self.track_service.get_by_url(conn, &content_key) {
+            tracing::info!(
+                "Ingest: exact duplicate (content hash) of {}, skipping",
+                existing.display()
+            );
+            return Ok((existing, IngestOutcome::Duplicate));
+        }
+        track.references.push(Reference {
+            id: None,
+            ref_type: ReferenceType::Metadata,
+            platform: Platform::Unknown,
+            external_id: None,
+            external_url: Some(content_key),
+        });
+
         // Step 2: Enrich metadata using the ingest-specific provider order (Spotify first).
         // `enrich_metada` may set `needs_validation` on the track.
         let (should_validate, existing_track_opt) =
@@ -1055,7 +1115,7 @@ impl DownloadService {
             let staged_path = self.stage_local_file(file_path)?;
             track.file_path = Some(staged_path);
             let saved = self.save_track(conn, &track).await?;
-            return Ok(saved);
+            return Ok((saved, IngestOutcome::NeedsValidation));
         }
 
         // Step 3: Deduplication.
@@ -1087,7 +1147,7 @@ impl DownloadService {
                     self.process_track_file(&mut existing_track, file_path)
                         .await?;
                     let updated = self.save_track(conn, &existing_track).await?;
-                    Ok(updated)
+                    Ok((updated, IngestOutcome::Replaced))
                 } else {
                     tracing::info!(
                         "Ingest: existing file is equal or better quality, skipping file move"
@@ -1100,14 +1160,14 @@ impl DownloadService {
                     existing_track.transpose_refs(&track_for_merge);
 
                     let updated = self.save_track(conn, &existing_track).await?;
-                    Ok(updated)
+                    Ok((updated, IngestOutcome::Duplicate))
                 }
             }
             None => {
                 tracing::info!("Ingest: no existing track, finalising");
                 self.process_track_file(&mut track, file_path).await?;
                 let inserted = self.save_track(conn, &track).await?;
-                Ok(inserted)
+                Ok((inserted, IngestOutcome::New))
             }
         }
     }
@@ -2042,6 +2102,17 @@ impl DownloadService {
             ),
         }
     }
+}
+
+/// Stream a file through SHA-256 and return the lowercase hex digest. Used to
+/// detect byte-identical re-uploads during ingest.
+fn sha256_file(path: &Path) -> SoundgnomeResult<String> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| Error::Custom(format!("Failed to open {path:?}: {e}")))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)
+        .map_err(|e| Error::Custom(format!("Failed to hash {path:?}: {e}")))?;
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn normalize_album_and_artist_refs_as_metadata(track: &mut Track) {

@@ -1,8 +1,12 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::{Component, Path, PathBuf},
+    sync::Arc,
+};
 
 use config::Config;
 use domain::services::{scan_service::ScanReport, ServiceLayer};
-use rocket::{get, post, serde::json::Json};
+use rocket::{data::ToByteUnit, get, post, serde::json::Json, Data};
 use rocket_okapi::openapi;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -142,7 +146,7 @@ pub async fn ingest(
         PathBuf::from(&Config::get().general.ingest_dir).join(raw)
     };
 
-    let track = db
+    let (track, _outcome) = db
         .run(move |conn| {
             tokio::task::block_in_place(|| {
                 Handle::current().block_on(
@@ -307,4 +311,136 @@ pub async fn ingest_all(
 pub async fn embed_artwork(executor: &rocket::State<Arc<TaskExecutor>>) -> Json<serde_json::Value> {
     executor.enqueue_embed_artwork();
     Json(serde_json::json!({ "started": true }))
+}
+
+// ================================================================================================
+// Upload (browser -> ingest dir)
+// ================================================================================================
+
+/// Build a server error carrying a human-readable message for the client.
+fn err(msg: impl Into<String>) -> Error {
+    Error::from(shared::errors::Error::Custom(msg.into()))
+}
+
+/// Root under `ingest_dir` where browser uploads are staged, isolated per session.
+fn uploads_root() -> PathBuf {
+    PathBuf::from(&Config::get().general.ingest_dir).join("_uploads")
+}
+
+/// Validate a session id: short, ASCII alnum/dash/underscore only (used as a folder name).
+fn safe_session(session: &str) -> Result<String, Error> {
+    let ok = !session.is_empty()
+        && session.len() <= 64
+        && session
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    ok.then(|| session.to_string())
+        .ok_or_else(|| err("Invalid upload session id"))
+}
+
+/// Turn a client-supplied relative path into safe components (rejects traversal,
+/// absolute paths, and prefixes). Sub-folders are preserved.
+fn safe_relative(path: &str) -> Result<PathBuf, Error> {
+    let mut out = PathBuf::new();
+    for comp in Path::new(path).components() {
+        match comp {
+            Component::Normal(c) => out.push(c),
+            _ => return Err(err("Invalid upload path")),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        return Err(err("Empty upload path"));
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct UploadResponse {
+    /// Absolute path where the file was stored on the server.
+    pub stored_path: String,
+    /// Number of bytes written.
+    pub size_bytes: u64,
+}
+
+/// Stream one uploaded audio file into a per-session folder under
+/// `ingest_dir/_uploads/<session>/`. The raw request body is the file bytes;
+/// `session` scopes the batch and `path` is the client's relative path (sub-folders
+/// preserved). Both are sanitized against path traversal. Ingest is triggered
+/// separately via `POST /library/ingest/session`.
+#[openapi(tag = "library")]
+#[post("/library/upload?<session>&<path>", data = "<data>")]
+pub async fn upload(
+    session: String,
+    path: String,
+    data: Data<'_>,
+) -> Result<Json<UploadResponse>, Error> {
+    let session = safe_session(&session)?;
+    let rel = safe_relative(&path)?;
+    let dest = uploads_root().join(&session).join(&rel);
+
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| err(format!("Could not create upload dir: {e}")))?;
+    }
+
+    // Stream straight to disk; never buffer the whole file in memory.
+    let capped = data
+        .open(1.gibibytes())
+        .into_file(&dest)
+        .await
+        .map_err(|e| err(format!("Upload failed: {e}")))?;
+
+    if !capped.is_complete() {
+        let _ = fs::remove_file(&dest);
+        return Err(err("File exceeds the 1 GiB per-file upload limit"));
+    }
+
+    Ok(Json(UploadResponse {
+        stored_path: dest.to_string_lossy().to_string(),
+        size_bytes: capped.n.written,
+    }))
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct IngestSessionRequest {
+    /// The upload session id whose files should be ingested.
+    pub session: String,
+}
+
+/// Ingest every audio file uploaded under `session`. Returns a `task_id` to poll
+/// (`GET /api/tasks/:id`) for live progress and per-category results.
+#[openapi(tag = "library")]
+#[post("/library/ingest/session", format = "json", data = "<body>")]
+pub async fn ingest_session(
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+    registry: &rocket::State<Arc<CancellationRegistry>>,
+    executor: &rocket::State<Arc<TaskExecutor>>,
+    body: Json<IngestSessionRequest>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let session = safe_session(&body.session)?;
+    let session_dir = uploads_root().join(&session);
+    if !session_dir.is_dir() {
+        return Err(err("Upload session not found"));
+    }
+
+    let services = Arc::clone(services);
+    let registry = Arc::clone(registry);
+    let executor = Arc::clone(executor);
+
+    let services_for_db = services.clone();
+    let session_dir_str = session_dir.to_string_lossy().to_string();
+    let task = db
+        .run(move |conn| {
+            services_for_db
+                .task_service
+                .create_ingest_dir(conn, &session_dir_str)
+        })
+        .await
+        .map_err(Error::from)?;
+
+    let task_id = task.id.expect("created task must have an id");
+    let _cancel_flag = registry.register(task_id);
+    executor.enqueue_ingest_dir(task_id, session_dir);
+
+    Ok(Json(serde_json::json!({ "task_id": task_id })))
 }

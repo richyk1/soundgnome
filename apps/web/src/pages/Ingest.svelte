@@ -10,6 +10,7 @@
     type IngestResult,
   } from '../lib/api';
   import type { TaskDto } from '../lib/types';
+  import { uploadManager } from '../lib/uploadStore.svelte';
 
   // ── State ──────────────────────────────────────────────────────────────────
 
@@ -200,6 +201,78 @@
     if (!t.total || t.total === 0) return 0;
     return Math.round((t.progress / t.total) * 100);
   }
+
+  // ── Browser upload ──────────────────────────────────────────────────────────
+  type DropEntry = { file: File; relativePath: string };
+
+  const up = uploadManager;
+  let fileInput: HTMLInputElement;
+  let folderInput: HTMLInputElement;
+  let dragOver = $state(false);
+
+  function pickedFiles(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const entries: DropEntry[] = Array.from(input.files ?? []).map((file) => ({
+      file,
+      relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+    }));
+    uploadManager.addFiles(entries);
+    input.value = '';
+  }
+
+  async function droppedFiles(e: DragEvent) {
+    e.preventDefault();
+    dragOver = false;
+    if (!e.dataTransfer) return;
+    uploadManager.addFiles(await readDataTransfer(e.dataTransfer));
+  }
+
+  async function readDataTransfer(dt: DataTransfer): Promise<DropEntry[]> {
+    const roots = Array.from(dt.items)
+      .filter((it) => it.kind === 'file')
+      .map((it) => it.webkitGetAsEntry?.())
+      .filter((entry): entry is FileSystemEntry => !!entry);
+    if (roots.length === 0) {
+      return Array.from(dt.files).map((file) => ({ file, relativePath: file.name }));
+    }
+    const out: DropEntry[] = [];
+    await Promise.all(roots.map((entry) => walkEntry(entry, '', out)));
+    return out;
+  }
+
+  // Recurse a dropped folder tree. readEntries returns in chunks, so keep reading
+  // until it yields an empty batch.
+  function walkEntry(entry: FileSystemEntry, prefix: string, out: DropEntry[]): Promise<void> {
+    return new Promise((resolve) => {
+      if (entry.isFile) {
+        (entry as FileSystemFileEntry).file(
+          (file) => {
+            out.push({ file, relativePath: prefix + file.name });
+            resolve();
+          },
+          () => resolve(),
+        );
+      } else if (entry.isDirectory) {
+        const reader = (entry as FileSystemDirectoryEntry).createReader();
+        const dirPrefix = `${prefix}${entry.name}/`;
+        const readBatch = () => {
+          reader.readEntries(
+            (batch) => {
+              if (batch.length === 0) {
+                resolve();
+                return;
+              }
+              Promise.all(batch.map((child) => walkEntry(child, dirPrefix, out))).then(readBatch);
+            },
+            () => resolve(),
+          );
+        };
+        readBatch();
+      } else {
+        resolve();
+      }
+    });
+  }
 </script>
 
 <div class="ingest-page">
@@ -207,8 +280,8 @@
     <div class="header-text">
       <h1>Ingest</h1>
       <p class="lede">
-        Import local audio files from your ingest directory into the library. Run it now or on a
-        schedule.
+        Upload songs or whole folders from your device, or ingest files already in the server's
+        ingest directory. Duplicates are detected and sorted from new tracks automatically.
       </p>
     </div>
     <div class="header-actions">
@@ -224,6 +297,140 @@
       </button>
     </div>
   </header>
+
+  <!-- ── Browser upload ─────────────────────────────────────────────────────── -->
+  <section class="upload">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="dropzone"
+      class:drag={dragOver}
+      role="button"
+      tabindex="0"
+      onclick={() => fileInput.click()}
+      onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), fileInput.click())}
+      ondragover={(e) => {
+        e.preventDefault();
+        dragOver = true;
+      }}
+      ondragleave={() => (dragOver = false)}
+      ondrop={droppedFiles}
+    >
+      <i class="lni lni-cloud-upload dz-icon" aria-hidden="true"></i>
+      <p class="dz-title">Drop songs or folders here</p>
+      <p class="dz-hint">MP3, FLAC, M4A, OGG, WAV and more. Duplicates are sorted out on ingest.</p>
+      <div class="dz-actions">
+        <button class="btn-accent" onclick={(e) => { e.stopPropagation(); fileInput.click(); }}>
+          Choose files
+        </button>
+        <button class="btn-ghost" onclick={(e) => { e.stopPropagation(); folderInput.click(); }}>
+          Choose folder
+        </button>
+      </div>
+    </div>
+    <input
+      bind:this={fileInput}
+      type="file"
+      multiple
+      accept="audio/*,.mp3,.flac,.m4a,.mp4,.aac,.ogg,.opus,.wav"
+      class="hidden-input"
+      onchange={pickedFiles}
+    />
+    <!-- svelte-ignore a11y_missing_attribute -->
+    <input
+      bind:this={folderInput}
+      type="file"
+      webkitdirectory
+      multiple
+      class="hidden-input"
+      onchange={pickedFiles}
+    />
+
+    {#if up.total > 0}
+      <div class="upload-panel">
+        <div class="up-head">
+          <div class="up-status">
+            {#if up.phase === 'uploading'}
+              <span class="spinner"></span>Uploading {up.uploadedCount}/{up.total}
+            {:else if up.phase === 'ingesting'}
+              <span class="spinner"></span>Ingesting…
+            {:else if up.phase === 'done'}
+              <i class="lni lni-check-circle-1" aria-hidden="true"></i>Upload complete
+            {:else}
+              {up.total} file{up.total === 1 ? '' : 's'} ready · {formatBytes(up.totalBytes)}
+            {/if}
+          </div>
+          <div class="up-actions">
+            {#if up.phase === 'idle'}
+              <button class="btn-ghost btn-sm" onclick={() => up.reset()}>Clear</button>
+              <button class="btn-accent btn-sm" onclick={() => up.start()}>Upload {up.total}</button>
+            {:else if up.phase === 'uploading'}
+              <button class="btn-ghost btn-sm" onclick={() => up.cancel()}>Cancel</button>
+            {:else if up.phase === 'done'}
+              {#if up.errorCount > 0}
+                <button class="btn-ghost btn-sm" onclick={() => up.retryFailed()}>Retry {up.errorCount} failed</button>
+              {/if}
+              <button class="btn-ghost btn-sm" onclick={() => up.reset()}>Clear</button>
+            {/if}
+          </div>
+        </div>
+
+        {#if up.phase === 'uploading'}
+          <div class="progress-track"><div class="progress-fill" style="transform: scaleX({up.bytePct / 100})"></div></div>
+          <span class="up-sub">{formatBytes(up.uploadedBytes)} / {formatBytes(up.totalBytes)} · {up.bytePct}%{#if up.errorCount > 0} · {up.errorCount} failed{/if}</span>
+        {/if}
+
+        {#if up.phase === 'ingesting' || up.phase === 'done'}
+          {@const t = up.ingestTask}
+          {#if t && t.total}
+            <div class="progress-track"><div class="progress-fill" style="transform: scaleX({t.progress / t.total})"></div></div>
+            <span class="up-sub">Ingesting {t.progress} / {t.total}</span>
+          {/if}
+          {#if t?.stats}
+            <div class="stats-row">
+              <span class="stat stat-ok">{t.stats.downloaded} added</span>
+              <span class="stat stat-neutral">{t.stats.skipped} duplicate{t.stats.skipped === 1 ? '' : 's'}</span>
+              <span class="stat stat-warn">{t.stats.to_validate} to review</span>
+              {#if t.stats.errors.length > 0}<span class="stat stat-err">{t.stats.errors.length} errors</span>{/if}
+            </div>
+          {/if}
+          {#if up.ingestError}
+            <div class="callout callout-error" role="alert">
+              <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+              <div class="callout-body"><strong>Ingest failed to start.</strong><span>{up.ingestError}</span></div>
+            </div>
+          {/if}
+        {/if}
+
+        {#if up.uploading.length > 0 || up.errored.length > 0}
+          <ul class="up-list">
+            {#each up.uploading as it (it.id)}
+              <li class="up-row">
+                <i class="lni lni-file-audio up-ic" aria-hidden="true"></i>
+                <div class="up-file">
+                  <span class="up-name">{it.relativePath}</span>
+                  <div class="mini-track"><div class="mini-fill" style="transform: scaleX({it.size ? it.loaded / it.size : 0})"></div></div>
+                </div>
+                <span class="up-pct">{it.size ? Math.round((it.loaded / it.size) * 100) : 0}%</span>
+              </li>
+            {/each}
+            {#each up.errored as it (it.id)}
+              <li class="up-row err">
+                <i class="lni lni-xmark-circle up-ic" aria-hidden="true"></i>
+                <div class="up-file">
+                  <span class="up-name">{it.relativePath}</span>
+                  <span class="up-err">{it.error}</span>
+                </div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+
+        {#if up.phase === 'idle' && up.total > 8}
+          <p class="up-more">{up.total} files queued — only uploads and errors are listed while running.</p>
+        {/if}
+      </div>
+    {/if}
+  </section>
 
   {#if batchError}
     <div class="callout callout-error" role="alert">
@@ -954,10 +1161,181 @@
     }
   }
 
+  /* ── Browser upload ──────────────────────────────────────────────────── */
+  .upload {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .hidden-input {
+    display: none;
+  }
+  .dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.4rem;
+    padding: 2.25rem 1.5rem;
+    border: 1.5px dashed var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease;
+  }
+  .dropzone:hover {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  }
+  .dropzone.drag {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  }
+  .dz-icon {
+    font-size: 34px;
+    color: var(--accent);
+    margin-bottom: 0.3rem;
+  }
+  .dz-title {
+    margin: 0;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+  .dz-hint {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .dz-actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 0.7rem;
+  }
+
+  .upload-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    padding: 1rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+  }
+  .up-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .up-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .up-status .lni {
+    color: var(--success);
+    font-size: 18px;
+  }
+  .up-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .up-sub {
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-family: var(--font-mono);
+  }
+  .stat-neutral {
+    background: var(--surface-2);
+    color: var(--muted);
+  }
+  .up-list {
+    list-style: none;
+    margin: 0.2rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  .up-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0.5rem;
+    border-radius: 8px;
+    background: var(--surface-2);
+  }
+  .up-row.err {
+    background: color-mix(in srgb, var(--error) 10%, var(--surface-2));
+  }
+  .up-ic {
+    font-size: 16px;
+    color: var(--muted-2);
+    flex-shrink: 0;
+  }
+  .up-row.err .up-ic {
+    color: var(--error);
+  }
+  .up-file {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .up-name {
+    font-size: 0.82rem;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .up-err {
+    font-size: 0.75rem;
+    color: var(--error);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mini-track {
+    height: 3px;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .mini-fill {
+    height: 100%;
+    width: 100%;
+    transform-origin: left;
+    background: var(--accent);
+    transition: transform 0.15s ease;
+  }
+  .up-pct {
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--muted-2);
+    flex-shrink: 0;
+    min-width: 2.5rem;
+    text-align: right;
+  }
+  .up-more {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--muted-2);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .sk,
     .spinner,
     .progress-fill,
+    .mini-fill,
     .chevron {
       animation: none;
       transition: none;
