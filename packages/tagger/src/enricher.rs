@@ -1,5 +1,6 @@
 use config::Config;
 use shared::{models::Track, utils::enums::Match};
+use std::collections::HashSet;
 
 use crate::{providers, TagProvider};
 
@@ -156,6 +157,31 @@ pub async fn get_candidates_for_track(track: &Track) -> Vec<MatchCandidate> {
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // Collapse visually-identical hits: MusicBrainz recording search returns the
+    // same recording once per release, so several results share an identical
+    // title/artist/album/date/duration. The list is already sorted by score, so
+    // keep the first (highest-scoring) of each and drop the rest, otherwise the
+    // UI shows duplicate candidate cards.
+    let mut seen: HashSet<String> = HashSet::new();
+    candidates.retain(|c| {
+        let t = &c.track;
+        let key = format!(
+            "{}|{}|{}|{}|{}",
+            t.title.to_lowercase(),
+            t.artists
+                .first()
+                .map(|a| a.name.to_lowercase())
+                .unwrap_or_default(),
+            t.album
+                .as_ref()
+                .map(|a| a.title.to_lowercase())
+                .unwrap_or_default(),
+            t.date.clone().unwrap_or_default(),
+            t.duration.unwrap_or(0),
+        );
+        seen.insert(key)
     });
 
     // Limit to top candidates

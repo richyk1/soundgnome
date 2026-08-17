@@ -1458,7 +1458,23 @@ impl DownloadService {
         // 3. Resolve the audio file path: use the staged file if present, otherwise
         //    download from the provider URL supplied by the user (DRM fallback).
         let file_path = if let Some(staged) = track.file_path.clone() {
-            staged
+            // Organized tracks store a library-relative path (e.g. `./library/...`),
+            // staged tracks an absolute temp path. Resolve the relative form against
+            // the library dir, then confirm the audio is actually on disk so a
+            // missing file surfaces a clear message instead of a raw tag-read error.
+            let resolved = if staged.exists() || staged.is_absolute() {
+                staged
+            } else {
+                let base = PathBuf::from(&Config::get().general.base_library_dir);
+                base.join(staged.strip_prefix(&base).unwrap_or(staged.as_path()))
+            };
+            if !resolved.exists() {
+                return Err(Error::Custom(format!(
+                    "The audio file for this track is missing on disk ({}). It may have been moved or deleted. Reject the track, or re-ingest the file.",
+                    resolved.display()
+                )));
+            }
+            resolved
         } else {
             let provider_url = patch.provider_url.as_ref().ok_or_else(|| {
                 Error::Custom(format!(

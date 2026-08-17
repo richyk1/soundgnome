@@ -81,6 +81,19 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Validations page loads fast.** `get_pending_validations` hydrated each track
+  with its own album/artists/references queries (a `1 + 3N` fan-out, thousands of
+  serial queries for a large review queue). It now uses four bulk queries total,
+  so the page loads quickly regardless of queue size.
+- **No more duplicate match candidates.** MusicBrainz returns the same recording
+  once per release, which surfaced as visually identical candidate cards. Matches
+  are now deduplicated (by title/artist/album/date/duration), keeping the highest
+  score.
+- **Clear error when a track's audio file is missing.** Selecting a candidate for
+  a track whose file is gone (or whose organized `./library/...` path needed
+  resolving) returned a raw `Mp4TagError(NotFound)`. The Select/Approve flow now
+  resolves relative library paths against the library dir and reports a plain
+  "audio file is missing on disk" message instead.
 - Dedup "replace" path no longer fails with `ENOENT` when the previously-staged
   file moved; the freshly-downloaded file's real path is honored on move.
 - Per-track download failures surface the real reason (e.g. "Requested format is

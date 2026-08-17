@@ -16,6 +16,67 @@ use crate::{
     schema,
 };
 
+/// Attach albums, artists, and references to a batch of track rows with three
+/// bulk queries, instead of the per-row N+1 fan-out that made large lists (the
+/// Validations page with ~1k pending tracks) slow.
+fn hydrate_tracks(
+    conn: &mut SqliteConnection,
+    tracks: Vec<TrackEntity>,
+) -> SoundgnomeResult<Vec<Track>> {
+    use std::collections::HashMap;
+
+    if tracks.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let track_ids: Vec<i32> = tracks.iter().map(|t| t.id).collect();
+    let album_ids: Vec<i32> = tracks.iter().filter_map(|t| t.album_id).collect();
+
+    let albums: HashMap<i32, AlbumEntity> = schema::album::table
+        .filter(schema::album::id.eq_any(&album_ids))
+        .load::<AlbumEntity>(conn)
+        .map_err(|err| shared::errors::Error::Database(format!("Failed to load albums: {}", err)))?
+        .into_iter()
+        .map(|a| (a.id, a))
+        .collect();
+
+    let artist_rows: Vec<(i32, ArtistEntity)> = schema::artist_tracks::table
+        .inner_join(
+            schema::artist::table.on(schema::artist_tracks::artist_id.eq(schema::artist::id)),
+        )
+        .filter(schema::artist_tracks::track_id.eq_any(&track_ids))
+        .select((schema::artist_tracks::track_id, schema::artist::all_columns))
+        .load::<(i32, ArtistEntity)>(conn)
+        .map_err(|err| {
+            shared::errors::Error::Database(format!("Failed to load artists: {}", err))
+        })?;
+    let mut artists_by_track: HashMap<i32, Vec<ArtistEntity>> = HashMap::new();
+    for (tid, artist) in artist_rows {
+        artists_by_track.entry(tid).or_default().push(artist);
+    }
+
+    let ref_rows: Vec<TrackRefEntity> = schema::track_ref::table
+        .filter(schema::track_ref::track_id.eq_any(&track_ids))
+        .load::<TrackRefEntity>(conn)
+        .map_err(|err| {
+            shared::errors::Error::Database(format!("Failed to load references: {}", err))
+        })?;
+    let mut refs_by_track: HashMap<i32, Vec<TrackRefEntity>> = HashMap::new();
+    for r in ref_rows {
+        refs_by_track.entry(r.track_id).or_default().push(r);
+    }
+
+    let mut result = Vec::with_capacity(tracks.len());
+    for track in tracks {
+        let album = track.album_id.and_then(|aid| albums.get(&aid).cloned());
+        let artists = artists_by_track.remove(&track.id).unwrap_or_default();
+        let references = refs_by_track.remove(&track.id).unwrap_or_default();
+        result.push(TrackEntity::convert_to_domain(
+            track, album, artists, references,
+        ));
+    }
+    Ok(result)
+}
 #[derive(Default)]
 pub struct DieselTrackRepository {}
 
@@ -88,48 +149,7 @@ impl TrackRepository for DieselTrackRepository {
                 ))
             })?;
 
-        let mut result = Vec::new();
-        for track in tracks {
-            let album = if let Some(album_id) = track.album_id {
-                schema::album::table
-                    .filter(schema::album::id.eq(album_id))
-                    .first::<AlbumEntity>(conn)
-                    .ok()
-            } else {
-                None
-            };
-
-            let artists: Vec<ArtistEntity> = schema::artist_tracks::table
-                .inner_join(
-                    schema::artist::table
-                        .on(schema::artist_tracks::artist_id.eq(schema::artist::id)),
-                )
-                .filter(schema::artist_tracks::track_id.eq(track.id))
-                .select(schema::artist::all_columns)
-                .load(conn)
-                .map_err(|err| {
-                    shared::errors::Error::Database(format!(
-                        "Failed to get pending validations: {}",
-                        err
-                    ))
-                })?;
-
-            let references: Vec<TrackRefEntity> = schema::track_ref::table
-                .filter(schema::track_ref::track_id.eq(track.id))
-                .load(conn)
-                .map_err(|err| {
-                    shared::errors::Error::Database(format!(
-                        "Failed to get pending validations: {}",
-                        err
-                    ))
-                })?;
-
-            result.push(TrackEntity::convert_to_domain(
-                track, album, artists, references,
-            ));
-        }
-
-        Ok(result)
+        hydrate_tracks(conn, tracks)
     }
 
     fn get_by_url(&self, conn: &mut SqliteConnection, url: &str) -> SoundgnomeResult<Track> {
