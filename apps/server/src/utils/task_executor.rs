@@ -67,11 +67,15 @@ pub enum QueuedJob {
         url: String,
         responder: oneshot::Sender<SoundgnomeResult<Track>>,
     },
-    /// One-shot: (re)embed cover art into every library file in place. No task row.
-    EmbedArtwork,
+    /// One-shot: (re)embed cover art into every library file in place.
+    EmbedArtwork {
+        task_id: i32,
+    },
     /// One-shot: compute and store a Chromaprint fingerprint for every library file
-    /// that lacks one, so acoustic dedup can recognize re-uploads. No task row.
-    BackfillFingerprints,
+    /// that lacks one, so acoustic dedup can recognize re-uploads.
+    BackfillFingerprints {
+        task_id: i32,
+    },
 }
 
 /// Handle used by producers to enqueue jobs on the shared serial worker.
@@ -150,14 +154,15 @@ impl TaskExecutor {
         self.send(QueuedJob::SingleTrack { url, responder });
         rx
     }
-    pub fn enqueue_embed_artwork(&self) {
-        self.send(QueuedJob::EmbedArtwork);
+    /// Enqueue a one-shot artwork backfill (tracked by `task_id`). Non-blocking.
+    pub fn enqueue_embed_artwork(&self, task_id: i32) {
+        self.send(QueuedJob::EmbedArtwork { task_id });
     }
 
-    /// Enqueue a one-shot acoustic-fingerprint backfill over the whole library.
+    /// Enqueue a one-shot acoustic-fingerprint backfill (tracked by `task_id`).
     /// Non-blocking.
-    pub fn enqueue_backfill_fingerprints(&self) {
-        self.send(QueuedJob::BackfillFingerprints);
+    pub fn enqueue_backfill_fingerprints(&self, task_id: i32) {
+        self.send(QueuedJob::BackfillFingerprints { task_id });
     }
 
     fn send(&self, job: QueuedJob) {
@@ -260,15 +265,27 @@ async fn run_job(
             // dropped the connection). Nothing else to do.
             let _ = responder.send(result);
         }
-        QueuedJob::EmbedArtwork => match services.download_service.backfill_artwork(conn).await {
-            Ok(summary) => tracing::info!("Artwork backfill finished: {:?}", summary),
-            Err(e) => tracing::error!("Artwork backfill failed: {}", e),
-        },
-        QueuedJob::BackfillFingerprints => {
-            match services.download_service.backfill_fingerprints(conn).await {
-                Ok(summary) => tracing::info!("Fingerprint backfill finished: {:?}", summary),
-                Err(e) => tracing::error!("Fingerprint backfill failed: {}", e),
+        QueuedJob::EmbedArtwork { task_id } => {
+            mark_running(services, conn, task_id);
+            let result = services
+                .download_service
+                .backfill_artwork(conn, Some(task_id))
+                .await;
+            if let Ok(summary) = &result {
+                tracing::info!("Artwork backfill finished: {:?}", summary);
             }
+            finalize_task(services, registry, conn, task_id, result.map(|_| ()));
+        }
+        QueuedJob::BackfillFingerprints { task_id } => {
+            mark_running(services, conn, task_id);
+            let result = services
+                .download_service
+                .backfill_fingerprints(conn, Some(task_id))
+                .await;
+            if let Ok(summary) = &result {
+                tracing::info!("Fingerprint backfill finished: {:?}", summary);
+            }
+            finalize_task(services, registry, conn, task_id, result.map(|_| ()));
         }
     }
 }

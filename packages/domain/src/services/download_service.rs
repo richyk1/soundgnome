@@ -153,6 +153,38 @@ pub struct DownloadService {
 
 // TODO: manage "to validate" tracks
 impl DownloadService {
+    /// Persist live progress for a maintenance backfill task. No-op when there is
+    /// no backing task row (e.g. an internal call).
+    #[allow(clippy::too_many_arguments)]
+    fn report_backfill(
+        &self,
+        conn: &mut SqliteConnection,
+        task_id: Option<i32>,
+        kind: &str,
+        processed: usize,
+        total: usize,
+        ok: i32,
+        skipped: i32,
+        errors: i32,
+    ) {
+        let Some(tid) = task_id else {
+            return;
+        };
+        let _ = self
+            .task_service
+            .update_progress(conn, tid, processed as i32, total as i32);
+        let stats = shared::models::TaskStats {
+            backfill: Some(shared::models::BackfillProgress {
+                kind: kind.to_string(),
+                ok,
+                skipped,
+                errors,
+            }),
+            ..Default::default()
+        };
+        let _ = self.task_service.update_stats(conn, tid, &stats);
+    }
+
     /// One-shot maintenance pass: embed cover art into every library file that
     /// can resolve one, so the collection keeps its artwork offline. Non-
     /// destructive — it only (re)writes tags on the existing file in place and
@@ -160,6 +192,7 @@ impl DownloadService {
     pub async fn backfill_artwork(
         &self,
         conn: &mut SqliteConnection,
+        task_id: Option<i32>,
     ) -> SoundgnomeResult<ArtworkBackfillSummary> {
         let tracks = self.track_service.get_all(conn)?;
         let total = tracks.len();
@@ -168,8 +201,19 @@ impl DownloadService {
             ..Default::default()
         };
         tracing::info!("Artwork backfill: starting over {} tracks", total);
+        self.report_backfill(conn, task_id, "artwork", 0, total, 0, 0, 0);
 
         for (i, mut track) in tracks.into_iter().enumerate() {
+            self.report_backfill(
+                conn,
+                task_id,
+                "artwork",
+                i,
+                total,
+                s.embedded as i32,
+                (s.no_art + s.no_file + s.missing_file) as i32,
+                s.errors as i32,
+            );
             let Some(path) = track.file_path.clone() else {
                 s.no_file += 1;
                 continue;
@@ -225,6 +269,17 @@ impl DownloadService {
             }
         }
 
+        self.report_backfill(
+            conn,
+            task_id,
+            "artwork",
+            total,
+            total,
+            s.embedded as i32,
+            (s.no_art + s.no_file + s.missing_file) as i32,
+            s.errors as i32,
+        );
+
         tracing::info!(
             "Artwork backfill complete: {} embedded, {} no-art, {} missing-file, {} no-path, {} errors (of {})",
             s.embedded, s.no_art, s.missing_file, s.no_file, s.errors, total
@@ -239,6 +294,7 @@ impl DownloadService {
     pub async fn backfill_fingerprints(
         &self,
         conn: &mut SqliteConnection,
+        task_id: Option<i32>,
     ) -> SoundgnomeResult<FingerprintBackfillSummary> {
         let tracks = self.track_service.get_all(conn)?;
         let total = tracks.len();
@@ -247,8 +303,19 @@ impl DownloadService {
             ..Default::default()
         };
         tracing::info!("Fingerprint backfill: starting over {} tracks", total);
+        self.report_backfill(conn, task_id, "fingerprint", 0, total, 0, 0, 0);
 
         for (i, track) in tracks.into_iter().enumerate() {
+            self.report_backfill(
+                conn,
+                task_id,
+                "fingerprint",
+                i,
+                total,
+                s.fingerprinted as i32,
+                (s.already_had + s.no_file) as i32,
+                s.errors as i32,
+            );
             let Some(id) = track.id else {
                 continue;
             };
@@ -304,6 +371,17 @@ impl DownloadService {
                 );
             }
         }
+
+        self.report_backfill(
+            conn,
+            task_id,
+            "fingerprint",
+            total,
+            total,
+            s.fingerprinted as i32,
+            (s.already_had + s.no_file) as i32,
+            s.errors as i32,
+        );
 
         tracing::info!(
             "Fingerprint backfill complete: {} fingerprinted, {} already had, {} no-file, {} errors (of {})",

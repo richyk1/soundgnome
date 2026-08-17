@@ -656,25 +656,28 @@ export async function getStorageStats(): Promise<StorageStatsDto> {
   return res.json();
 }
 
-/** Trigger a one-shot pass that embeds cover art into every library file. */
-export async function embedArtwork(): Promise<void> {
+/** Start a one-shot pass that embeds cover art into every library file. Returns the tracking task id. */
+export async function embedArtwork(): Promise<{ task_id: number }> {
   const res = await fetch(`${BASE}/library/embed-artwork`, { method: 'POST' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
     throw new Error(err.message ?? res.statusText);
   }
+  return res.json();
 }
 
 /**
- * Trigger a one-shot pass that computes an acoustic fingerprint for every library
+ * Start a one-shot pass that computes an acoustic fingerprint for every library
  * file that lacks one, so re-uploads of songs already in the library are detected.
+ * Returns the tracking task id.
  */
-export async function backfillFingerprints(): Promise<void> {
+export async function backfillFingerprints(): Promise<{ task_id: number }> {
   const res = await fetch(`${BASE}/library/backfill-fingerprints`, { method: 'POST' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
     throw new Error(err.message ?? res.statusText);
   }
+  return res.json();
 }
 
 export async function getVersion(): Promise<string> {

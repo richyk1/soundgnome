@@ -72,7 +72,14 @@ export interface MatchCandidateDto {
 }
 
 export type TaskStatus = 'Pending' | 'Running' | 'Completed' | 'Failed' | 'Cancelled' | 'Cancelling';
-export type TaskType = 'SyncPlaylist' | 'SyncArtist' | 'SyncAlbum' | 'DownloadTrack' | 'IngestDir';
+export type TaskType =
+  | 'SyncPlaylist'
+  | 'SyncArtist'
+  | 'SyncAlbum'
+  | 'DownloadTrack'
+  | 'IngestDir'
+  | 'EmbedArtworkBackfill'
+  | 'FingerprintBackfill';
 
 export interface TaskTrackErrorDto {
   track: string;
@@ -94,11 +101,20 @@ export interface TaskStatsDto {
   to_validate_tracks: TaskTrackValidationDto[];
   skipped_tracks: TaskTrackValidationDto[];
   ai_curation: AiCurationProgressDto | null;
+  backfill: BackfillProgressDto | null;
 }
 
 export interface AiCurationProgressDto {
   processed: number;
   total: number;
+}
+
+export interface BackfillProgressDto {
+  /** 'fingerprint' or 'artwork' */
+  kind: string;
+  ok: number;
+  skipped: number;
+  errors: number;
 }
 
 export interface TaskDto {

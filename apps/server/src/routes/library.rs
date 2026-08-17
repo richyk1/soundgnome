@@ -308,9 +308,26 @@ pub async fn ingest_all(
 /// re-downloads audio.
 #[openapi(tag = "library")]
 #[post("/library/embed-artwork")]
-pub async fn embed_artwork(executor: &rocket::State<Arc<TaskExecutor>>) -> Json<serde_json::Value> {
-    executor.enqueue_embed_artwork();
-    Json(serde_json::json!({ "started": true }))
+pub async fn embed_artwork(
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+    executor: &rocket::State<Arc<TaskExecutor>>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let services = Arc::clone(services);
+    let executor = Arc::clone(executor);
+    let task = db
+        .run(move |conn| {
+            services.task_service.create_backfill(
+                conn,
+                shared::models::TaskType::EmbedArtworkBackfill,
+                "Embed artwork",
+            )
+        })
+        .await
+        .map_err(Error::from)?;
+    let task_id = task.id.expect("created task must have an id");
+    executor.enqueue_embed_artwork(task_id);
+    Ok(Json(serde_json::json!({ "task_id": task_id })))
 }
 
 /// Compute and store a Chromaprint acoustic fingerprint for every library file
@@ -320,10 +337,25 @@ pub async fn embed_artwork(executor: &rocket::State<Arc<TaskExecutor>>) -> Json<
 #[openapi(tag = "library")]
 #[post("/library/backfill-fingerprints")]
 pub async fn backfill_fingerprints(
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
     executor: &rocket::State<Arc<TaskExecutor>>,
-) -> Json<serde_json::Value> {
-    executor.enqueue_backfill_fingerprints();
-    Json(serde_json::json!({ "started": true }))
+) -> Result<Json<serde_json::Value>, Error> {
+    let services = Arc::clone(services);
+    let executor = Arc::clone(executor);
+    let task = db
+        .run(move |conn| {
+            services.task_service.create_backfill(
+                conn,
+                shared::models::TaskType::FingerprintBackfill,
+                "Fingerprint library",
+            )
+        })
+        .await
+        .map_err(Error::from)?;
+    let task_id = task.id.expect("created task must have an id");
+    executor.enqueue_backfill_fingerprints(task_id);
+    Ok(Json(serde_json::json!({ "task_id": task_id })))
 }
 
 // ================================================================================================

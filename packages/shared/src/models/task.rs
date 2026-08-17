@@ -42,6 +42,10 @@ pub struct TaskStats {
     /// cleanup), if one is currently running. `None` once the phase completes.
     #[serde(default)]
     pub ai_curation: Option<AiCurationProgress>,
+    /// Live progress of an in-flight library maintenance backfill (acoustic
+    /// fingerprinting or artwork embedding). `None` for sync/ingest tasks.
+    #[serde(default)]
+    pub backfill: Option<BackfillProgress>,
 }
 
 /// Live progress of an AI metadata curation batch loop (title/artist cleanup).
@@ -51,6 +55,19 @@ pub struct AiCurationProgress {
     pub processed: i32,
     /// Total number of tracks to curate in this phase.
     pub total: i32,
+}
+
+/// Live progress of a one-shot library maintenance backfill (fingerprint / artwork).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackfillProgress {
+    /// Which backfill this is: `"fingerprint"` or `"artwork"`.
+    pub kind: String,
+    /// Items successfully processed (fingerprinted / artwork embedded).
+    pub ok: i32,
+    /// Items intentionally skipped (already done, no source art, no file).
+    pub skipped: i32,
+    /// Items that errored without aborting the run.
+    pub errors: i32,
 }
 
 /// One entry per track saved as "needs_validation" during a sync.
@@ -85,6 +102,10 @@ pub enum TaskType {
     DownloadTrack,
     /// Batch ingest of all audio files found in the configured `ingest_dir`.
     IngestDir,
+    /// One-shot: embed cover art into every library file that lacks it.
+    EmbedArtworkBackfill,
+    /// One-shot: compute an acoustic fingerprint for every library file that lacks one.
+    FingerprintBackfill,
 }
 
 impl TaskType {
@@ -96,6 +117,8 @@ impl TaskType {
             "SyncAlbum" => TaskType::SyncAlbum,
             "DownloadTrack" => TaskType::DownloadTrack,
             "IngestDir" => TaskType::IngestDir,
+            "EmbedArtworkBackfill" => TaskType::EmbedArtworkBackfill,
+            "FingerprintBackfill" => TaskType::FingerprintBackfill,
             _ => TaskType::DownloadTrack,
         }
     }

@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import BackfillPanel from '../lib/BackfillPanel.svelte';
   import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud,
     getSpotifyAudioStatus, connectSpotifyAudio, completeSpotifyAudio, disconnectSpotifyAudio, downloadUrl, embedArtwork, backfillFingerprints } from '../lib/api';
   import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyAudioStatusDto } from '../lib/api';
 
   // ── Tab ────────────────────────────────────────────────────────────────────
-  type Tab = 'storage' | 'sync' | 'providers';
+  type Tab = 'sync' | 'storage' | 'providers' | 'artwork' | 'fingerprints';
 
   let {
     initialTab = 'sync',
@@ -29,37 +30,6 @@
       storageError = err instanceof Error ? err.message : String(err);
     } finally {
       storageLoading = false;
-    }
-  }
-
-  let embedding = $state(false);
-  let embedMsg: string | null = $state(null);
-  async function handleEmbedArtwork() {
-    embedding = true;
-    embedMsg = null;
-    try {
-      await embedArtwork();
-      embedMsg = 'Embedding artwork into every library file in the background — this can take a few minutes.';
-    } catch (err: unknown) {
-      embedMsg = `Failed: ${err instanceof Error ? err.message : String(err)}`;
-    } finally {
-      embedding = false;
-    }
-  }
-
-  let fingerprinting = $state(false);
-  let fingerprintMsg: string | null = $state(null);
-  async function handleBackfillFingerprints() {
-    fingerprinting = true;
-    fingerprintMsg = null;
-    try {
-      await backfillFingerprints();
-      fingerprintMsg =
-        'Fingerprinting the library in the background so re-uploads of existing songs are detected — this can take a while.';
-    } catch (err: unknown) {
-      fingerprintMsg = `Failed: ${err instanceof Error ? err.message : String(err)}`;
-    } finally {
-      fingerprinting = false;
     }
   }
 
@@ -370,7 +340,43 @@
     <button class="tab" class:active={activeTab === 'providers'} onclick={() => switchTab('providers')}>
       <i class="lni lni-plug-1" aria-hidden="true"></i>Providers
     </button>
+    <button class="tab" class:active={activeTab === 'artwork'} onclick={() => switchTab('artwork')}>
+      <i class="lni lni-gallery" aria-hidden="true"></i>Artwork
+    </button>
+    <button class="tab" class:active={activeTab === 'fingerprints'} onclick={() => switchTab('fingerprints')}>
+      <i class="lni lni-fingerprint-1" aria-hidden="true"></i>Fingerprints
+    </button>
   </div>
+
+  <!-- ── Artwork tab ─────────────────────────────────────────────────────────── -->
+  {#if activeTab === 'artwork'}
+    <section class="tab-content">
+      <BackfillPanel
+        title="Embed artwork"
+        description="Embed cover art into every library file in place so artwork travels with the audio and shows offline. Missing covers are resolved from each track's references (Spotify oEmbed or YouTube thumbnail). Audio is never re-downloaded or moved."
+        icon="gallery"
+        taskType="EmbedArtworkBackfill"
+        okLabel="embedded"
+        note="Runs in the background on the shared task queue, so it is safe to leave and come back to. Files that already have embedded art are refreshed in place."
+        start={embedArtwork}
+      />
+    </section>
+  {/if}
+
+  <!-- ── Fingerprints tab ────────────────────────────────────────────────────── -->
+  {#if activeTab === 'fingerprints'}
+    <section class="tab-content">
+      <BackfillPanel
+        title="Fingerprint library"
+        description="Compute an acoustic fingerprint (Chromaprint) for every library track so re-uploads of songs you already own are recognized and quality-compared, even when their tags differ. This needs to run once for tracks that predate fingerprinting."
+        icon="fingerprint-1"
+        taskType="FingerprintBackfill"
+        okLabel="fingerprinted"
+        note="Runs in the background and is idempotent: already-fingerprinted tracks are skipped, so re-running is cheap. Expect roughly a second or two per track."
+        start={backfillFingerprints}
+      />
+    </section>
+  {/if}
 
   <!-- ── Storage tab ─────────────────────────────────────────────────────────── -->
   {#if activeTab === 'storage'}
@@ -381,38 +387,8 @@
           <button class="btn-ghost btn-sm" onclick={loadStorage} disabled={storageLoading}>
             {#if storageLoading}<span class="spinner"></span>{:else}<i class="lni lni-refresh-circle-1-clockwise" aria-hidden="true"></i>{/if}Refresh
           </button>
-          <button
-            class="btn-ghost btn-sm"
-            onclick={handleEmbedArtwork}
-            disabled={embedding}
-            title="Embed cover art into every library file so artwork stays with the audio offline"
-          >
-            {#if embedding}<span class="spinner"></span>Starting{:else}<i class="lni lni-gallery" aria-hidden="true"></i>Embed artwork{/if}
-          </button>
-          <button
-            class="btn-ghost btn-sm"
-            onclick={handleBackfillFingerprints}
-            disabled={fingerprinting}
-            title="Compute acoustic fingerprints for the existing library so re-uploads of songs you already have are detected and quality-compared"
-          >
-            {#if fingerprinting}<span class="spinner"></span>Starting{:else}<i class="lni lni-fingerprint-1" aria-hidden="true"></i>Fingerprint library{/if}
-          </button>
         </div>
       </div>
-
-      {#if embedMsg}
-        <div class="callout callout-info" role="status">
-          <i class="lni lni-gallery" aria-hidden="true"></i>
-          <div class="callout-body"><span>{embedMsg}</span></div>
-        </div>
-      {/if}
-
-      {#if fingerprintMsg}
-        <div class="callout callout-info" role="status">
-          <i class="lni lni-fingerprint-1" aria-hidden="true"></i>
-          <div class="callout-body"><span>{fingerprintMsg}</span></div>
-        </div>
-      {/if}
 
       {#if storageError}
         <div class="callout callout-error" role="alert">

@@ -120,6 +120,30 @@ impl TaskService {
         self.task_repo.create(conn, &task)
     }
 
+    /// Create a new pending task for a one-shot library maintenance backfill
+    /// (fingerprinting or artwork embedding).
+    pub fn create_backfill(
+        &self,
+        conn: &mut SqliteConnection,
+        task_type: TaskType,
+        label: &str,
+    ) -> shared::types::SoundgnomeResult<Task> {
+        let task = Task {
+            id: None,
+            task_type,
+            status: TaskStatus::Pending,
+            payload: "{}".to_string(),
+            label: Some(label.to_string()),
+            progress: 0,
+            total: None,
+            error: None,
+            stats: None,
+            created_at: None,
+            updated_at: None,
+        };
+        self.task_repo.create(conn, &task)
+    }
+
     pub fn set_running(
         &self,
         conn: &mut SqliteConnection,

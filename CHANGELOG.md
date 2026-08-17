@@ -58,10 +58,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   On a match the higher-quality copy is kept: a better upload replaces the
   existing library file (the superseded file is deleted) and a worse one is
   discarded, so a duplicate never lands in the review queue.
-- **Fingerprint-library backfill.** A one-shot Tools -> Storage action
-  ("Fingerprint library") computes and stores fingerprints for existing library
-  files that predate fingerprinting, so re-uploads of songs already in the library
-  are recognized even when their tags differ. Runs in the background, idempotent.
+- **Library maintenance tabs with live progress.** The fingerprint and artwork
+  backfills each have their own tab under Tools (Fingerprints, Artwork) that runs
+  the pass as a tracked background task and shows a live progress bar, processed
+  count, and running result tallies, with a persisted last-run summary. The
+  fingerprint backfill stores acoustic fingerprints for existing library files
+  that predate fingerprinting, so re-uploads of songs already in the library are
+  recognized even when their tags differ; both passes are idempotent.
 
 ### Changed
 
