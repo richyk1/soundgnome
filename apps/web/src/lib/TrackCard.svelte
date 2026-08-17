@@ -395,9 +395,10 @@
     display: flex;
     gap: 1rem;
     padding: 1rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    background: var(--float);
+    border: 1px solid var(--float-border);
+    border-radius: 10px;
+    box-shadow: var(--rim), var(--shadow-sm);
     transition: border-color 0.15s;
   }
 
@@ -632,9 +633,10 @@
   .matches-panel {
     margin-top: 0.75rem;
     padding: 0.75rem;
-    background: var(--surface-2);
-    border-radius: 6px;
-    border: 1px solid var(--border);
+    background: var(--float);
+    border-radius: 10px;
+    border: 1px solid var(--float-border);
+    box-shadow: var(--rim), var(--shadow-sm);
   }
 
   .matches-status {
@@ -669,9 +671,10 @@
     align-items: center;
     gap: 0.75rem;
     padding: 0.5rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 5px;
+    background: var(--float);
+    border: 1px solid var(--float-border);
+    border-radius: 10px;
+    box-shadow: var(--rim), var(--shadow-sm);
     transition: border-color 0.15s;
   }
 

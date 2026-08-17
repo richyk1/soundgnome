@@ -1,10 +1,10 @@
 # Specifications
 
-This document defines the functional intent of Soundome. It is deliberately narrower than a full roadmap: it describes the expected product shape, the main constraints, and the boundaries that should guide implementation decisions.
+This document defines the functional intent of Soundgnome. It is deliberately narrower than a full roadmap: it describes the expected product shape, the main constraints, and the boundaries that should guide implementation decisions.
 
 ## Product goal
 
-Soundome exists to build and maintain a coherent personal music library from heterogeneous inputs such as Spotify, SoundCloud, YouTube, YouTube Music, and local files.
+Soundgnome exists to build and maintain a coherent personal music library from heterogeneous inputs such as Spotify, SoundCloud, YouTube, YouTube Music, and local files.
 
 The target experience is:
 

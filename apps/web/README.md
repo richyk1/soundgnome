@@ -1,6 +1,6 @@
-# Soundome web app
+# Soundgnome web app
 
-This package contains the Svelte admin interface for Soundome.
+This package contains the Svelte admin interface for Soundgnome.
 
 ## Responsibilities
 

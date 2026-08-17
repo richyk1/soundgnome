@@ -2,7 +2,7 @@
 //!
 //! The executor owns a single worker thread that pulls `QueuedJob`s from a FIFO
 //! channel and runs them one at a time. Its purpose is to guarantee that
-//! Soundome only ever runs **one** heavy job at a time, which:
+//! Soundgnome only ever runs **one** heavy job at a time, which:
 //!
 //! - avoids SQLite `database is locked` errors caused by two writers racing
 //!   for the exclusive database lock on concurrent playlist syncs,
@@ -30,7 +30,7 @@ use config::Config;
 use domain::services::ServiceLayer;
 use shared::errors::Error;
 use shared::models::Track;
-use shared::types::SoundomeResult;
+use shared::types::SoundgnomeResult;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 
@@ -65,8 +65,10 @@ pub enum QueuedJob {
     /// caller blocks on the response.
     SingleTrack {
         url: String,
-        responder: oneshot::Sender<SoundomeResult<Track>>,
+        responder: oneshot::Sender<SoundgnomeResult<Track>>,
     },
+    /// One-shot: (re)embed cover art into every library file in place. No task row.
+    EmbedArtwork,
 }
 
 /// Handle used by producers to enqueue jobs on the shared serial worker.
@@ -88,7 +90,7 @@ impl TaskExecutor {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<QueuedJob>();
 
         std::thread::Builder::new()
-            .name("soundome-task-executor".to_string())
+            .name("soundgnome-task-executor".to_string())
             .spawn(move || {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -140,10 +142,15 @@ impl TaskExecutor {
     /// resolves once the worker has processed the job. Awaiting this receiver
     /// naturally blocks the HTTP handler until the queue reaches this job,
     /// which is the intended behavior — no download ever bypasses the queue.
-    pub fn enqueue_single_track(&self, url: String) -> oneshot::Receiver<SoundomeResult<Track>> {
+    pub fn enqueue_single_track(&self, url: String) -> oneshot::Receiver<SoundgnomeResult<Track>> {
         let (responder, rx) = oneshot::channel();
         self.send(QueuedJob::SingleTrack { url, responder });
         rx
+    }
+
+    /// Enqueue a one-shot artwork backfill over the whole library. Non-blocking.
+    pub fn enqueue_embed_artwork(&self) {
+        self.send(QueuedJob::EmbedArtwork);
     }
 
     fn send(&self, job: QueuedJob) {
@@ -234,6 +241,12 @@ async fn run_job(
             // dropped the connection). Nothing else to do.
             let _ = responder.send(result);
         }
+        QueuedJob::EmbedArtwork => {
+            match services.download_service.backfill_artwork(conn).await {
+                Ok(summary) => tracing::info!("Artwork backfill finished: {:?}", summary),
+                Err(e) => tracing::error!("Artwork backfill failed: {}", e),
+            }
+        }
     }
 }
 
@@ -248,7 +261,7 @@ fn finalize_task(
     registry: &Arc<CancellationRegistry>,
     conn: &mut diesel::SqliteConnection,
     task_id: i32,
-    result: SoundomeResult<()>,
+    result: SoundgnomeResult<()>,
 ) {
     match result {
         Ok(()) => {

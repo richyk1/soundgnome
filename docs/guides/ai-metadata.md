@@ -1,10 +1,10 @@
 # AI metadata cleanup
 
-Soundome can call an AI model to clean noisy track metadata before enrichment. This page explains what the AI does, when it helps, how to configure it, and which model to pick.
+Soundgnome can call an AI model to clean noisy track metadata before enrichment. This page explains what the AI does, when it helps, how to configure it, and which model to pick.
 
 ## What the AI does
 
-The AI cleanup step targets **SoundCloud metadata specifically**. SoundCloud titles often contain artist names, collaboration credits, catalog numbers, and platform tags all mixed into a single string. Before Soundome tries to match the track against MusicBrainz or Bandcamp, it can send the raw title and artist fields to an AI model and receive back cleaned, structured values.
+The AI cleanup step targets **SoundCloud metadata specifically**. SoundCloud titles often contain artist names, collaboration credits, catalog numbers, and platform tags all mixed into a single string. Before Soundgnome tries to match the track against MusicBrainz or Bandcamp, it can send the raw title and artist fields to an AI model and receive back cleaned, structured values.
 
 **Example — before AI cleanup:**
 
@@ -44,14 +44,14 @@ AI cleanup significantly reduces the number of tracks requiring manual review fo
 
 ## Backends
 
-Two backends are supported. You can configure one or both; the `provider_order` list controls which is tried first. If the first fails (model unavailable, timeout), Soundome automatically tries the next one.
+Two backends are supported. You can configure one or both; the `provider_order` list controls which is tried first. If the first fails (model unavailable, timeout), Soundgnome automatically tries the next one.
 
 ### Ollama (local, recommended as primary)
 
 [Ollama](https://ollama.com) runs models locally on your machine. It is free, private, and fast on hardware with a GPU.
 
 **Requirements:**
-- Ollama ≥ 0.5.0 (earlier versions do not support structured JSON output, which Soundome requires)
+- Ollama ≥ 0.5.0 (earlier versions do not support structured JSON output, which Soundgnome requires)
 - At least one model pulled
 
 **Recommended models** for this task (good JSON output, low resource requirements):
@@ -109,7 +109,7 @@ timeout = 30
 Or via environment variable (recommended for secrets):
 
 ```
-SOUNDOME__AI__OPENROUTER__API_KEY=sk-or-...
+SOUNDGNOME__AI__OPENROUTER__API_KEY=sk-or-...
 ```
 
 ## Using both backends together
@@ -131,7 +131,7 @@ model = "openai/gpt-4o-mini"
 
 ## How it works in practice
 
-When Soundome downloads a SoundCloud track or syncs a SoundCloud playlist, it sends the raw metadata to the AI in batches of up to 50 tracks at a time. The prompt asks for a JSON response in exactly the same structure as the input — just with cleaned values. If the response is invalid JSON or the model returns garbage, Soundome logs a warning and continues with the original values rather than failing.
+When Soundgnome downloads a SoundCloud track or syncs a SoundCloud playlist, it sends the raw metadata to the AI in batches of up to 50 tracks at a time. The prompt asks for a JSON response in exactly the same structure as the input — just with cleaned values. If the response is invalid JSON or the model returns garbage, Soundgnome logs a warning and continues with the original values rather than failing.
 
 This means: **AI failures are non-fatal.** The worst case is that metadata remains uncleaned and more tracks land in the validation queue.
 
@@ -142,8 +142,8 @@ While a batch is being curated, the **Tasks** page in the web UI shows a live in
 Look at the server logs when submitting a SoundCloud URL. With `logs.level = "debug"` you will see lines like:
 
 ```
-DEBUG soundome::fetcher::soundcloud: cleaning 12 tracks with AI
-DEBUG soundome::ai: sending batch of 12 tracks to ollama
+DEBUG soundgnome::fetcher::soundcloud: cleaning 12 tracks with AI
+DEBUG soundgnome::ai: sending batch of 12 tracks to ollama
 ```
 
 If AI is not configured or disabled, the cleaning step is skipped silently at `warn` level.

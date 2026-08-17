@@ -4,10 +4,10 @@ pub mod youtube;
 pub mod youtube_music;
 
 use async_trait::async_trait;
-use config::Config;
+
 use shared::errors::Error;
 use shared::models::{Album, Artist, Platform, Playlist, PlaylistTrack, Track};
-use shared::types::SoundomeResult;
+use shared::types::SoundgnomeResult;
 use soundcloud::Soundcloud;
 use spotify::Spotify;
 use youtube::Youtube;
@@ -75,19 +75,19 @@ pub fn curate_source_url(url: &str) -> String {
 
 #[async_trait]
 pub trait Source {
-    async fn get_track_from_url(&self, url: &str) -> SoundomeResult<Track>;
-    async fn get_tracks_from_query(&self, search: &str) -> SoundomeResult<Vec<Track>>;
-    async fn get_playlist_from_url(&self, url: &str) -> SoundomeResult<Playlist>;
-    async fn get_playlist_tracks_from_url(&self, url: &str) -> SoundomeResult<Vec<PlaylistTrack>>;
-    async fn get_artist_from_url(&self, url: &str) -> SoundomeResult<Artist>;
-    async fn get_artist_tracks_from_url(&self, url: &str) -> SoundomeResult<Vec<Track>>;
-    async fn get_artists_from_query(&self, search: &str) -> SoundomeResult<Vec<Artist>>;
-    async fn get_album_from_url(&self, url: &str) -> SoundomeResult<Album>;
-    async fn get_albums_from_query(&self, search: &str) -> SoundomeResult<Vec<Album>>;
-    async fn get_album_tracks_from_url(&self, url: &str) -> SoundomeResult<Vec<Track>>;
+    async fn get_track_from_url(&self, url: &str) -> SoundgnomeResult<Track>;
+    async fn get_tracks_from_query(&self, search: &str) -> SoundgnomeResult<Vec<Track>>;
+    async fn get_playlist_from_url(&self, url: &str) -> SoundgnomeResult<Playlist>;
+    async fn get_playlist_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<PlaylistTrack>>;
+    async fn get_artist_from_url(&self, url: &str) -> SoundgnomeResult<Artist>;
+    async fn get_artist_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<Track>>;
+    async fn get_artists_from_query(&self, search: &str) -> SoundgnomeResult<Vec<Artist>>;
+    async fn get_album_from_url(&self, url: &str) -> SoundgnomeResult<Album>;
+    async fn get_albums_from_query(&self, search: &str) -> SoundgnomeResult<Vec<Album>>;
+    async fn get_album_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<Track>>;
 
     /// Clean metadata of a single track
-    async fn clean_track_metadata(&self, track: &mut Track) -> SoundomeResult<()>;
+    async fn clean_track_metadata(&self, track: &mut Track) -> SoundgnomeResult<()>;
     /// Clean metadata (track title, artists names, etc) of multiple tracks.
     /// `on_batch` is invoked after each internal batch is processed with
     /// `(processed, total)`, so callers can surface live curation progress.
@@ -95,7 +95,7 @@ pub trait Source {
         &self,
         track: &mut Vec<&mut Track>,
         on_batch: Option<&mut (dyn FnMut(usize, usize) + Send)>,
-    ) -> SoundomeResult<()>;
+    ) -> SoundgnomeResult<()>;
 
     fn is_valid_track_url(url: &str) -> bool;
     fn is_valid_playlist_url(url: &str) -> bool;
@@ -113,20 +113,13 @@ pub struct Fetcher {
 impl Fetcher {
     pub async fn new() -> Self {
         Self {
-            // Credentials from the config file or the Providers tab. Enabling
-            // this no longer implies YouTube-sourced audio: a Spotify track is
-            // downloaded from Spotify, or it fails (see
-            // `downloader::search`).
-            spotify: Config::get().resolved_spotify_credentials().and_then(
-                |(client_id, client_secret)| {
-                    Spotify::new(&client_id, &client_secret)
-                        .map_err(|e| {
-                            tracing::error!("Failed to initialize Spotify source: {:?}", e);
-                            e
-                        })
-                        .ok()
-                },
-            ),
+            // One Spotify connection (the librespot user session) powers
+            // catalogue lookups, Liked Songs, and audio. Available once the user
+            // has logged in; a Spotify track is downloaded from Spotify, or it
+            // fails (see `downloader::search`).
+            spotify: spotify::session::stored_session()
+                .is_some()
+                .then(Spotify::new),
             youtube: Youtube::new()
                 .map_err(|e| {
                     tracing::error!("Failed to initialize YouTube source: {:?}", e);
@@ -152,7 +145,7 @@ impl Fetcher {
 
 #[async_trait]
 impl Source for Fetcher {
-    async fn get_track_from_url(&self, url: &str) -> SoundomeResult<Track> {
+    async fn get_track_from_url(&self, url: &str) -> SoundgnomeResult<Track> {
         match url {
             _ if Spotify::is_valid_track_url(url) => match &self.spotify {
                 Some(spotify) => spotify.get_track_from_url(url).await,
@@ -179,7 +172,7 @@ impl Source for Fetcher {
         }
     }
 
-    async fn get_playlist_from_url(&self, url: &str) -> SoundomeResult<Playlist> {
+    async fn get_playlist_from_url(&self, url: &str) -> SoundgnomeResult<Playlist> {
         // Liked Songs come from the user's own OAuth session, not from the
         // catalogue client, so they are handled before the per-source dispatch:
         // there may be no configured Spotify source adapter at all.
@@ -219,7 +212,7 @@ impl Source for Fetcher {
         }
     }
 
-    async fn get_playlist_tracks_from_url(&self, url: &str) -> SoundomeResult<Vec<PlaylistTrack>> {
+    async fn get_playlist_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<PlaylistTrack>> {
         if Spotify::is_liked_url(url) {
             let saved = spotify::session::saved_tracks().await?;
             return Ok(saved
@@ -262,13 +255,13 @@ impl Source for Fetcher {
         }
     }
 
-    async fn get_tracks_from_query(&self, _search: &str) -> SoundomeResult<Vec<Track>> {
+    async fn get_tracks_from_query(&self, _search: &str) -> SoundgnomeResult<Vec<Track>> {
         Err(Error::NotImplemented(
             "get_tracks_from_query is not implemented yet".to_string(),
         ))
     }
 
-    async fn get_artist_from_url(&self, url: &str) -> SoundomeResult<Artist> {
+    async fn get_artist_from_url(&self, url: &str) -> SoundgnomeResult<Artist> {
         match url {
             _ if Spotify::is_valid_artist_url(url) => match &self.spotify {
                 Some(spotify) => spotify.get_artist_from_url(url).await,
@@ -291,7 +284,7 @@ impl Source for Fetcher {
         }
     }
 
-    async fn get_artist_tracks_from_url(&self, url: &str) -> SoundomeResult<Vec<Track>> {
+    async fn get_artist_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<Track>> {
         match url {
             _ if Spotify::is_valid_artist_url(url) => match &self.spotify {
                 Some(spotify) => spotify.get_artist_tracks_from_url(url).await,
@@ -314,13 +307,13 @@ impl Source for Fetcher {
         }
     }
 
-    async fn get_artists_from_query(&self, _search: &str) -> SoundomeResult<Vec<Artist>> {
+    async fn get_artists_from_query(&self, _search: &str) -> SoundgnomeResult<Vec<Artist>> {
         Err(Error::NotImplemented(
             "get_artists_from_query is not implemented yet".to_string(),
         ))
     }
 
-    async fn get_album_from_url(&self, url: &str) -> SoundomeResult<Album> {
+    async fn get_album_from_url(&self, url: &str) -> SoundgnomeResult<Album> {
         match url {
             _ if Spotify::is_valid_album_url(url) => match &self.spotify {
                 Some(spotify) => spotify.get_album_from_url(url).await,
@@ -343,13 +336,13 @@ impl Source for Fetcher {
         }
     }
 
-    async fn get_albums_from_query(&self, _search: &str) -> SoundomeResult<Vec<Album>> {
+    async fn get_albums_from_query(&self, _search: &str) -> SoundgnomeResult<Vec<Album>> {
         Err(Error::NotImplemented(
             "get_albums_from_query is not implemented yet".to_string(),
         ))
     }
 
-    async fn get_album_tracks_from_url(&self, url: &str) -> SoundomeResult<Vec<Track>> {
+    async fn get_album_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<Track>> {
         match url {
             _ if Spotify::is_valid_album_url(url) => match &self.spotify {
                 Some(spotify) => spotify.get_album_tracks_from_url(url).await,
@@ -372,7 +365,7 @@ impl Source for Fetcher {
         }
     }
 
-    async fn clean_track_metadata(&self, track: &mut Track) -> SoundomeResult<()> {
+    async fn clean_track_metadata(&self, track: &mut Track) -> SoundgnomeResult<()> {
         match track.get_source_platform() {
             Platform::SoundCloud => match &self.soundcloud {
                 Some(soundcloud) => soundcloud.clean_track_metadata(track).await,
@@ -386,7 +379,7 @@ impl Source for Fetcher {
         &self,
         tracks: &mut Vec<&mut Track>,
         on_batch: Option<&mut (dyn FnMut(usize, usize) + Send)>,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         match tracks.first() {
             Some(track) => match track.get_source_platform() {
                 Platform::SoundCloud => match &self.soundcloud {

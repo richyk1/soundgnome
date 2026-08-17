@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use diesel::SqliteConnection;
-use shared::{models::Reference, types::SoundomeResult};
+use shared::{models::Reference, types::SoundgnomeResult};
 
 use crate::ports::repositories::{AlbumRepository, ArtistRepository};
 
@@ -28,14 +28,14 @@ impl AlbumService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> SoundomeResult<shared::models::Album> {
+    ) -> SoundgnomeResult<shared::models::Album> {
         self.album_repo.get_by_id(conn, id)
     }
 
     pub fn get_all(
         &self,
         conn: &mut SqliteConnection,
-    ) -> SoundomeResult<Vec<shared::models::Album>> {
+    ) -> SoundgnomeResult<Vec<shared::models::Album>> {
         self.album_repo.get_all(conn)
     }
 
@@ -43,7 +43,7 @@ impl AlbumService {
         &self,
         conn: &mut SqliteConnection,
         new_album: &shared::models::Album,
-    ) -> SoundomeResult<shared::models::Album> {
+    ) -> SoundgnomeResult<shared::models::Album> {
         self.album_repo.create(conn, new_album)
     }
 
@@ -52,11 +52,11 @@ impl AlbumService {
         conn: &mut SqliteConnection,
         id: i32,
         updated_album: &shared::models::Album,
-    ) -> SoundomeResult<shared::models::Album> {
+    ) -> SoundgnomeResult<shared::models::Album> {
         self.album_repo.update(conn, id, updated_album)
     }
 
-    pub fn delete_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    pub fn delete_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         self.album_repo.delete(conn, id)
     }
 
@@ -70,7 +70,7 @@ impl AlbumService {
         self.album_repo.get_by_url(conn, url).ok()
     }
 
-    pub fn count(&self, conn: &mut SqliteConnection) -> SoundomeResult<i64> {
+    pub fn count(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64> {
         self.album_repo.count(conn)
     }
 
@@ -80,7 +80,7 @@ impl AlbumService {
         conn: &mut SqliteConnection,
         album_id: i32,
         reference: Reference,
-    ) -> SoundomeResult<Vec<Reference>> {
+    ) -> SoundgnomeResult<Vec<Reference>> {
         self.album_repo
             .create_references(conn, album_id, &[reference])?;
         let album = self.album_repo.get_by_id(conn, album_id)?;
@@ -88,7 +88,7 @@ impl AlbumService {
     }
 
     /// Delete a single reference row by its own ID.
-    pub fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundomeResult<()> {
+    pub fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundgnomeResult<()> {
         self.album_repo.delete_reference(conn, ref_id)
     }
 
@@ -97,7 +97,7 @@ impl AlbumService {
         conn: &mut SqliteConnection,
         source_ids: &[i32],
         target_id: i32,
-    ) -> SoundomeResult<shared::models::Album> {
+    ) -> SoundgnomeResult<shared::models::Album> {
         self.album_repo.merge_into(conn, source_ids, target_id)?;
         self.album_repo.get_by_id(conn, target_id)
     }
@@ -109,7 +109,7 @@ impl AlbumService {
         &self,
         conn: &mut SqliteConnection,
         album: &shared::models::Album,
-    ) -> SoundomeResult<shared::models::Album> {
+    ) -> SoundgnomeResult<shared::models::Album> {
         // Step 1: Use create_or_ignore for the album
         let created_album = self.album_repo.create_or_ignore(conn, album)?;
         let album_id = created_album.id.unwrap();

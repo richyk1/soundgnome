@@ -17,7 +17,7 @@ use lofty::ogg::{OggPictureStorage, VorbisComments};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::TagExt;
 use lofty::probe::Probe;
-use shared::{errors::Error, models::Track, types::SoundomeResult};
+use shared::{errors::Error, models::Track, types::SoundgnomeResult};
 
 /// Extensions handled here rather than by `audiotags`.
 pub const EXTENSIONS: [&str; 3] = ["ogg", "oga", "opus"];
@@ -33,7 +33,7 @@ pub fn handles(path: &Path) -> bool {
 }
 
 /// Read the existing comments, or start a fresh block.
-fn read_comments(path: &Path) -> SoundomeResult<VorbisComments> {
+fn read_comments(path: &Path) -> SoundgnomeResult<VorbisComments> {
     let tagged = Probe::open(path)
         .map_err(|e| Error::Custom(format!("Cannot open {}: {e}", path.display())))?
         .read()
@@ -47,7 +47,7 @@ fn read_comments(path: &Path) -> SoundomeResult<VorbisComments> {
         .unwrap_or_default())
 }
 
-fn save(path: &Path, comments: &VorbisComments) -> SoundomeResult<()> {
+fn save(path: &Path, comments: &VorbisComments) -> SoundgnomeResult<()> {
     comments
         .save_to_path(path, WriteOptions::default())
         .map_err(|e| Error::Custom(format!("Cannot write tags to {}: {e}", path.display())))
@@ -69,7 +69,7 @@ pub fn tag_file(
     track: &Track,
     cover_bytes: Option<&[u8]>,
     soundome_id: Option<&str>,
-) -> SoundomeResult<()> {
+) -> SoundgnomeResult<()> {
     let mut comments = read_comments(path)?;
 
     comments.insert("TITLE".to_string(), track.title.clone());
@@ -127,7 +127,7 @@ pub fn tag_file(
 }
 
 /// Write only the library anchor, leaving every other field as it is.
-pub fn write_soundome_id(path: &Path, soundome_id: &str) -> SoundomeResult<()> {
+pub fn write_soundome_id(path: &Path, soundome_id: &str) -> SoundgnomeResult<()> {
     let mut comments = read_comments(path)?;
     comments.insert(SOUNDOME_ID_KEY.to_string(), soundome_id.to_string());
     save(path, &comments)

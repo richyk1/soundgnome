@@ -8,7 +8,7 @@ use ollama_rs::{
     Ollama,
 };
 use serde::{Deserialize, Serialize};
-use shared::{errors::Error, types::SoundomeResult, utils::json::generate_json_schema};
+use shared::{errors::Error, types::SoundgnomeResult, utils::json::generate_json_schema};
 
 use crate::{prompts::prompt_with_data, AIBackend};
 
@@ -22,7 +22,7 @@ impl OllamaAI {
     const DEFAULT_HOST: &'static str = "http://localhost";
     const DEFAULT_PORT: u16 = 11434;
 
-    pub fn new(config: &OllamaConfig) -> SoundomeResult<Self> {
+    pub fn new(config: &OllamaConfig) -> SoundgnomeResult<Self> {
         let host = config
             .host
             .clone()
@@ -41,7 +41,7 @@ impl OllamaAI {
 
 #[async_trait]
 impl AIBackend for OllamaAI {
-    async fn generate(&self, prompt: &str) -> SoundomeResult<String> {
+    async fn generate(&self, prompt: &str) -> SoundgnomeResult<String> {
         let request = ChatMessageRequest::new(
             self.model.clone(),
             vec![ChatMessage::user(prompt.to_string())],
@@ -67,7 +67,7 @@ impl AIBackend for OllamaAI {
         &self,
         prompt: &str,
         data: T,
-    ) -> SoundomeResult<T> {
+    ) -> SoundgnomeResult<T> {
         let full_prompt = prompt_with_data(prompt, &data)?;
 
         // Generate the JSON schema using schemars 1.x (required by ollama-rs).

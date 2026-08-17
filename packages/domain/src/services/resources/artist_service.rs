@@ -18,14 +18,14 @@ impl ArtistService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> shared::types::SoundomeResult<shared::models::Artist> {
+    ) -> shared::types::SoundgnomeResult<shared::models::Artist> {
         self.artist_repo.get_by_id(conn, id)
     }
 
     pub fn get_all(
         &self,
         conn: &mut SqliteConnection,
-    ) -> shared::types::SoundomeResult<Vec<shared::models::Artist>> {
+    ) -> shared::types::SoundgnomeResult<Vec<shared::models::Artist>> {
         self.artist_repo.get_all(conn)
     }
 
@@ -33,7 +33,7 @@ impl ArtistService {
         &self,
         conn: &mut SqliteConnection,
         new_artist: &shared::models::Artist,
-    ) -> shared::types::SoundomeResult<shared::models::Artist> {
+    ) -> shared::types::SoundgnomeResult<shared::models::Artist> {
         self.artist_repo.create(conn, new_artist)
     }
 
@@ -42,7 +42,7 @@ impl ArtistService {
         conn: &mut SqliteConnection,
         id: i32,
         updated_artist: &shared::models::Artist,
-    ) -> shared::types::SoundomeResult<shared::models::Artist> {
+    ) -> shared::types::SoundgnomeResult<shared::models::Artist> {
         self.artist_repo.update(conn, id, updated_artist)
     }
 
@@ -58,7 +58,7 @@ impl ArtistService {
         &self,
         conn: &mut SqliteConnection,
         artist: &shared::models::Artist,
-    ) -> shared::types::SoundomeResult<shared::models::Artist> {
+    ) -> shared::types::SoundgnomeResult<shared::models::Artist> {
         self.artist_repo.create_or_ignore(conn, artist)
     }
 
@@ -66,7 +66,7 @@ impl ArtistService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         self.artist_repo.delete(conn, id)
     }
 
@@ -75,12 +75,12 @@ impl ArtistService {
         conn: &mut SqliteConnection,
         source_ids: &[i32],
         target_id: i32,
-    ) -> shared::types::SoundomeResult<shared::models::Artist> {
+    ) -> shared::types::SoundgnomeResult<shared::models::Artist> {
         self.artist_repo.merge_into(conn, source_ids, target_id)?;
         self.artist_repo.get_by_id(conn, target_id)
     }
 
-    pub fn count(&self, conn: &mut SqliteConnection) -> shared::types::SoundomeResult<i64> {
+    pub fn count(&self, conn: &mut SqliteConnection) -> shared::types::SoundgnomeResult<i64> {
         self.artist_repo.count(conn)
     }
 
@@ -90,7 +90,7 @@ impl ArtistService {
         conn: &mut SqliteConnection,
         artist_id: i32,
         reference: Reference,
-    ) -> shared::types::SoundomeResult<Vec<Reference>> {
+    ) -> shared::types::SoundgnomeResult<Vec<Reference>> {
         self.artist_repo
             .create_references(conn, artist_id, &[reference])?;
         let artist = self.artist_repo.get_by_id(conn, artist_id)?;
@@ -102,7 +102,7 @@ impl ArtistService {
         &self,
         conn: &mut SqliteConnection,
         ref_id: i32,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         self.artist_repo.delete_reference(conn, ref_id)
     }
 }

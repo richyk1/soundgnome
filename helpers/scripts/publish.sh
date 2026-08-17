@@ -90,7 +90,7 @@ case "$TARGET" in
         CARGO_TOML="${REPO_ROOT}/apps/server/Cargo.toml"
         ROOT_PKG_JSON="${REPO_ROOT}/package.json"
         WEB_PKG_JSON="${REPO_ROOT}/apps/web/package.json"
-        CRATE_NAME="soundome-server"
+        CRATE_NAME="soundgnome-server"
         ;;
     cli)
         TAG="v${VERSION}-cli"

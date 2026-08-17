@@ -3,17 +3,16 @@
 //! This is the Premium librespot audio session, which streams tracks directly
 //! from Spotify as AAC. It is separate from the metadata-only Spotify provider
 //! (`routes::spotify`): connecting here authorizes a real playback session, so
-//! it requires a Spotify Premium account. Connecting opens a browser on the
-//! server host to authorize, which works for a localhost or self-hosted
-//! deployment; a remote or headless host needs port 8898 reachable. Once
-//! connected, tracks whose source is Spotify download directly from Spotify
-//! as `.m4a` instead of being matched on YouTube.
+//! it requires a Spotify Premium account. Login is a paste-back flow: the UI
+//! opens the authorize URL, the user approves and copies the redirect URL back
+//! into the UI, which posts it here. Once connected, tracks whose source is
+//! Spotify download directly from Spotify instead of being matched on YouTube.
 
 use downloader::spotify::auth;
 use rocket::{delete, get, http::Status, post, serde::json::Json};
 use rocket_okapi::openapi;
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::utils::error::{CustomError, Error};
 
@@ -65,16 +64,39 @@ pub fn get_status() -> Json<SpotifyAudioStatus> {
 
 /// Start the login and hand back the URL to approve.
 ///
-/// Returns immediately: the callback is caught in the background, so the UI can
-/// open the link itself instead of the operator reading a server log.
+/// The UI opens this URL; after approving, the browser lands on Spotify's
+/// registered `127.0.0.1:8898` redirect, which the user pastes back to
+/// [`callback`]. No server-side listener is involved, so this works remotely.
 #[openapi]
 #[post("/providers/spotify-audio/login")]
-pub async fn login() -> Result<Json<SpotifyAudioLogin>, Error> {
-    let authorize_url = auth::begin_login()
-        .await
-        .map_err(|e| bad_request("LoginUnavailable", e.to_string()))?;
+pub fn login() -> Result<Json<SpotifyAudioLogin>, Error> {
+    let authorize_url =
+        auth::begin_login().map_err(|e| bad_request("LoginUnavailable", e.to_string()))?;
 
     Ok(Json(SpotifyAudioLogin { authorize_url }))
+}
+
+#[derive(Deserialize, JsonSchema)]
+pub struct SpotifyAudioCallback {
+    /// The full URL Spotify redirected the browser to after approval
+    /// (`http://127.0.0.1:8898/login?code=...&state=...`), or the bare code.
+    pub redirect_url: String,
+}
+
+/// Finish the login from the redirect URL the user pasted back.
+#[openapi]
+#[post("/providers/spotify-audio/callback", data = "<body>")]
+pub async fn callback(body: Json<SpotifyAudioCallback>) -> Result<Json<SpotifyAudioStatus>, Error> {
+    let username = auth::complete_login(body.redirect_url.trim())
+        .await
+        .map_err(|e| bad_request("LoginFailed", e.to_string()))?;
+
+    tracing::info!("Spotify audio (librespot) connected for {username}");
+
+    Ok(Json(SpotifyAudioStatus {
+        connected: true,
+        username: Some(username),
+    }))
 }
 
 /// Forget the stored Spotify audio (librespot) credentials.

@@ -302,7 +302,7 @@ pub async fn update(
     let services = Arc::clone(services);
     let body = body.into_inner();
 
-    db.run(move |conn| -> shared::types::SoundomeResult<Track> {
+    db.run(move |conn| -> shared::types::SoundgnomeResult<Track> {
         let old_track = services.track_service.get_by_id(conn, id)?;
         let mut track = old_track.clone();
 

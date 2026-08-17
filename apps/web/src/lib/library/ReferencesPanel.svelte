@@ -240,9 +240,10 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    background: var(--float);
+    border: 1px solid var(--float-border);
+    border-radius: 10px;
+    box-shadow: var(--rim), var(--shadow-sm);
     padding: 0.65rem 0.75rem;
   }
 
@@ -327,9 +328,10 @@
     display: flex;
     align-items: center;
     gap: 0.45rem;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    background: var(--float);
+    border: 1px solid var(--float-border);
+    border-radius: 10px;
+    box-shadow: var(--rim), var(--shadow-sm);
     padding: 0.35rem 0.55rem;
     font-size: 0.8rem;
     min-width: 0;

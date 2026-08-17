@@ -1,6 +1,6 @@
 # Web admin interface
 
-Soundome ships a lightweight web admin panel served directly by the Rocket server. It covers the full day-to-day management workflow: submitting downloads, reviewing pending validations, browsing and editing the library, monitoring background tasks, and managing scheduled syncs.
+Soundgnome ships a lightweight web admin panel served directly by the Rocket server. It covers the full day-to-day management workflow: submitting downloads, reviewing pending validations, browsing and editing the library, monitoring background tasks, and managing scheduled syncs.
 
 ## Architecture
 

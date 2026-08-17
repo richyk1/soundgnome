@@ -5,18 +5,18 @@ use async_trait::async_trait;
 use backends::{ollama::OllamaAI, openrouter::OpenRouterAI};
 use config::Config;
 use serde::{Deserialize, Serialize};
-use shared::{errors::Error, types::SoundomeResult};
+use shared::{errors::Error, types::SoundgnomeResult};
 
 #[async_trait]
 pub trait AIBackend {
-    async fn generate(&self, prompt: &str) -> SoundomeResult<String>;
+    async fn generate(&self, prompt: &str) -> SoundgnomeResult<String>;
     async fn generate_with_data<
         T: schemars::JsonSchema + for<'de> Deserialize<'de> + Serialize + Send,
     >(
         &self,
         prompt: &str,
         data: T,
-    ) -> SoundomeResult<T>;
+    ) -> SoundgnomeResult<T>;
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -29,7 +29,7 @@ pub enum AIBackendInstance {
 
 #[async_trait]
 impl AIBackend for AIBackendInstance {
-    async fn generate(&self, prompt: &str) -> SoundomeResult<String> {
+    async fn generate(&self, prompt: &str) -> SoundgnomeResult<String> {
         match self {
             AIBackendInstance::OpenRouter(b) => b.generate(prompt).await,
             AIBackendInstance::Ollama(b) => b.generate(prompt).await,
@@ -58,7 +58,7 @@ impl AIBackend for AIBackendInstance {
         &self,
         prompt: &str,
         data: T,
-    ) -> SoundomeResult<T> {
+    ) -> SoundgnomeResult<T> {
         match self {
             AIBackendInstance::OpenRouter(b) => b.generate_with_data(prompt, data).await,
             AIBackendInstance::Ollama(b) => b.generate_with_data(prompt, data).await,
@@ -112,7 +112,7 @@ pub struct AIClient;
 
 impl AIClient {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new() -> SoundomeResult<AIBackendInstance> {
+    pub fn new() -> SoundgnomeResult<AIBackendInstance> {
         let ai_config = Config::get().ai.clone();
 
         if !ai_config.enabled {

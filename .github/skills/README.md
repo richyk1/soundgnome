@@ -1,4 +1,4 @@
-# Soundome Copilot skills
+# Soundgnome Copilot skills
 
 This directory contains reusable Copilot skills for repository-specific workflows.
 
@@ -13,11 +13,11 @@ This directory contains reusable Copilot skills for repository-specific workflow
 - `add-diesel-migration`: add or adjust Diesel migrations safely.
 - `debug-rocket-route`: debug a Rocket route end to end.
 - `extend-download-workflow`: change `DownloadService` without breaking workflow invariants.
-- `proxy-aware-http`: make direct HTTP code respect Soundome proxy behavior.
-- `soundome-change-routing`: identify the correct crate and validation path for a change.
+- `proxy-aware-http`: make direct HTTP code respect Soundgnome proxy behavior.
+- `soundgnome-change-routing`: identify the correct crate and validation path for a change.
 - `manual-validation-flow`: work on the pending-validation flow across domain, server, and web.
 - `reference-semantics`: change track, album, artist, or repository logic without breaking `ReferenceType` semantics.
-- `update-soundome-docs`: update docs so they stay aligned with the codebase and the categorized docs structure.
+- `update-soundgnome-docs`: update docs so they stay aligned with the codebase and the categorized docs structure.
 
 ## Notes
 

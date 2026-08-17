@@ -2,7 +2,7 @@ use domain::ports::repositories::PlaylistRepository;
 
 use diesel::prelude::*;
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SqliteConnection};
-use shared::{models::Playlist, types::SoundomeResult};
+use shared::{models::Playlist, types::SoundgnomeResult};
 
 use crate::{
     entities::{
@@ -23,7 +23,7 @@ impl DieselPlaylistRepository {
 }
 
 impl PlaylistRepository for DieselPlaylistRepository {
-    fn get_all(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<Playlist>> {
+    fn get_all(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Playlist>> {
         let entities = schema::playlist::table
             .order(schema::playlist::name.asc())
             .load::<PlaylistEntity>(conn)
@@ -34,7 +34,7 @@ impl PlaylistRepository for DieselPlaylistRepository {
             .collect())
     }
 
-    fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<Playlist> {
+    fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<Playlist> {
         let entity = schema::playlist::table
             .filter(schema::playlist::id.eq(id))
             .first::<PlaylistEntity>(conn)
@@ -46,7 +46,7 @@ impl PlaylistRepository for DieselPlaylistRepository {
         &self,
         conn: &mut SqliteConnection,
         url: &str,
-    ) -> SoundomeResult<Option<Playlist>> {
+    ) -> SoundgnomeResult<Option<Playlist>> {
         let entity = schema::playlist::table
             .filter(schema::playlist::source_url.eq(url))
             .first::<PlaylistEntity>(conn)
@@ -55,7 +55,7 @@ impl PlaylistRepository for DieselPlaylistRepository {
         Ok(entity.map(PlaylistEntity::convert_to_domain))
     }
 
-    fn create(&self, conn: &mut SqliteConnection, playlist: &Playlist) -> SoundomeResult<Playlist> {
+    fn create(&self, conn: &mut SqliteConnection, playlist: &Playlist) -> SoundgnomeResult<Playlist> {
         let new_entity = NewPlaylistEntity::convert_from_domain(playlist);
         diesel::insert_into(schema::playlist::table)
             .values(&new_entity)
@@ -68,7 +68,7 @@ impl PlaylistRepository for DieselPlaylistRepository {
         Ok(PlaylistEntity::convert_to_domain(created))
     }
 
-    fn update_last_sync(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    fn update_last_sync(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         diesel::update(schema::playlist::table.filter(schema::playlist::id.eq(id)))
             .set(schema::playlist::last_sync.eq(Some(chrono::Utc::now().naive_utc())))
             .execute(conn)
@@ -82,7 +82,7 @@ impl PlaylistRepository for DieselPlaylistRepository {
         playlist_id: i32,
         track_id: i32,
         position: Option<i32>,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         let entity = NewPlaylistTrackEntity {
             track_id,
             playlist_id,
@@ -99,7 +99,7 @@ impl PlaylistRepository for DieselPlaylistRepository {
         &self,
         conn: &mut SqliteConnection,
         playlist_id: i32,
-    ) -> SoundomeResult<Vec<shared::models::Track>> {
+    ) -> SoundgnomeResult<Vec<shared::models::Track>> {
         // Load track entities joined via the junction table, ordered by position.
         let track_entities: Vec<TrackEntity> = schema::playlist_tracks::table
             .inner_join(
@@ -160,7 +160,7 @@ impl PlaylistRepository for DieselPlaylistRepository {
         Ok(result)
     }
 
-    fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         // Delete junction rows first, then the playlist row itself.
         diesel::delete(
             schema::playlist_tracks::table.filter(schema::playlist_tracks::playlist_id.eq(id)),
@@ -182,7 +182,7 @@ impl PlaylistRepository for DieselPlaylistRepository {
         Ok(())
     }
 
-    fn count(&self, conn: &mut SqliteConnection) -> SoundomeResult<i64> {
+    fn count(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64> {
         schema::playlist::table
             .count()
             .get_result(conn)

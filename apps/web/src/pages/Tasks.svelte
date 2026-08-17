@@ -105,7 +105,13 @@
   }
 
   function canRetry(status: TaskDto['status']) {
-    return status === 'Pending' || status === 'Failed' || status === 'Running' || status === 'Cancelled';
+    return (
+      status === 'Pending' ||
+      status === 'Failed' ||
+      status === 'Running' ||
+      status === 'Cancelled' ||
+      status === 'Completed'
+    );
   }
 
   function canCancel(status: TaskDto['status']) {
@@ -346,9 +352,10 @@
   }
 
   .task-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    background: var(--float);
+    border: 1px solid var(--float-border);
+    border-radius: 10px;
+    box-shadow: var(--rim), var(--shadow-sm);
     padding: 0.7rem 0.75rem;
     display: flex;
     flex-direction: column;

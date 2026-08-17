@@ -15,7 +15,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use config::Config;
-use shared::{errors::Error, http::HttpClientBuilder, types::SoundomeResult};
+use shared::{errors::Error, http::HttpClientBuilder, types::SoundgnomeResult};
 
 /// Endpoint used to check a token. Returns 200 with the account payload for a
 /// valid token and 401 for anything else, without needing a `client_id`.
@@ -28,7 +28,7 @@ const COOKIE_TTL_SECS: u64 = 365 * 24 * 60 * 60;
 
 /// Ask SoundCloud who owns this token. `Ok(Some(username))` when it is valid,
 /// `Ok(None)` when it is rejected.
-pub async fn verify_token(token: &str) -> SoundomeResult<Option<String>> {
+pub async fn verify_token(token: &str) -> SoundgnomeResult<Option<String>> {
     let response = HttpClientBuilder::get_reqwest_client()?
         .get(ME_URL)
         .header("Authorization", format!("OAuth {}", token))
@@ -59,7 +59,7 @@ pub async fn verify_token(token: &str) -> SoundomeResult<Option<String>> {
 }
 
 /// Write the token as a Netscape cookie file readable by yt-dlp.
-pub fn store_token(token: &str) -> SoundomeResult<()> {
+pub fn store_token(token: &str) -> SoundgnomeResult<()> {
     let path = Config::get().soundcloud_cookies_path();
 
     if let Some(parent) = path.parent() {
@@ -91,7 +91,7 @@ fn cookie_file_contents(token: &str, expiry: u64) -> String {
 }
 
 /// Remove the stored token. Succeeds when there was nothing to remove.
-pub fn clear_token() -> SoundomeResult<()> {
+pub fn clear_token() -> SoundgnomeResult<()> {
     let path = Config::get().soundcloud_cookies_path();
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),

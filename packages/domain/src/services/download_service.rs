@@ -11,7 +11,7 @@ use shared::models::ReferenceType;
 use shared::{
     errors::Error,
     models::{Album, AlbumType, Artist, Platform, Playlist, Reference, TaskTrackValidation, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
     utils::enums::Match,
     utils::fs::sanitize_filename,
 };
@@ -26,6 +26,97 @@ use super::{
 };
 pub use tagger::enricher::MatchCandidate;
 
+/// A collision-free staging file name. Many tracks share a sanitized title
+/// (e.g. "Lust", "Intro", "Stone cold."), so staging under the title alone
+/// lets a later download clobber an earlier track's staged file before it is
+/// organized, which then fails the move with "No such file or directory".
+/// The final library name stays title-based (see `organizer::move_track_file`),
+/// so this uuid prefix never reaches the library.
+fn staging_name(title: &str) -> String {
+    format!("{}-{}", Uuid::new_v4(), sanitize_filename(title))
+}
+
+/// Extract an 11-char YouTube video id from a watch/short URL, if present.
+fn youtube_video_id(url: &str) -> Option<String> {
+    let take_id = |s: &str| -> Option<String> {
+        let id: String = s
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+        (id.len() == 11).then_some(id)
+    };
+    if let Some(i) = url.find("v=") {
+        if let Some(id) = take_id(&url[i + 2..]) {
+            return Some(id);
+        }
+    }
+    if let Some(i) = url.find("youtu.be/") {
+        if let Some(id) = take_id(&url[i + 9..]) {
+            return Some(id);
+        }
+    }
+    None
+}
+
+/// Best-effort cover-art URL for a track whose source metadata carried none,
+/// derived from its references. YouTube -> thumbnail built from the video id;
+/// Spotify -> album art via the public, auth-free oEmbed endpoint. Used so
+/// downloads can embed artwork into the file (offline-safe) rather than relying
+/// on the client to fetch it at play time.
+async fn resolve_cover_url(track: &Track) -> Option<String> {
+    for r in &track.references {
+        let url = r.external_url.as_deref().unwrap_or_default();
+        if url.contains("youtube.com") || url.contains("youtu.be") {
+            if let Some(id) = youtube_video_id(url) {
+                return Some(format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"));
+            }
+        }
+    }
+
+    let spotify_url = track.references.iter().find_map(|r| {
+        let url = r.external_url.clone()?;
+        url.contains("open.spotify.com/track").then_some(url)
+    })?;
+    tokio::task::spawn_blocking(move || -> Option<String> {
+        let resp = reqwest::blocking::Client::new()
+            .get("https://open.spotify.com/oembed")
+            .query(&[("url", spotify_url.as_str())])
+            .send()
+            .ok()?
+            .error_for_status()
+            .ok()?;
+        let json: serde_json::Value = resp.json().ok()?;
+        json.get("thumbnail_url")?.as_str().map(String::from)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Result of a one-shot artwork backfill over the library.
+#[derive(Debug, Default, Clone)]
+pub struct ArtworkBackfillSummary {
+    pub total: usize,
+    pub embedded: usize,
+    pub no_art: usize,
+    pub no_file: usize,
+    pub missing_file: usize,
+    pub errors: usize,
+}
+
+/// Fetch raw image bytes for a cover URL (blocking request off the async runtime).
+async fn fetch_cover_bytes(url: String) -> Option<Vec<u8>> {
+    tokio::task::spawn_blocking(move || {
+        reqwest::blocking::get(&url)
+            .and_then(|r| r.error_for_status())
+            .and_then(|r| r.bytes().map(|b| b.to_vec()))
+            .ok()
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 pub struct DownloadService {
     track_service: Arc<TrackService>,
     album_service: Arc<AlbumService>,
@@ -36,6 +127,81 @@ pub struct DownloadService {
 
 // TODO: manage "to validate" tracks
 impl DownloadService {
+    /// One-shot maintenance pass: embed cover art into every library file that
+    /// can resolve one, so the collection keeps its artwork offline. Non-
+    /// destructive — it only (re)writes tags on the existing file in place and
+    /// fills a missing `cover` URL in the DB; it never re-downloads audio.
+    pub async fn backfill_artwork(
+        &self,
+        conn: &mut SqliteConnection,
+    ) -> SoundgnomeResult<ArtworkBackfillSummary> {
+        let tracks = self.track_service.get_all(conn)?;
+        let total = tracks.len();
+        let mut s = ArtworkBackfillSummary {
+            total,
+            ..Default::default()
+        };
+        tracing::info!("Artwork backfill: starting over {} tracks", total);
+
+        for (i, mut track) in tracks.into_iter().enumerate() {
+            let Some(path) = track.file_path.clone() else {
+                s.no_file += 1;
+                continue;
+            };
+            if !path.exists() {
+                s.missing_file += 1;
+                continue;
+            }
+
+            let cover_url = match &track.cover {
+                Some(u) => Some(u.clone()),
+                None => resolve_cover_url(&track).await,
+            };
+            let Some(url) = cover_url else {
+                s.no_art += 1;
+                continue;
+            };
+
+            let Some(bytes) = fetch_cover_bytes(url.clone()).await else {
+                s.errors += 1;
+                continue;
+            };
+
+            match tagger::file::tag_file_with_track_and_cover(&path, &track, Some(&bytes)) {
+                Ok(()) => {
+                    if track.cover.is_none() {
+                        if let Some(id) = track.id {
+                            track.cover = Some(url);
+                            if let Err(e) = self.track_service.update(conn, id, &track) {
+                                tracing::warn!("Backfill: could not persist cover for {}: {}", id, e);
+                            }
+                        }
+                    }
+                    s.embedded += 1;
+                }
+                Err(e) => {
+                    tracing::warn!("Backfill: failed to embed art into {:?}: {}", path, e);
+                    s.errors += 1;
+                }
+            }
+
+            if (i + 1) % 50 == 0 {
+                tracing::info!(
+                    "Artwork backfill: {}/{} processed ({} embedded)",
+                    i + 1,
+                    total,
+                    s.embedded
+                );
+            }
+        }
+
+        tracing::info!(
+            "Artwork backfill complete: {} embedded, {} no-art, {} missing-file, {} no-path, {} errors (of {})",
+            s.embedded, s.no_art, s.missing_file, s.no_file, s.errors, total
+        );
+        Ok(s)
+    }
+
     pub fn new(
         track_service: Arc<TrackService>,
         album_service: Arc<AlbumService>,
@@ -57,7 +223,7 @@ impl DownloadService {
         &self,
         url: &str,
         conn: &mut SqliteConnection,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         // Strip tracking/share query params (e.g. `si`, `utm_*`) so two submissions
         // of the same link that only differ by tracking noise dedupe correctly
         // against the `external_url` check right below.
@@ -198,7 +364,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         task_id: Option<i32>,
         cancel_flag: Option<Arc<AtomicBool>>,
-    ) -> SoundomeResult<Vec<Track>> {
+    ) -> SoundgnomeResult<Vec<Track>> {
         // Strip tracking/share query params so two syncs of "the same" playlist
         // link (e.g. with vs without `?si=...&utm_source=...`) curate to the same
         // `source_url` instead of `PlaylistService::upsert` creating a duplicate
@@ -435,7 +601,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         task_id: Option<i32>,
         cancel_flag: Option<Arc<AtomicBool>>,
-    ) -> SoundomeResult<Vec<Track>> {
+    ) -> SoundgnomeResult<Vec<Track>> {
         // Strip tracking/share query params for consistency with the other
         // `*_from_url` entry points (see `sync_playlist_from_url`).
         let curated_url = curate_source_url(url);
@@ -595,7 +761,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         task_id: Option<i32>,
         cancel_flag: Option<Arc<AtomicBool>>,
-    ) -> SoundomeResult<Vec<Track>> {
+    ) -> SoundgnomeResult<Vec<Track>> {
         // Strip tracking/share query params for consistency with the other
         // `*_from_url` entry points (see `sync_playlist_from_url`).
         let curated_url = curate_source_url(url);
@@ -759,7 +925,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         ingest_dir: &Path,
         task_id: i32,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         let audio_extensions = ["mp3", "flac", "m4a", "mp4", "aac", "ogg", "opus", "wav"];
 
         // Collect all audio files first so we know the total upfront.
@@ -852,7 +1018,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         file_path: &Path,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         tracing::info!("===========\nIngesting local file: {:?}\n------", file_path);
 
         // Step 1: Read tags from the file.
@@ -948,7 +1114,7 @@ impl DownloadService {
     /// The staged filename is prefixed with a UUID to guarantee uniqueness even when
     /// multiple files share the same original name (e.g. two different `track.mp3`
     /// from different ingest sessions).
-    fn stage_local_file(&self, source: &Path) -> SoundomeResult<PathBuf> {
+    fn stage_local_file(&self, source: &Path) -> SoundgnomeResult<PathBuf> {
         let staging_dir = PathBuf::from(&Config::get().general.temp_download_dir);
         std::fs::create_dir_all(&staging_dir)
             .map_err(|e| Error::Custom(format!("Could not create staging dir: {e}")))?;
@@ -978,7 +1144,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> SoundomeResult<Vec<tagger::enricher::MatchCandidate>> {
+    ) -> SoundgnomeResult<Vec<tagger::enricher::MatchCandidate>> {
         let track = self.track_service.get_by_id(conn, id)?;
         let candidates = tagger::enricher::get_candidates_for_track(&track).await;
         Ok(candidates)
@@ -994,7 +1160,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         id: i32,
         patch: ValidationPatch,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         // 1. Load current track from DB
         let mut track = self.track_service.get_by_id(conn, id)?;
 
@@ -1091,7 +1257,7 @@ impl DownloadService {
             downloader::download(
                 &source_ref,
                 &provider_ref,
-                &sanitize_filename(&track.title),
+                &staging_name(&track.title),
                 staging_dir,
             )
             .await?
@@ -1117,7 +1283,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> SoundomeResult<Vec<tagger::enricher::MatchCandidate>> {
+    ) -> SoundgnomeResult<Vec<tagger::enricher::MatchCandidate>> {
         let track = self.track_service.get_by_id(conn, id)?;
         let results = downloader::search_youtube_candidates(&track).await?;
 
@@ -1162,7 +1328,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         artist_id: i32,
-    ) -> SoundomeResult<Option<Artist>> {
+    ) -> SoundgnomeResult<Option<Artist>> {
         let mut artist = self.artist_service.get_by_id(conn, artist_id)?;
         let fetcher = Fetcher::new().await;
 
@@ -1203,7 +1369,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         album_id: i32,
-    ) -> SoundomeResult<Option<Album>> {
+    ) -> SoundgnomeResult<Option<Album>> {
         let mut album = self.album_service.get_by_id(conn, album_id)?;
         let fetcher = Fetcher::new().await;
 
@@ -1290,7 +1456,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         track: Track,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         let mut track = track;
 
         // Step 1: Enrich metadata
@@ -1414,7 +1580,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         track: &mut Track,
         for_ingest: bool,
-    ) -> SoundomeResult<(bool, Option<Track>)> {
+    ) -> SoundgnomeResult<(bool, Option<Track>)> {
         // Check if album/artists with same source ref url exist in DB and associate them
         let existing_album = track.album.as_ref().and_then(|a| {
             a.get_source()
@@ -1518,7 +1684,7 @@ impl DownloadService {
     /// Returns the downloaded track with updated references and file_path
     /// Searches for the best download URL and downloads the track to the staging folder.
     /// The staging path is stored in `track.file_path`.
-    async fn download_track(&self, track: &mut Track) -> SoundomeResult<PathBuf> {
+    async fn download_track(&self, track: &mut Track) -> SoundgnomeResult<PathBuf> {
         // Get the best download URL
         let provider_ref = downloader::search(track).await?;
         tracing::info!(
@@ -1536,7 +1702,7 @@ impl DownloadService {
                 .get_source()
                 .ok_or(Error::Custom("track source not defined".to_string()))?,
             &provider_ref,
-            &sanitize_filename(&track.title),
+            &staging_name(&track.title),
             staging_dir,
         )
         .await?;
@@ -1553,7 +1719,7 @@ impl DownloadService {
     /// `Platform::Spotify` branch) instead of immediately requiring manual YouTube selection.
     ///
     /// The track's `Source` reference is left untouched — SoundCloud is still where the user
-    /// asked Soundome to import from. Only the resolved `Provider` reference and staged
+    /// asked Soundgnome to import from. Only the resolved `Provider` reference and staged
     /// `file_path` are attached, and only on success.
     ///
     /// Returns `Some(path)` when the fallback download succeeded. Returns `None` when there is
@@ -1608,7 +1774,7 @@ impl DownloadService {
         match downloader::download(
             &source_ref,
             &provider_ref,
-            &sanitize_filename(&track.title),
+            &staging_name(&track.title),
             staging_dir,
         )
         .await
@@ -1644,18 +1810,28 @@ impl DownloadService {
     }
 
     /// Tag the downloaded file with the track metadata, then move it to the correct location
-    async fn process_track_file(&self, track: &mut Track, file_path: &Path) -> SoundomeResult<()> {
+    async fn process_track_file(&self, track: &mut Track, file_path: &Path) -> SoundgnomeResult<()> {
         // Assign a SOUNDOME_ID if the track does not already have one.
         if track.soundome_id.is_none() {
             track.soundome_id = Some(Uuid::new_v4().to_string());
             tracing::debug!("Assigned SOUNDOME_ID: {:?}", track.soundome_id);
         }
 
-        // Ensure file_path is set on the track — required by the organizer.
-        // In the URL-download path this is already set by `download_track`; in the
-        // local-ingest path the track comes from tag reading and has no path yet.
-        if track.file_path.is_none() {
-            track.file_path = Some(file_path.to_path_buf());
+        // The `file_path` argument is the file that was just downloaded/staged and
+        // must be tagged and moved into the library. Always adopt it as the track's
+        // path so the organizer moves *this* file. In the dedup-replace path the
+        // track carries a stale existing-library path; honoring that instead fails
+        // the move with ENOENT (the old file may be gone or in a different folder).
+        track.file_path = Some(file_path.to_path_buf());
+
+        // When the source metadata carried no cover, derive one from the track's
+        // references so the artwork gets embedded into the file at tag time. This
+        // keeps art in the library offline, instead of resolving it per-play.
+        if track.cover.is_none() {
+            if let Some(url) = resolve_cover_url(track).await {
+                tracing::info!("Resolved cover art for '{}' from references", track.title);
+                track.cover = Some(url);
+            }
         }
 
         // Best-effort: download cover art from its URL and embed it in the file.
@@ -1699,7 +1875,7 @@ impl DownloadService {
         &self,
         old_track: &Track,
         new_track: &mut Track,
-    ) -> SoundomeResult<bool> {
+    ) -> SoundgnomeResult<bool> {
         // Check if the track has a file to update
         let mut file_path = match &old_track.file_path {
             Some(path) => path.clone(),
@@ -1798,7 +1974,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         existing: Track,
         mut track: Track,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         let new_is_better = self.track_service.is_better_quality(&existing, &track);
 
         let discarded = if new_is_better {
@@ -1835,7 +2011,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         track: &Track,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         let inserted_track = self.track_service.create_or_update(conn, track)?;
         tracing::info!("Saved track in the database");
         Ok(inserted_track)

@@ -53,7 +53,7 @@ ngrok http 5000
 Option B - Using SSH tunnel to a remote HTTPS server:
 ```bash
 # Forward remote port to localhost
-ssh -L 8443:soundome.example.com:443 user@server
+ssh -L 8443:soundgnome.example.com:443 user@server
 # Then visit https://localhost:8443
 ```
 
@@ -151,7 +151,7 @@ Check:
 2. **Cache corruption**
    - DevTools → Application → Storage → Clear site data
    - Uninstall app, clear cache, reinstall
-   - Or: Menu → Settings → Apps → Soundome → Storage → Clear data
+   - Or: Menu → Settings → Apps → Soundgnome → Storage → Clear data
 
 3. **API routing issues**
    - App can't reach backend API
@@ -203,13 +203,13 @@ cat data/web/manifest.webmanifest | jq .
 ```json
 // ❌ WRONG - Missing key fields
 {
-  "name": "Soundome"
+  "name": "Soundgnome"
 }
 
 // ✅ CORRECT - All required fields
 {
-  "name": "Soundome",
-  "short_name": "Soundome",
+  "name": "Soundgnome",
+  "short_name": "Soundgnome",
   "description": "Personal music library manager",
   "start_url": "/",
   "display": "standalone",

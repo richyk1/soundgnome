@@ -44,7 +44,7 @@ pnpm run preview
 
 ### Desktop
 - Look for "Install app" button in address bar
-- Or: Menu (⋮) → "Install Soundome"
+- Or: Menu (⋮) → "Install Soundgnome"
 
 ### Mobile (Android)
 - Menu (⋮) → "Install app"

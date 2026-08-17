@@ -1,10 +1,10 @@
 # Guides
 
-Step-by-step guides for common Soundome workflows.
+Step-by-step guides for common Soundgnome workflows.
 
 ## Sources
 
-- [spotify.md](spotify.md) — activate Spotify, obtain credentials, what Spotify unlocks
+- [spotify.md](spotify.md) — connect Spotify (one Premium login), what it unlocks
 - [soundcloud.md](soundcloud.md) — SoundCloud specifics: noisy metadata, DRM tracks, AI cleanup
 
 ## Features

@@ -1,10 +1,10 @@
 # SoundCloud
 
-SoundCloud is one of the best-supported sources in Soundome. No credentials are required. This page covers what works, what does not, and how to get the best results.
+SoundCloud is one of the best-supported sources in Soundgnome. No credentials are required. This page covers what works, what does not, and how to get the best results.
 
 ## No configuration required
 
-SoundCloud works out of the box. Simply paste a URL and Soundome handles the rest.
+SoundCloud works out of the box. Simply paste a URL and Soundgnome handles the rest.
 
 ```
 https://soundcloud.com/artist-name/track-title
@@ -38,7 +38,7 @@ Without cleanup, these noisy values go directly into your library's file tags an
 
 ## AI metadata cleanup
 
-Soundome can call an AI model to extract and clean the metadata before enrichment. This is the recommended setup for any heavy SoundCloud usage.
+Soundgnome can call an AI model to extract and clean the metadata before enrichment. This is the recommended setup for any heavy SoundCloud usage.
 
 **What AI cleanup does:**
 
@@ -75,16 +75,16 @@ When AI is disabled, metadata passes through uncleaned. The enrichment step (Mus
 
 Anonymous downloads top out at the public stream, usually around 160 kbps AAC. Connecting your own session unlocks uploader-provided originals (often FLAC) and age or region gated tracks.
 
-There is no OAuth flow to offer. SoundCloud stopped issuing API credentials to new applications in 2021, so no self-hosted app can register one. What yt-dlp accepts, and therefore what Soundome asks for, is the `oauth_token` cookie from your own logged-in browser session.
+There is no OAuth flow to offer. SoundCloud stopped issuing API credentials to new applications in 2021, so no self-hosted app can register one. What yt-dlp accepts, and therefore what Soundgnome asks for, is the `oauth_token` cookie from your own logged-in browser session.
 
 **To connect:**
 
 1. Log in to soundcloud.com in your browser.
 2. Open devtools, then Application or Storage, then Cookies, then `soundcloud.com`.
 3. Copy the value of the `oauth_token` cookie.
-4. In Soundome, open **Tools**, then the **Providers** tab, paste the value, and click **Connect**.
+4. In Soundgnome, open **Tools**, then the **Providers** tab, paste the value, and click **Connect**.
 
-Soundome verifies the token against SoundCloud before storing it, so a bad paste fails immediately rather than silently degrading later downloads. The token is written to `soundcloud_cookies.txt` next to the database, with owner-only permissions, and passed to yt-dlp as `--cookies` on every download.
+Soundgnome verifies the token against SoundCloud before storing it, so a bad paste fails immediately rather than silently degrading later downloads. The token is written to `soundcloud_cookies.txt` next to the database, with owner-only permissions, and passed to yt-dlp as `--cookies` on every download.
 
 The connection state is re-verified on each visit to the Providers tab. If you log out of that browser session, SoundCloud invalidates the token and the card shows as disconnected again.
 
@@ -111,15 +111,15 @@ Behaviour worth knowing:
 
 The **Likes** page lists everything you have liked without downloading or persisting anything. Each row has a play button that previews the track and a download button that fetches just that one.
 
-Preview audio comes straight from SoundCloud's 128 kbps progressive stream, not from your library. The server only resolves a short-lived signed CDN URL and the browser plays it directly, so no audio passes through Soundome. Those URLs expire, and the player silently re-resolves once before reporting a failure.
+Preview audio comes straight from SoundCloud's 128 kbps progressive stream, not from your library. The server only resolves a short-lived signed CDN URL and the browser plays it directly, so no audio passes through Soundgnome. Those URLs expire, and the player silently re-resolves once before reporting a failure.
 
 Downloading from a row does not interrupt playback, so you can keep listening while tracks queue up. Use **Sync my likes** on the Providers tab instead when you want all of them.
 
 ## DRM-protected tracks
 
-Some SoundCloud tracks are protected and cannot be downloaded by `scdl`. When this happens, Soundome first attempts an automatic recovery before falling back to manual validation:
+Some SoundCloud tracks are protected and cannot be downloaded by `scdl`. When this happens, Soundgnome first attempts an automatic recovery before falling back to manual validation:
 
-1. **Automatic Spotify-match retry.** If the track already carries a Spotify metadata reference (for example attached during MusicBrainz/Spotify enrichment, which runs before the download attempt), Soundome automatically retries the download through the same Spotify → YouTube/YouTube Music matching flow used for Spotify-sourced tracks. The track's source stays SoundCloud; only the resolved provider (YouTube or YouTube Music) and the staged file are affected. When this succeeds, the track proceeds through the normal pipeline (tag, organize, persist) with no manual step required.
+1. **Automatic Spotify-match retry.** If the track already carries a Spotify metadata reference (for example attached during MusicBrainz/Spotify enrichment, which runs before the download attempt), Soundgnome automatically retries the download through the same Spotify → YouTube/YouTube Music matching flow used for Spotify-sourced tracks. The track's source stays SoundCloud; only the resolved provider (YouTube or YouTube Music) and the staged file are affected. When this succeeds, the track proceeds through the normal pipeline (tag, organize, persist) with no manual step required.
 2. **Manual fallback.** If no Spotify metadata reference is available, or the automatic retry also fails, the track falls back to manual validation as before:
    - The track is saved to your database as pending validation
    - The **Validations** page shows it with the reason `soundcloud_drm_protected`
@@ -129,9 +129,9 @@ Some SoundCloud tracks are protected and cannot be downloaded by `scdl`. When th
 
 1. Open the **Validations** page.
 2. Find the track with reason `soundcloud_drm_protected`.
-3. Click **Show YouTube candidates** — Soundome searches both YouTube and YouTube Music for matching results.
+3. Click **Show YouTube candidates** — Soundgnome searches both YouTube and YouTube Music for matching results.
 4. Select the correct match from the list.
-5. Click **Approve** — Soundome downloads the audio from the selected YouTube URL, tags it with the existing metadata, and finalises the track.
+5. Click **Approve** — Soundgnome downloads the audio from the selected YouTube URL, tags it with the existing metadata, and finalises the track.
 
 If no YouTube candidate matches, you can also paste any YouTube or YouTube Music URL manually into the provider URL field before approving.
 

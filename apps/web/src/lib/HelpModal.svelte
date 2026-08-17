@@ -21,7 +21,7 @@
   class="help-dialog"
 >
   <div class="dialog-header">
-    <h3>Soundome — help</h3>
+    <h3>Soundgnome — help</h3>
     <button class="dialog-close" onclick={onClose} aria-label="Close">&times;</button>
   </div>
 
@@ -113,8 +113,8 @@
 
 <style>
   .help-dialog {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--float);
+    border: 1px solid var(--float-border);
     border-radius: 12px;
     padding: 0;
     width: min(640px, 94vw);
@@ -122,7 +122,7 @@
     overflow-y: auto;
     color: var(--text);
     font-family: inherit;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--rim), var(--float-shadow);
   }
 
   .help-dialog::backdrop {

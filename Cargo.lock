@@ -515,7 +515,7 @@ dependencies = [
  "clap",
  "console",
  "dialoguer",
- "dotenvy 0.15.7 (git+https://github.com/allan2/dotenvy)",
+ "dotenvy",
  "indicatif",
  "reqwest 0.12.28",
  "serde",
@@ -625,24 +625,6 @@ dependencies = [
  "percent-encoding",
  "time",
  "version_check",
-]
-
-[[package]]
-name = "cookie_store"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2eac901828f88a5241ee0600950ab981148a18f2f756900ffba1b125ca6a3ef9"
-dependencies = [
- "cookie",
- "document-features",
- "idna",
- "indexmap 2.7.1",
- "log",
- "serde",
- "serde_derive",
- "serde_json",
- "time",
- "url",
 ]
 
 [[package]]
@@ -1131,12 +1113,6 @@ dependencies = [
 [[package]]
 name = "dotenvy"
 version = "0.15.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
-
-[[package]]
-name = "dotenvy"
-version = "0.15.7"
 source = "git+https://github.com/allan2/dotenvy#86c0d6dd2938e615135813df9e3274bf8f42c455"
 dependencies = [
  "dotenvy-macros",
@@ -1225,18 +1201,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "enum_dispatch"
-version = "0.3.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa18ce2bc66555b3218614519ac839ddb759a7d6720732f979ef8d13be147ecd"
-dependencies = [
- "once_cell",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1297,13 +1261,13 @@ dependencies = [
  "ai",
  "async-trait",
  "base64 0.22.1",
+ "chrono",
  "config 0.1.0",
  "fancy-regex",
  "futures",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "rsoundcloud",
- "rspotify",
  "rustypipe",
  "serde",
  "serde_json",
@@ -1566,12 +1530,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "r-efi 6.0.0",
  "wasip2",
  "wasip3",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -2647,17 +2609,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
  "regex-automata",
-]
-
-[[package]]
-name = "maybe-async"
-version = "0.2.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cf92c10c7e361d6b99666ec1c6f9805b0bea2c3bd8c78dc6fe98ac5bd78db11"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -3829,7 +3780,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "cookie",
- "cookie_store 0.22.1",
+ "cookie_store",
  "encoding_rs",
  "futures-channel",
  "futures-core",
@@ -4115,62 +4066,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rspotify"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f906f59b800945449fbcb8ae4e3bcc971e3350e116a560e7aafd5cfadc605a56"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "dotenvy 0.15.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "getrandom 0.3.4",
- "getrandom 0.4.2",
- "log",
- "maybe-async",
- "rspotify-http",
- "rspotify-macros",
- "rspotify-model",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.18",
- "url",
-]
-
-[[package]]
-name = "rspotify-http"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35d53699d56aa4412f56321600b6c816288cb6f60af6311236f47f8329e9fe5e"
-dependencies = [
- "log",
- "maybe-async",
- "serde_json",
- "thiserror 2.0.18",
- "ureq",
-]
-
-[[package]]
-name = "rspotify-macros"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45373be0355f53d1ca1065b9585be9924c7090c4bdc327ebf5a7924feeea6325"
-
-[[package]]
-name = "rspotify-model"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84b95fb66a9915464f94c7ce94af7f7b429708583bfd6b612f165f335364a8c5"
-dependencies = [
- "chrono",
- "enum_dispatch",
- "serde",
- "serde_json",
- "strum",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "rsqlite-vfs"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4248,7 +4143,6 @@ version = "0.23.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fb9263ab4eb695e42321db096e3b8fbd715a59b154d5c88d82db2175b681ba7"
 dependencies = [
- "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
@@ -4871,25 +4765,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "socks"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0c3dbbd9ae980613c6dd8e28a9407b50509d3803b57624d5dfe8315218cd58b"
-dependencies = [
- "byteorder",
- "libc",
- "winapi",
-]
-
-[[package]]
-name = "soundome-server"
-version = "0.2.8"
+name = "soundgnome-server"
+version = "0.3.0"
 dependencies = [
  "config 0.1.0",
  "database",
  "diesel",
  "domain",
- "dotenvy 0.15.7 (git+https://github.com/allan2/dotenvy)",
+ "dotenvy",
  "downloader",
  "fetcher",
  "libsqlite3-sys",
@@ -5311,12 +5194,12 @@ dependencies = [
  "bandcamp",
  "chrono",
  "config 0.1.0",
+ "fetcher",
  "id3",
  "lofty",
  "metaflac",
  "mp4ameta",
  "musicbrainz_rs",
- "rspotify",
  "shared",
  "tracing",
 ]
@@ -5925,26 +5808,6 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
-name = "ureq"
-version = "2.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02d1a66277ed75f640d608235660df48c8e3c19f3b4edb6a263315626cc3c01d"
-dependencies = [
- "base64 0.22.1",
- "cookie",
- "cookie_store 0.21.1",
- "log",
- "once_cell",
- "rustls 0.23.22",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "socks",
- "url",
- "webpki-roots 0.26.8",
-]
 
 [[package]]
 name = "url"

@@ -1,21 +1,21 @@
 {
-  "name": "soundome",
+  "name": "soundgnome",
   "version": "0.2.8",
   "description": "",
   "scripts": {
     "dev": "concurrently \"pnpm web:dev\" \"pnpm server:dev\"",
     "build": "pnpm web:build && pnpm server:build",
-    "web:dev": "pnpm --filter @soundome/web dev",
-    "web:build": "pnpm --filter @soundome/web build",
-    "web:check": "pnpm --filter @soundome/web check",
-    "server:dev": "cargo run -p soundome-server",
-    "server:build": "cargo build -p soundome-server",
+    "web:dev": "pnpm --filter @soundgnome/web dev",
+    "web:build": "pnpm --filter @soundgnome/web build",
+    "web:check": "pnpm --filter @soundgnome/web check",
+    "server:dev": "cargo run -p soundgnome-server",
+    "server:build": "cargo build -p soundgnome-server",
     "cargo:build": "cargo build --workspace",
     "cargo:build:release": "cargo build --workspace --release -j 4",
     "cargo:test": "cargo test -q",
     "cargo:clippy": "cargo clippy --workspace --all-targets",
     "cargo:fmt": "cargo fmt",
-    "reset": "rm -rf data/soundome.db* && rm -rf library && rm -rf temp && diesel setup"
+    "reset": "rm -rf data/soundgnome.db* && rm -rf library && rm -rf temp && diesel setup"
   },
   "keywords": [],
   "author": "dev.bartho@gmail.com",

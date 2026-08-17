@@ -169,8 +169,9 @@ pub async fn get_by_id(
         })
 }
 
-/// Retry a failed or interrupted task. Resets progress to 0 and re-enqueues the background job.
-/// Already-downloaded tracks will be skipped automatically.
+/// Retry a failed, interrupted, or completed(-with-errors) task. Resets progress
+/// to 0 and re-enqueues the background job. Already-downloaded tracks are skipped
+/// by dedup, so a retry effectively re-attempts only the previously errored ones.
 #[openapi]
 #[post("/tasks/<id>/retry")]
 pub async fn retry(
@@ -193,6 +194,7 @@ pub async fn retry(
                 && task.status != TaskStatus::Running
                 && task.status != TaskStatus::Pending
                 && task.status != TaskStatus::Cancelled
+                && task.status != TaskStatus::Completed
             {
                 return Err(shared::errors::Error::Custom(format!(
                     "Task {} is in status {:?} and cannot be retried",

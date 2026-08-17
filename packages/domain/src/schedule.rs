@@ -1,13 +1,13 @@
 use chrono::NaiveDateTime;
 use shared::errors::Error;
-use shared::types::SoundomeResult;
+use shared::types::SoundgnomeResult;
 
 /// Calculate the next run time based on either interval_seconds or cron_expression.
 pub fn calculate_next_run(
     now: NaiveDateTime,
     interval_seconds: Option<i32>,
     cron_expression: Option<&str>,
-) -> SoundomeResult<NaiveDateTime> {
+) -> SoundgnomeResult<NaiveDateTime> {
     match (interval_seconds, cron_expression) {
         (Some(interval), _) if interval > 0 => {
             // Use interval-based scheduling
@@ -25,7 +25,7 @@ pub fn calculate_next_run(
 fn calculate_next_run_from_cron(
     now: NaiveDateTime,
     cron_expr: &str,
-) -> SoundomeResult<NaiveDateTime> {
+) -> SoundgnomeResult<NaiveDateTime> {
     use cron::Schedule;
     use std::str::FromStr;
 

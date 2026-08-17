@@ -1,7 +1,7 @@
 use domain::ports::repositories::TaskRepository;
 
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl, SqliteConnection};
-use shared::{models::Task, types::SoundomeResult};
+use shared::{models::Task, types::SoundgnomeResult};
 
 use crate::{
     entities::{NewTaskEntity, TaskEntity},
@@ -19,7 +19,7 @@ impl DieselTaskRepository {
 }
 
 impl TaskRepository for DieselTaskRepository {
-    fn create(&self, conn: &mut SqliteConnection, task: &Task) -> SoundomeResult<Task> {
+    fn create(&self, conn: &mut SqliteConnection, task: &Task) -> SoundgnomeResult<Task> {
         let new_entity = NewTaskEntity::convert_from_domain(task);
         diesel::insert_into(schema::task::table)
             .values(&new_entity)
@@ -32,7 +32,7 @@ impl TaskRepository for DieselTaskRepository {
         Ok(TaskEntity::convert_to_domain(created))
     }
 
-    fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<Task> {
+    fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<Task> {
         let entity = schema::task::table
             .filter(schema::task::id.eq(id))
             .first::<TaskEntity>(conn)
@@ -40,7 +40,7 @@ impl TaskRepository for DieselTaskRepository {
         Ok(TaskEntity::convert_to_domain(entity))
     }
 
-    fn get_all(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<Task>> {
+    fn get_all(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Task>> {
         let entities = schema::task::table
             .order(schema::task::id.desc())
             .load::<TaskEntity>(conn)
@@ -51,7 +51,7 @@ impl TaskRepository for DieselTaskRepository {
             .collect())
     }
 
-    fn set_running(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    fn set_running(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         diesel::update(schema::task::table.filter(schema::task::id.eq(id)))
             .set((
                 schema::task::status.eq("Running"),
@@ -68,7 +68,7 @@ impl TaskRepository for DieselTaskRepository {
         id: i32,
         progress: i32,
         total: i32,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         diesel::update(schema::task::table.filter(schema::task::id.eq(id)))
             .set((
                 schema::task::progress.eq(progress),
@@ -80,7 +80,7 @@ impl TaskRepository for DieselTaskRepository {
         Ok(())
     }
 
-    fn set_completed(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    fn set_completed(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         // Set progress = total on completion
         let current_total: Option<i32> = schema::task::table
             .filter(schema::task::id.eq(id))
@@ -98,7 +98,7 @@ impl TaskRepository for DieselTaskRepository {
         Ok(())
     }
 
-    fn set_failed(&self, conn: &mut SqliteConnection, id: i32, error: &str) -> SoundomeResult<()> {
+    fn set_failed(&self, conn: &mut SqliteConnection, id: i32, error: &str) -> SoundgnomeResult<()> {
         diesel::update(schema::task::table.filter(schema::task::id.eq(id)))
             .set((
                 schema::task::status.eq("Failed"),
@@ -110,7 +110,7 @@ impl TaskRepository for DieselTaskRepository {
         Ok(())
     }
 
-    fn set_cancelled(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    fn set_cancelled(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         diesel::update(schema::task::table.filter(schema::task::id.eq(id)))
             .set((
                 schema::task::status.eq("Cancelled"),
@@ -125,7 +125,7 @@ impl TaskRepository for DieselTaskRepository {
         &self,
         conn: &mut SqliteConnection,
         status: &str,
-    ) -> SoundomeResult<Vec<Task>> {
+    ) -> SoundgnomeResult<Vec<Task>> {
         let entities = schema::task::table
             .filter(schema::task::status.eq(status))
             .order(schema::task::id.asc())
@@ -137,7 +137,7 @@ impl TaskRepository for DieselTaskRepository {
             .collect())
     }
 
-    fn reset_for_retry(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    fn reset_for_retry(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         diesel::update(schema::task::table.filter(schema::task::id.eq(id)))
             .set((
                 schema::task::status.eq("Pending"),
@@ -151,7 +151,7 @@ impl TaskRepository for DieselTaskRepository {
         Ok(())
     }
 
-    fn count_by_status(&self, conn: &mut SqliteConnection, status: &str) -> SoundomeResult<i64> {
+    fn count_by_status(&self, conn: &mut SqliteConnection, status: &str) -> SoundgnomeResult<i64> {
         schema::task::table
             .filter(schema::task::status.eq(status))
             .count()
@@ -164,7 +164,7 @@ impl TaskRepository for DieselTaskRepository {
         conn: &mut SqliteConnection,
         id: i32,
         label: &str,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         diesel::update(schema::task::table.filter(schema::task::id.eq(id)))
             .set((
                 schema::task::label.eq(Some(label)),
@@ -180,7 +180,7 @@ impl TaskRepository for DieselTaskRepository {
         conn: &mut SqliteConnection,
         id: i32,
         stats: &shared::models::TaskStats,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         let json = serde_json::to_string(stats)
             .map_err(|e| shared::errors::Error::Custom(e.to_string()))?;
         diesel::update(schema::task::table.filter(schema::task::id.eq(id)))

@@ -65,7 +65,7 @@ FROM node-base AS web-builder
 
     COPY apps/web ./apps/web
 
-    RUN pnpm --filter @soundome/web build
+    RUN pnpm --filter @soundgnome/web build
 
 # ==================
 # == api deps ======
@@ -94,7 +94,7 @@ FROM cargo-chef-base AS api-builder
     COPY . .
 
     # build the application
-    RUN cargo build --release --bin soundome-server
+    RUN cargo build --release --bin soundgnome-server
 
 # ==================
 # ==== runner ======
@@ -103,11 +103,11 @@ FROM base AS runner
     WORKDIR /app
 
     # create a user and a group to run the app more securely and properly
-    RUN addgroup --system --gid 1000 soundome \
-        && adduser --system --uid 1000 soundome
+    RUN addgroup --system --gid 1000 soundgnome \
+        && adduser --system --uid 1000 soundgnome
 
     # copy the binary from the api builder stage
-    COPY --from=api-builder /app/target/release/soundome-server .
+    COPY --from=api-builder /app/target/release/soundgnome-server .
 
     # embed Rocket config so users don't need to set ROCKET_* env vars
     COPY Rocket.toml .
@@ -126,10 +126,10 @@ FROM base AS runner
     # note: when bind-mounted from the host, the host directory permissions take
     # precedence — make sure the host dirs are writable by uid 1000 (e.g. chown -R 1000:1000).
     RUN mkdir -p /app/data /app/library /app/temp \
-        && chown -R soundome:soundome /app
+        && chown -R soundgnome:soundgnome /app
 
-    USER soundome
+    USER soundgnome
 
     EXPOSE 8000
 
-    CMD ["./soundome-server"]
+    CMD ["./soundgnome-server"]

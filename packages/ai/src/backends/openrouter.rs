@@ -12,7 +12,7 @@ use openrouter_api::{
 use serde::{Deserialize, Serialize};
 use shared::{
     errors::Error,
-    types::SoundomeResult,
+    types::SoundgnomeResult,
     utils::{json::generate_json_schema, with_default},
 };
 
@@ -28,7 +28,7 @@ pub struct OpenRouterAI {
 impl OpenRouterAI {
     const DEFAULT_MODEL: &str = "google/gemini-2.5-flash";
 
-    pub fn new(openrouter_config: &OpenRouterConfig) -> SoundomeResult<Self> {
+    pub fn new(openrouter_config: &OpenRouterConfig) -> SoundgnomeResult<Self> {
         let base_url = with_default(
             openrouter_config.base_url.clone(),
             "https://openrouter.ai/api/v1/".to_string(),
@@ -113,7 +113,7 @@ impl OpenRouterAI {
 
 #[async_trait]
 impl AIBackend for OpenRouterAI {
-    async fn generate(&self, prompt: &str) -> SoundomeResult<String> {
+    async fn generate(&self, prompt: &str) -> SoundgnomeResult<String> {
         let messages = vec![self.get_message(prompt)];
 
         let request = ChatCompletionRequest {
@@ -164,7 +164,7 @@ impl AIBackend for OpenRouterAI {
         &self,
         prompt: &str,
         data: T,
-    ) -> SoundomeResult<T> {
+    ) -> SoundgnomeResult<T> {
         let mut prompt_with_data = prompt_with_data(prompt, &data)?;
 
         // Strict structured output requires an object at the schema root.

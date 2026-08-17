@@ -1,10 +1,10 @@
-# Soundome CLI
+# Soundgnome CLI
 
-The Soundome CLI is a command-line client for the Soundome API. It does not connect to the database or the domain layer directly — all operations go through the HTTP API exposed by the server.
+The Soundgnome CLI is a command-line client for the Soundgnome API. It does not connect to the database or the domain layer directly — all operations go through the HTTP API exposed by the server.
 
 ## Requirements
 
-- The Soundome server must be running and reachable.
+- The Soundgnome server must be running and reachable.
 - No additional local setup is needed beyond building the binary.
 
 ## Build
@@ -22,17 +22,17 @@ The binary is placed at `target/debug/cli` or `target/release/cli`.
 | Source | Description |
 |---|---|
 | `--api-url <url>` | Server base URL, passed explicitly per invocation. |
-| `SOUNDOME_API_URL` | Environment variable — overrides the default when set. |
+| `SOUNDGNOME_API_URL` | Environment variable — overrides the default when set. |
 | default | `http://localhost:8000` |
 
-The `.env` file at the repository root is loaded automatically when present (via `dotenvy`). You can set `SOUNDOME_API_URL` there for local development.
+The `.env` file at the repository root is loaded automatically when present (via `dotenvy`). You can set `SOUNDGNOME_API_URL` there for local development.
 
 ## Command reference
 
 ### Global flag
 
 ```
-soundome [--api-url <url>] <command>
+soundgnome [--api-url <url>] <command>
 ```
 
 ### `library search`
@@ -40,7 +40,7 @@ soundome [--api-url <url>] <command>
 Search library entities with optional filters.
 
 ```bash
-soundome library search <entity> [options]
+soundgnome library search <entity> [options]
 ```
 
 `<entity>` can be one of:
@@ -71,16 +71,16 @@ Examples:
 
 ```bash
 # Find tracks matching a text query
-soundome library search tracks --query "acid" --limit 20
+soundgnome library search tracks --query "acid" --limit 20
 
 # JSON output for scripting
-soundome library search playlists --source spotify --format json
+soundgnome library search playlists --source spotify --format json
 
 # JSONL output
-soundome library search artists --query "tek" --format jsonl
+soundgnome library search artists --query "tek" --format jsonl
 
 # Tracks requiring validation and already downloaded
-soundome library search tracks --needs-validation --has-file
+soundgnome library search tracks --needs-validation --has-file
 ```
 
 ### `library playlist list`
@@ -88,7 +88,7 @@ soundome library search tracks --needs-validation --has-file
 List all playlists in the library.
 
 ```bash
-soundome library playlist list [--format <table|json|jsonl>]
+soundgnome library playlist list [--format <table|json|jsonl>]
 ```
 
 Output:
@@ -105,7 +105,7 @@ Output:
 Download the local tracks of a playlist to a directory via HTTP streaming.
 
 ```bash
-soundome library playlist download <playlist> [--output <dir>] [--flat] [--sync] [--manifest <path>]
+soundgnome library playlist download <playlist> [--output <dir>] [--flat] [--sync] [--manifest <path>]
 ```
 
 | Argument / flag | Description |
@@ -141,19 +141,19 @@ When a track has no local file on the server, or the server returns a non-2xx re
 
 ```bash
 # Download by numeric ID into ~/music/tekno
-soundome library playlist download 1 --output ~/music/tekno
+soundgnome library playlist download 1 --output ~/music/tekno
 
 # Download by partial name, flat layout
-soundome library playlist download "late night" --output /tmp/export --flat
+soundgnome library playlist download "late night" --output /tmp/export --flat
 
 # Sync mode: only missing files are downloaded
-soundome library playlist download 3 --output /tmp/export --sync
+soundgnome library playlist download 3 --output /tmp/export --sync
 
 # Custom manifest path
-soundome library playlist download 3 --manifest /tmp/export/report.json
+soundgnome library playlist download 3 --manifest /tmp/export/report.json
 
 # Point at a remote server
-soundome --api-url http://192.168.1.10:8000 library playlist download 3
+soundgnome --api-url http://192.168.1.10:8000 library playlist download 3
 ```
 
 ## How track download works

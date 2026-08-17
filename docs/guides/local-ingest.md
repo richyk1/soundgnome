@@ -1,6 +1,6 @@
 # Local file ingest
 
-If you already have audio files on disk, Soundome can import them into your library: it reads the existing tags, enriches the metadata, deduplicates against what you already have, re-tags consistently, and moves the file into the `Artist/Album/Track` layout.
+If you already have audio files on disk, Soundgnome can import them into your library: it reads the existing tags, enriches the metadata, deduplicates against what you already have, re-tags consistently, and moves the file into the `Artist/Album/Track` layout.
 
 ## How it works
 
@@ -67,12 +67,12 @@ This starts a background task. Monitor progress in the Tasks tab.
 GET /api/library/ingest/files
 ```
 
-Returns a list of audio files with their currently embedded tags — useful for checking what Soundome will read before committing.
+Returns a list of audio files with their currently embedded tags — useful for checking what Soundgnome will read before committing.
 
 ### From the CLI
 
 ```bash
-soundome ingest /path/to/track.flac
+soundgnome ingest /path/to/track.flac
 ```
 
 The server must be running. The file is sent via the API.
@@ -86,7 +86,7 @@ By default, Spotify is queried first for ingest because it tends to provide bett
 ingest_metadata_providers = ["spotify", "musicbrainz", "bandcamp"]
 ```
 
-Spotify credentials are required for the Spotify provider to run. Without them, it is silently skipped and MusicBrainz runs first. See [guides/spotify.md](spotify.md).
+A connected Spotify account is required for the Spotify enrichment provider to run. Without it, the provider is silently skipped and MusicBrainz runs first. See [guides/spotify.md](spotify.md).
 
 You can adjust the order to your preference:
 
@@ -98,7 +98,7 @@ ingest_metadata_providers = ["musicbrainz", "spotify", "bandcamp"]
 
 ## Deduplication during ingest
 
-If a track already in your library matches the incoming file by title and artist similarity, Soundome compares the audio quality of both files. The better file is kept; the other is discarded. References (source and metadata URLs) are merged rather than overwritten.
+If a track already in your library matches the incoming file by title and artist similarity, Soundgnome compares the audio quality of both files. The better file is kept; the other is discarded. References (source and metadata URLs) are merged rather than overwritten.
 
 This means you can safely ingest a folder of tracks without worrying about creating duplicates — if you already have a higher-quality version, the ingest will keep yours.
 
@@ -108,16 +108,16 @@ Tracks successfully ingested appear in the **Library** tab immediately. Tracks t
 
 ## Library scan (reconcile files vs database)
 
-If you have moved, renamed, or deleted files outside of Soundome, the scan command reconciles the filesystem with the database:
+If you have moved, renamed, or deleted files outside of Soundgnome, the scan command reconciles the filesystem with the database:
 
 ```bash
-soundome scan
+soundgnome scan
 ```
 
 Or with a dry run to see what would change without modifying anything:
 
 ```bash
-soundome scan --dry-run
+soundgnome scan --dry-run
 ```
 
 The scan uses the `SOUNDOME_ID` custom tag (written into every file at finalization) to recognise files even if they have been moved. It reports each file as one of:
@@ -130,6 +130,6 @@ The scan uses the `SOUNDOME_ID` custom tag (written into every file at finalizat
 | `missing` | Database row exists but file not found anywhere |
 | `orphan` | File has a `SOUNDOME_ID` but no matching database row |
 | `legacy_match` | Matched via MusicBrainz ID only (no `SOUNDOME_ID` tag yet) |
-| `unmanaged` | File in the library directory, unknown to Soundome |
+| `unmanaged` | File in the library directory, unknown to Soundgnome |
 
-Unmanaged files can be imported using `soundome ingest` or `POST /api/library/ingest`.
+Unmanaged files can be imported using `soundgnome ingest` or `POST /api/library/ingest`.

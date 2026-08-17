@@ -472,10 +472,11 @@
   }
 
   .schedule-card {
-    border: 1px solid var(--color-border, #333);
+    border: 1px solid var(--float-border);
     border-radius: 10px;
     padding: 1rem 1.2rem;
-    background: var(--color-surface, #1a1a1a);
+    background: var(--float);
+    box-shadow: var(--rim), var(--shadow-sm);
     display: flex;
     flex-direction: column;
     gap: 0.6rem;

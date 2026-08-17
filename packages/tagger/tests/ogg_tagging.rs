@@ -23,7 +23,7 @@ fn ffmpeg_available() -> bool {
 }
 
 fn make_ogg(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join("soundome-ogg-tag-test");
+    let dir = std::env::temp_dir().join("soundgnome-ogg-tag-test");
     std::fs::create_dir_all(&dir).expect("cannot create fixture dir");
     let path = dir.join(name);
 
@@ -60,7 +60,7 @@ fn sample_track() -> Track {
         id: None,
         needs_validation: false,
         validation_reason: None,
-        soundome_id: Some("soundome-test-id".to_string()),
+        soundome_id: Some("soundgnome-test-id".to_string()),
         title: "Test Title".to_string(),
         artists: vec![artist("First Artist"), artist("Second Artist")],
         album: Some(Album {
@@ -125,12 +125,12 @@ fn writes_and_reads_back_vorbis_comments() {
     assert_eq!(comments.pictures().len(), 1, "cover art missing");
     assert_eq!(comments.pictures()[0].0.data(), cover.as_slice());
 
-    assert_eq!(comments.get("SOUNDOME_ID"), Some("soundome-test-id"));
+    assert_eq!(comments.get("SOUNDOME_ID"), Some("soundgnome-test-id"));
 
     // And our own reader must find it, since the library sync relies on it.
     assert_eq!(
         tagger::file::read_soundome_id_from_file(&path).as_deref(),
-        Some("soundome-test-id")
+        Some("soundgnome-test-id")
     );
 
     std::fs::remove_file(&path).ok();

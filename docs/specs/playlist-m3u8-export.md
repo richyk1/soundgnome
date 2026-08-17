@@ -2,19 +2,19 @@
 
 ## Problem
 
-Soundome manages source playlists (Spotify, SoundCloud, YouTube) in its database, but those playlists are not visible to other applications that read the library directory — for example Navidrome, Jellyfin, or any client using a music server.
+Soundgnome manages source playlists (Spotify, SoundCloud, YouTube) in its database, but those playlists are not visible to other applications that read the library directory — for example Navidrome, Jellyfin, or any client using a music server.
 
-The goal is to export Soundome-managed playlists as `.m3u8` files on disk so that any compliant music application can discover and consume them without depending on Soundome at runtime.
+The goal is to export Soundgnome-managed playlists as `.m3u8` files on disk so that any compliant music application can discover and consume them without depending on Soundgnome at runtime.
 
 ## Non-goals
 
-- Soundome does not become a streaming server.
-- Soundome does not parse or import M3U8 files written by other applications.
+- Soundgnome does not become a streaming server.
+- Soundgnome does not parse or import M3U8 files written by other applications.
 - Playlist files written by the user in other tools are out of scope.
 
 ## Proposed behavior
 
-After each playlist sync, Soundome regenerates one `.m3u8` file per playlist in a configurable output directory (default: `{library_root}/Playlists/`).
+After each playlist sync, Soundgnome regenerates one `.m3u8` file per playlist in a configurable output directory (default: `{library_root}/Playlists/`).
 
 Each file:
 - is named after the playlist slug (e.g. `My Playlist.m3u8`)
@@ -53,7 +53,7 @@ If absent, defaults to `{library_root}/Playlists/`.
 Add a `playlist_writer` module in `packages/organizer`. It exposes a single function:
 
 ```rust
-pub fn write_m3u8(playlist: &Playlist, tracks: &[Track], output_dir: &Path) -> SoundomeResult<PathBuf>
+pub fn write_m3u8(playlist: &Playlist, tracks: &[Track], output_dir: &Path) -> SoundgnomeResult<PathBuf>
 ```
 
 Responsibility:
@@ -96,6 +96,6 @@ Resolve the final path at call time using the library root as the base when the 
 ## Risks and open questions
 
 - **Path portability**: absolute paths are convenient but break if the library moves. A future option could write relative paths from the playlist file's own location. For now, absolute paths are acceptable.
-- **Stale files**: if a playlist is deleted from Soundome, its `.m3u8` is not cleaned up automatically. A future cleanup pass could remove orphaned files.
+- **Stale files**: if a playlist is deleted from Soundgnome, its `.m3u8` is not cleaned up automatically. A future cleanup pass could remove orphaned files.
 - **Ordering**: playlist track order should be respected. The DB query must preserve the playlist's track ordering.
 - **Encoding**: file names with special characters need sanitization; path values in the M3U8 body should be percent-encoded or URI-formatted if paths contain spaces (Navidrome tolerates plain paths).

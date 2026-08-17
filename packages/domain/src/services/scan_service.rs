@@ -7,7 +7,7 @@ use std::{
 use diesel::SqliteConnection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use shared::{models::Track, types::SoundomeResult};
+use shared::{models::Track, types::SoundgnomeResult};
 use walkdir::WalkDir;
 
 use crate::ports::repositories::TrackRepository;
@@ -32,7 +32,7 @@ pub enum ScanCategory {
     Orphan,
     /// File matched via MusicBrainz ID; no `SOUNDOME_ID` present.
     LegacyMatch,
-    /// File exists in library but is unknown to Soundome.
+    /// File exists in library but is unknown to Soundgnome.
     Unmanaged,
 }
 
@@ -126,7 +126,7 @@ impl ScanService {
         conn: &mut SqliteConnection,
         library_root: &Path,
         dry_run: bool,
-    ) -> SoundomeResult<ScanReport> {
+    ) -> SoundgnomeResult<ScanReport> {
         let library_root_str = library_root.to_string_lossy().to_string();
         let mut report = ScanReport::new(dry_run, library_root_str);
 

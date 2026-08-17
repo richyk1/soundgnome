@@ -54,7 +54,7 @@
 
 <div class="page">
   <div class="hero">
-    <h1>Soundome</h1>
+    <h1>Soundgnome</h1>
     <p class="subtitle">Paste a track or playlist URL to add it to your library.</p>
   </div>
 

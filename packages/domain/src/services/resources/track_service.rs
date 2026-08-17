@@ -4,7 +4,7 @@ use diesel::{Connection, SqliteConnection};
 use shared::{
     errors::Error,
     models::{Album, AlbumType, Artist, Reference, ReferenceType, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 
 use crate::ports::repositories::{AlbumRepository, ArtistRepository, TrackRepository};
@@ -51,15 +51,15 @@ impl TrackService {
 
     // CRUD
 
-    pub fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<Track> {
+    pub fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<Track> {
         self.track_repo.get_by_id(conn, id)
     }
 
-    pub fn get_all(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<Track>> {
+    pub fn get_all(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>> {
         self.track_repo.get_all(conn)
     }
 
-    pub fn create(&self, conn: &mut SqliteConnection, new_track: &Track) -> SoundomeResult<Track> {
+    pub fn create(&self, conn: &mut SqliteConnection, new_track: &Track) -> SoundgnomeResult<Track> {
         self.track_repo.create(conn, new_track)
     }
 
@@ -68,7 +68,7 @@ impl TrackService {
         conn: &mut SqliteConnection,
         id: i32,
         updated_track: &Track,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         self.track_repo.update(conn, id, updated_track)
     }
 
@@ -77,7 +77,7 @@ impl TrackService {
     /// After removing the track row, checks whether its album and each of its
     /// artists have become orphans (no remaining tracks).  Orphaned albums and
     /// artists are deleted automatically inside the same transaction.
-    pub fn delete_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    pub fn delete_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         delete_track_with_cascade(
             conn,
             id,
@@ -97,22 +97,22 @@ impl TrackService {
         &self,
         conn: &mut SqliteConnection,
         limit: i64,
-    ) -> SoundomeResult<Vec<Track>> {
+    ) -> SoundgnomeResult<Vec<Track>> {
         self.track_repo.get_recent(conn, limit)
     }
 
     pub fn get_pending_validations(
         &self,
         conn: &mut SqliteConnection,
-    ) -> SoundomeResult<Vec<Track>> {
+    ) -> SoundgnomeResult<Vec<Track>> {
         self.track_repo.get_pending_validations(conn)
     }
 
-    pub fn count(&self, conn: &mut SqliteConnection) -> SoundomeResult<i64> {
+    pub fn count(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64> {
         self.track_repo.count(conn)
     }
 
-    pub fn count_pending_validations(&self, conn: &mut SqliteConnection) -> SoundomeResult<i64> {
+    pub fn count_pending_validations(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64> {
         self.track_repo.count_pending_validations(conn)
     }
 
@@ -122,7 +122,7 @@ impl TrackService {
         conn: &mut SqliteConnection,
         id: i32,
         patch: ValidationPatch,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         conn.transaction(|tx| {
             let mut track = self.track_repo.get_by_id(tx, id)?;
 
@@ -220,7 +220,7 @@ impl TrackService {
         &self,
         conn: &mut SqliteConnection,
         track: &Track,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         conn.transaction(|tx| {
             // 1) Album (+ artistes + références album)
             let album_id_opt = if let Some(album) = &track.album {
@@ -362,7 +362,7 @@ impl TrackService {
     }
 
     /// Delete track file
-    pub fn delete_track_file(&self, track: &Track) -> SoundomeResult<bool> {
+    pub fn delete_track_file(&self, track: &Track) -> SoundgnomeResult<bool> {
         let file_deleted = if let Some(file_path) = &track.file_path {
             std::fs::remove_file(file_path).is_ok()
         } else {
@@ -378,7 +378,7 @@ impl TrackService {
         conn: &mut SqliteConnection,
         track_id: i32,
         reference: Reference,
-    ) -> SoundomeResult<Vec<Reference>> {
+    ) -> SoundgnomeResult<Vec<Reference>> {
         self.track_repo
             .create_references(conn, track_id, &[reference])?;
         let track = self.track_repo.get_by_id(conn, track_id)?;
@@ -386,7 +386,7 @@ impl TrackService {
     }
 
     /// Delete a single reference row by its own ID.
-    pub fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundomeResult<()> {
+    pub fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundgnomeResult<()> {
         self.track_repo.delete_reference(conn, ref_id)
     }
 }

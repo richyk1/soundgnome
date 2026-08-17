@@ -1,10 +1,12 @@
-<p align="center">
-    <img height="450" src="./assets/images/soundome_logo.png"></img>
-</p>
+<h1 align="center">Soundgnome</h1>
 
-# What is Soundome?
+<p align="center">Self-hosted music library manager: centralize, download, tag, and organize your library from Spotify, SoundCloud, and YouTube.</p>
 
-Soundome is a self-hosted tool that centralizes, downloads, tags, and automatically organizes your music library from multiple sources (Spotify, SoundCloud, YouTube…). It handles metadata, prevents duplicates, keeps track of original sources, and provides a web interface for manual corrections. 
+> **Soundgnome is a fork of [Soundome](https://github.com/barthofu/soundome)** by Bartholomé Gili ([@barthofu](https://github.com/barthofu)), used under the MIT License. It adds direct Spotify audio downloads (via [librespot](https://github.com/librespot-org/librespot)), Spotify library sync, and a redesigned web interface. Fork point: Soundome `v0.2.8`. See [CHANGELOG.md](CHANGELOG.md) for everything that changed since the fork.
+
+## What is Soundgnome?
+
+Soundgnome is a self-hosted tool that centralizes, downloads, tags, and automatically organizes your music library from multiple sources (Spotify, SoundCloud, YouTube…). It handles metadata, prevents duplicates, keeps track of original sources, and provides a web interface for manual corrections. 
 
 The project is still work in progress. Some surfaces are production-shaped, while others are scaffolds or partial implementations. The documentation in this repository is therefore organized around what is already wired in code versus what is still planned.
 
@@ -17,18 +19,18 @@ You can use the prebuilt Docker image to get started quickly. The following step
 ```yaml
 services:
 
-  soundome:
-    image: ghcr.io/barthofu/soundome:latest
+  soundgnome:
+    image: ghcr.io/richyk1/soundgnome:latest
     ports:
       - 8000:8000
     environment:
-      - SOUNDOME__SERVER__HOST=0.0.0.0
-      - SOUNDOME__SERVER__PORT=8000
-      - SOUNDOME__DATABASE__URL=/data/soundome.db
-      - SOUNDOME__GENERAL__BASE_LIBRARY_DIR=/library
-      - SOUNDOME__GENERAL__TEMP_DOWNLOAD_DIR=/temp
-      - SOUNDOME__GENERAL__INGEST_DIR=/ingest
-      - SOUNDOME__LOGS__LEVEL=info
+      - SOUNDGNOME__SERVER__HOST=0.0.0.0
+      - SOUNDGNOME__SERVER__PORT=8000
+      - SOUNDGNOME__DATABASE__URL=/data/soundgnome.db
+      - SOUNDGNOME__GENERAL__BASE_LIBRARY_DIR=/library
+      - SOUNDGNOME__GENERAL__TEMP_DOWNLOAD_DIR=/temp
+      - SOUNDGNOME__GENERAL__INGEST_DIR=/ingest
+      - SOUNDGNOME__LOGS__LEVEL=info
     volumes:
       - ./data:/data
       - ./library:/library
@@ -62,7 +64,7 @@ UI available at <http://localhost:8000>. Paste a YouTube, SoundCloud, or YouTube
 ## Architecture at a glance
 
 ```
-soundome/
+soundgnome/
 ├── apps/
 │   ├── cli/          # CLI entry point (minimal / WIP)
 │   ├── server/       # Rocket API, Swagger, static file serving
@@ -90,7 +92,7 @@ Start with [docs/README.md](docs/README.md).
 - [docs/getting-started/configuration.md](docs/getting-started/configuration.md): config sections, runtime expectations, and environment overrides.
 
 **Guides**
-- [docs/guides/spotify.md](docs/guides/spotify.md): activate Spotify, obtain credentials, what Spotify unlocks.
+- [docs/guides/spotify.md](docs/guides/spotify.md): connect Spotify (one Premium login), what it unlocks.
 - [docs/guides/soundcloud.md](docs/guides/soundcloud.md): SoundCloud specifics — noisy metadata, DRM tracks, AI cleanup.
 - [docs/guides/ai-metadata.md](docs/guides/ai-metadata.md): configure Ollama or OpenRouter to clean SoundCloud metadata automatically.
 - [docs/guides/playlists.md](docs/guides/playlists.md): sync playlists, schedule automatic updates, export M3U8 files.
@@ -129,10 +131,11 @@ pnpm web:check
 
 **Project development:** While the final stages of this project were completed with AI assistance (without which it might never have reached completion), the entire architecture and core codebase were hand-crafted and informed by intensive design work prior to using AI tools (well, it wasn't such a thing back then).
 
-**Runtime AI usage:** Soundome can optionally use AI to curate and standardize base metadata extracted from SoundCloud tracks, where source metadata is often noisy. This feature is optional and can be disabled entirely. When enabled, you can use OpenRouter's API or connect a local [Ollama](https://ollama.ai/) instance for on-device processing.
+**Runtime AI usage:** Soundgnome can optionally use AI to curate and standardize base metadata extracted from SoundCloud tracks, where source metadata is often noisy. This feature is optional and can be disabled entirely. When enabled, you can use OpenRouter's API or connect a local [Ollama](https://ollama.ai/) instance for on-device processing.
 
 ## License
 
-MIT License
+MIT License. Soundgnome is a fork of [Soundome](https://github.com/barthofu/soundome) and retains its original MIT license and copyright notice (see [LICENSE](LICENSE)).
 
-Copyright (c) barthofu
+- Copyright (c) 2026 Bartholomé Gili (original author, Soundome)
+- Copyright (c) 2026 Richard Kasendu (fork, Soundgnome)

@@ -26,7 +26,7 @@ Use this skill to debug an API route in `apps/server` without drifting into unre
 7. Apply the smallest patch that explains or fixes the failure.
 8. Validate with the narrowest executable check available for that route or handler path.
 
-## Soundome-specific checks
+## Soundgnome-specific checks
 
 - Prefer thin handlers that defer to `domain::services`.
 - Avoid leaking Diesel types into the HTTP layer.

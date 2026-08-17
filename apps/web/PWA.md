@@ -1,4 +1,4 @@
-# Soundome Web Frontend - PWA Support
+# Soundgnome Web Frontend - PWA Support
 
 This frontend application includes full Progressive Web App (PWA) support, allowing it to work offline and be installed as a native-like application.
 

@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use shared::{
     errors::Error,
     models::{Platform, Reference, ReferenceType, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 use std::path::PathBuf;
 
@@ -18,7 +18,7 @@ use std::path::PathBuf;
 #[async_trait]
 pub trait Provider {
     /// Search the best matching download url for the given track
-    async fn search(&self, track: &Track) -> SoundomeResult<Reference>;
+    async fn search(&self, track: &Track) -> SoundgnomeResult<Reference>;
 
     /// Download the track from the given url at the given base directory
     async fn download(
@@ -26,7 +26,7 @@ pub trait Provider {
         url: &str,
         file_name: &str,
         base_library_dir: PathBuf,
-    ) -> SoundomeResult<PathBuf>;
+    ) -> SoundgnomeResult<PathBuf>;
 
     /// Check if the given url is a valid url for the provider
     fn is_valid_url(url: &str) -> bool;
@@ -41,7 +41,7 @@ pub trait Matcher {
 // Exposed functions
 // ==============================
 
-pub async fn search(track: &Track) -> SoundomeResult<Reference> {
+pub async fn search(track: &Track) -> SoundgnomeResult<Reference> {
     // providers
     let youtube = youtube::Youtube::new();
     let youtube_music = youtube_music::YoutubeMusic::new();
@@ -123,7 +123,7 @@ pub async fn download(
     provider: &Reference,
     track_title: &str,
     output_dir: PathBuf,
-) -> SoundomeResult<PathBuf> {
+) -> SoundgnomeResult<PathBuf> {
     if source.ref_type != ReferenceType::Source {
         return Err(Error::Custom(
             "source reference type must be Source".to_string(),
@@ -192,7 +192,7 @@ pub async fn download(
 /// Search YouTube Music and YouTube for all candidates matching the track.
 /// Returns raw results without similarity filtering so the user can pick manually.
 /// Results from YouTube Music are listed first.
-pub async fn search_youtube_candidates(track: &Track) -> SoundomeResult<Vec<Track>> {
+pub async fn search_youtube_candidates(track: &Track) -> SoundgnomeResult<Vec<Track>> {
     let youtube = youtube::Youtube::new();
     let youtube_music = youtube_music::YoutubeMusic::new();
 

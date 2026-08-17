@@ -631,10 +631,11 @@
 
   /* ── Task status ── */
   .task-status {
-    border: 1px solid var(--border, #333);
-    border-radius: 8px;
+    border: 1px solid var(--float-border);
+    border-radius: 10px;
     padding: 0.9rem 1rem;
-    background: var(--surface, #1a1a1a);
+    background: var(--float);
+    box-shadow: var(--rim), var(--shadow-sm);
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
@@ -795,9 +796,10 @@
   }
 
   .file-card {
-    border: 1px solid var(--border, #333);
-    border-radius: 8px;
-    background: var(--surface, #1a1a1a);
+    border: 1px solid var(--float-border);
+    border-radius: 10px;
+    background: var(--float);
+    box-shadow: var(--rim), var(--shadow-sm);
     overflow: hidden;
     transition: border-color 0.15s;
   }

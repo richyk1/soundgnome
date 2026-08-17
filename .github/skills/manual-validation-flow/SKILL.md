@@ -1,6 +1,6 @@
 ---
 name: manual-validation-flow
-description: 'Use when: changing pending validation behavior, needs_validation flags, approval or rejection flow, validation routes, staged file finalization, or the web admin validation UI in Soundome.'
+description: 'Use when: changing pending validation behavior, needs_validation flags, approval or rejection flow, validation routes, staged file finalization, or the web admin validation UI in Soundgnome.'
 argument-hint: 'Describe the validation-flow change, affected layer, and expected user-visible behavior.'
 ---
 

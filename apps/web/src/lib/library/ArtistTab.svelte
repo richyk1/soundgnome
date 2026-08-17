@@ -305,7 +305,7 @@
   .album-section-thumb :global(.cover-wrap) { width: 100%; height: 100%; }
   .album-section-name { font-weight: 600; font-size: 0.9rem; }
   .album-section-count { font-size: 0.75rem; color: var(--muted); margin-left: auto; }
-  .detail-hero { display: flex; align-items: center; gap: 1.5rem; padding: 1.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .detail-hero { display: flex; align-items: center; gap: 1.5rem; padding: 1.5rem; background: var(--float); border: 1px solid var(--float-border); border-radius: 10px; box-shadow: var(--rim), var(--shadow-sm); margin-bottom: 1.5rem; flex-wrap: wrap; }
   .detail-cover { width: 110px; height: 110px; flex-shrink: 0; border-radius: 6px; overflow: hidden; }
   .detail-cover :global(.cover-wrap) { width: 100%; height: 100%; }
   .detail-info { flex: 1; min-width: 180px; }

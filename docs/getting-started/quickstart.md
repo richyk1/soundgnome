@@ -1,6 +1,6 @@
 # Quick start
 
-This page walks you through the first minutes with Soundome: starting the server, downloading your first track, and understanding what just happened.
+This page walks you through the first minutes with Soundgnome: starting the server, downloading your first track, and understanding what just happened.
 
 ## Before you begin
 
@@ -12,7 +12,7 @@ Make sure you have completed the steps in [development-setup.md](development-set
 - `config.toml` present (copy from `config.example.toml`)
 - `.env` file present
 
-You do not need Spotify credentials to follow this guide — a YouTube Music or SoundCloud URL is enough to get started.
+You do not need to connect Spotify to follow this guide — a YouTube Music or SoundCloud URL is enough to get started.
 
 ## Start the server
 
@@ -34,18 +34,18 @@ Open `http://localhost:5173` in your browser.
 
 ### Supported URL types
 
-| What you paste | What Soundome does |
+| What you paste | What Soundgnome does |
 |---|---|
 | A YouTube Music track URL (`music.youtube.com/watch?...`) | Downloads the track immediately |
 | A SoundCloud track URL (`soundcloud.com/artist/title`) | Downloads the track immediately |
-| A Spotify track URL (`open.spotify.com/track/...`) | Requires Spotify credentials — see [guides/spotify.md](../guides/spotify.md) |
+| A Spotify track URL (`open.spotify.com/track/...`) | Requires connecting a Spotify Premium account — see [guides/spotify.md](../guides/spotify.md) |
 | A playlist, album, or artist URL (any of the above) | Starts a background sync task and returns immediately |
 
 > **Note:** plain `youtube.com/watch?v=...` URLs are not accepted as input. Use `music.youtube.com` instead.
 
 ## What happens next
 
-After you submit a URL, Soundome runs the following steps automatically:
+After you submit a URL, Soundgnome runs the following steps automatically:
 
 1. **Fetch metadata** — title, artists, album, cover art from the source.
 2. **Enrich** — queries MusicBrainz (and optionally Bandcamp and Spotify) to find a canonical match.

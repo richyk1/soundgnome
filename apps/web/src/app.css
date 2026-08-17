@@ -10,21 +10,58 @@ html {
 }
 
 :root {
-  --bg: #0f1117;
-  --surface: #1a1d27;
-  --surface-2: #252836;
-  --border: #2e3148;
-  --text: #e8eaf0;
-  --muted: #7b7f9e;
-  --warning: #f5c542;
-  --error: #e05252;
-  --accent: #7c6ef5;
+  /* Spotify-style redesign: pure-black canvas with rounded dark panels,
+     Archivo type, JetBrains Mono for data, a violet accent, amber/red badges. */
+  --bg: #000000;
+  --panel: #101012;          /* shell regions: sidebar, main, player */
+  --surface: #1a1a1f;        /* inputs, controls, cards */
+  --surface-2: #232330;      /* hover / pressed control fills */
+  --border: #26262c;
+  --border-soft: #1e1e22;
+  --text: #e9e9ee;
+  --text-bright: #ffffff;
+  --muted: #9a9aa4;
+  --muted-2: #6e6e78;        /* dimmest: mono labels, counts */
+  --accent: #7c5cf0;
+  --accent-2: #8b6cf0;
+  --accent-strong: #5b3fd6;
+  --warning: #f0b775;
+  --warning-bg: #3a2a12;
+  --error: #f08a8a;
+  --error-bg: #4a1a1a;
+  --success: #6ab98a;
 
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  /* Aliases kept so existing components inherit the new palette. */
+  --color-accent: var(--accent);
+  --color-muted: var(--muted);
+  --color-surface2: var(--surface-2);
+  --color-error: var(--error);
+  --accent-muted: color-mix(in srgb, var(--accent) 20%, transparent);
+  --accent-dim: var(--accent-strong);
+  --danger: var(--error);
+  --card-bg: var(--surface);
+  --input-bg: var(--surface);
+  --cover-bg: var(--surface-2);
+
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.4);
+
+  /* Flat rounded panels on black (no rim-light in this world). */
+  --float: var(--surface);
+  --float-border: var(--border);
+  --rim: 0 0 transparent;
+  --float-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+  --font-display: 'Archivo', system-ui, -apple-system, sans-serif;
+  --font-body: 'Archivo', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  font-family: var(--font-body);
   font-size: 16px;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* Mobile-first responsive typography */
@@ -395,9 +432,7 @@ code {
 
 @media (min-width: 1024px) {
   .page-container {
-    padding: 1.5rem;
-    max-width: 1400px;
-    margin: 0 auto;
+    padding: 1.75rem 2rem;
   }
 }
 
@@ -524,10 +559,132 @@ button, a[role="button"] {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* ── Ensure max width on large screens ──────────────────────────────── */
-@media (min-width: 1400px) {
-  body {
-    max-width: 1400px;
-    margin: 0 auto;
-  }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Editorial-dark overrides (offtop-inspired). Serif display + sans body,
+   pill controls, translucent surfaces, soft depth. Late in the cascade so
+   they refine the shared components above without touching each rule inline.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Serif display voice for every heading + big label. */
+h1, h2, h3, h4,
+.section-title,
+.card-title,
+.page-header h1,
+.count {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+/* offtop's section labels are quiet serif counts, not shouty uppercase. */
+.section-title {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.95rem;
+  color: var(--text);
+  font-weight: 500;
+}
+.count {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+/* Pill controls. Cards/inputs keep their softer 8px radius. */
+.btn-header,
+.btn-save,
+.btn-cancel,
+.btn-edit,
+.btn-delete,
+.filter-btn,
+.actions button {
+  border-radius: 999px;
+}
+
+/* Accent primary keeps legible text on the violet. */
+.btn-save {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+/* Active filter chip: soft violet tint, not a hard solid fill. */
+.filter-btn.active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+.mini-badge {
+  background: var(--accent-2);
+  color: #1a1206;
+}
+
+/* Cards + covers: gentle depth and a warmer hover than a flat accent halo. */
+.card {
+  background: var(--float);
+  border-color: var(--float-border);
+  box-shadow: var(--rim), var(--shadow-sm);
+  transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.card.clickable:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: var(--rim), var(--float-shadow);
+  transform: translateY(-2px);
+}
+
+/* Links + interactive text land on the violet accent. */
+.title-link:hover {
+  color: var(--accent);
+}
+
+/* Inputs: focus ring in the accent, tinted (not gray) placeholders. */
+input[type="text"]:focus,
+input[type="url"]:focus,
+input[type="email"]:focus,
+textarea:focus,
+.search:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Modals: lift off the canvas with real depth + a subtle backdrop blur. */
+.modal {
+  background: rgba(6, 7, 7, 0.6);
+  backdrop-filter: blur(6px);
+}
+.modal-content {
+  background: var(--float);
+  border-color: var(--float-border);
+  box-shadow: var(--rim), var(--float-shadow);
+}
+
+/* Data/measurement stays mono; everything else is the body sans. */
+.mono,
+.table-wrap td.mono,
+.card-meta.mono {
+  font-family: var(--font-mono);
+}
+
+/* Themed selection + tidy scrollbars complete the world. */
+::selection {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: #fff;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-2) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--surface-2);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }

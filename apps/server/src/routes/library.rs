@@ -296,3 +296,17 @@ pub async fn ingest_all(
 
     Ok(Json(serde_json::json!({ "task_id": task_id })))
 }
+
+/// One-shot maintenance: (re)embed cover art into every library file in place so
+/// artwork survives offline, and fill any missing `cover` in the DB. Derives art
+/// from each track's references (YouTube thumbnail / Spotify oEmbed) when the
+/// stored cover is absent. Runs in the background on the serial task queue; never
+/// re-downloads audio.
+#[openapi(tag = "library")]
+#[post("/library/embed-artwork")]
+pub async fn embed_artwork(
+    executor: &rocket::State<Arc<TaskExecutor>>,
+) -> Json<serde_json::Value> {
+    executor.enqueue_embed_artwork();
+    Json(serde_json::json!({ "started": true }))
+}

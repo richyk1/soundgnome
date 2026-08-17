@@ -1,21 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud, getSpotifyStatus, connectSpotify, disconnectSpotify, startSpotifyLogin,
-    completeSpotifyLogin, logoutSpotify, getSpotifyAudioStatus, connectSpotifyAudio, disconnectSpotifyAudio, downloadUrl } from '../lib/api';
-  import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyStatusDto, SpotifyAudioStatusDto } from '../lib/api';
+  import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud,
+    getSpotifyAudioStatus, connectSpotifyAudio, completeSpotifyAudio, disconnectSpotifyAudio, downloadUrl, embedArtwork } from '../lib/api';
+  import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyAudioStatusDto } from '../lib/api';
 
   // ── Tab ────────────────────────────────────────────────────────────────────
   type Tab = 'storage' | 'sync' | 'providers';
 
   let {
     initialTab = 'sync',
-    spotifyMessage = null,
-    spotifyCode = null,
   }: {
     initialTab?: Tab;
-    spotifyMessage?: string | null;
-    /// Authorization code from the Spotify redirect, exchanged on mount.
-    spotifyCode?: { code: string; state: string } | null;
   } = $props();
 
   let activeTab: Tab = $state(initialTab);
@@ -34,6 +29,21 @@
       storageError = err instanceof Error ? err.message : String(err);
     } finally {
       storageLoading = false;
+    }
+  }
+
+  let embedding = $state(false);
+  let embedMsg: string | null = $state(null);
+  async function handleEmbedArtwork() {
+    embedding = true;
+    embedMsg = null;
+    try {
+      await embedArtwork();
+      embedMsg = 'Embedding artwork into every library file in the background — this can take a few minutes.';
+    } catch (err: unknown) {
+      embedMsg = `Failed: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      embedding = false;
     }
   }
 
@@ -163,25 +173,6 @@
     loadSync();
     loadSoundcloud();
     loadSpotifyAudio();
-
-    // A redirect from Spotify carries the authorization code. Exchange it
-    // before reading the status, otherwise the card renders as logged out and
-    // then flips a moment later.
-    if (spotifyCode) {
-      spLoading = true;
-      try {
-        spStatus = await completeSpotifyLogin(spotifyCode.code, spotifyCode.state);
-        spSuccess = 'Spotify account connected.';
-      } catch (e: unknown) {
-        spLoginError = e instanceof Error ? e.message : String(e);
-        await loadSpotify();
-      } finally {
-        spLoading = false;
-      }
-      return;
-    }
-
-    loadSpotify();
   });
 
   function switchTab(tab: Tab) {
@@ -244,24 +235,6 @@
   // through the normal playlist sync, so this reuses the download endpoint.
   const SOUNDCLOUD_LIKES_URL = 'https://soundcloud.com/you/likes';
 
-  // Spotify's own Liked Songs URL. The backend recognises it and routes it
-  // through the normal playlist sync.
-  const SPOTIFY_LIKED_URL = 'https://open.spotify.com/collection/tracks';
-
-  async function handleSpotifySyncLikes() {
-    spPending = true;
-    spError = null;
-    spSuccess = null;
-    try {
-      await downloadUrl(SPOTIFY_LIKED_URL);
-      spSuccess = 'Likes sync started. Follow its progress on the Tasks page.';
-    } catch (e: unknown) {
-      spError = e instanceof Error ? e.message : String(e);
-    } finally {
-      spPending = false;
-    }
-  }
-
   async function handleSyncLikes() {
     scPending = true;
     scError = null;
@@ -276,97 +249,14 @@
     }
   }
 
-  // ── Spotify ──────────────────────────────────────────────────────────────────
-  let spStatus: SpotifyStatusDto | null = $state(null);
-  let spLoading = $state(true);
-  let spClientId = $state('');
-  let spClientSecret = $state('');
-  let spPending = $state(false);
-  let spError: string | null = $state(null);
-  let spSuccess: string | null = $state(null);
-  // Login errors survive a status refresh, so the message from the OAuth redirect stays visible.
-  let spLoginPending = $state(false);
-  let spLoginError: string | null = $state(spotifyMessage);
-
-  async function loadSpotify() {
-    spLoading = true;
-    spError = null;
-    try {
-      spStatus = await getSpotifyStatus();
-    } catch (e: unknown) {
-      spError = e instanceof Error ? e.message : String(e);
-    } finally {
-      spLoading = false;
-    }
-  }
-
-  async function handleSpotifyConnect(e: SubmitEvent) {
-    e.preventDefault();
-    const clientId = spClientId.trim();
-    const clientSecret = spClientSecret.trim();
-    if (!clientId || !clientSecret || spPending) return;
-    spPending = true;
-    spError = null;
-    spSuccess = null;
-    try {
-      spStatus = await connectSpotify(clientId, clientSecret);
-      spClientId = '';
-      spClientSecret = '';
-      spSuccess = 'Spotify app credentials saved.';
-    } catch (e: unknown) {
-      spError = e instanceof Error ? e.message : String(e);
-    } finally {
-      spPending = false;
-    }
-  }
-
-  async function handleSpotifyDisconnect() {
-    spPending = true;
-    spError = null;
-    spSuccess = null;
-    spLoginError = null;
-    try {
-      spStatus = await disconnectSpotify();
-      spClientId = '';
-      spClientSecret = '';
-    } catch (e: unknown) {
-      spError = e instanceof Error ? e.message : String(e);
-    } finally {
-      spPending = false;
-    }
-  }
-
-  async function handleSpotifyLogin() {
-    if (spLoginPending) return;
-    spLoginPending = true;
-    spLoginError = null;
-    try {
-      window.location.href = await startSpotifyLogin();
-    } catch (e: unknown) {
-      spLoginError = e instanceof Error ? e.message : String(e);
-      spLoginPending = false;
-    }
-  }
-
-  async function handleSpotifyLogout() {
-    if (spLoginPending) return;
-    spLoginPending = true;
-    spLoginError = null;
-    try {
-      spStatus = await logoutSpotify();
-    } catch (e: unknown) {
-      spLoginError = e instanceof Error ? e.message : String(e);
-    } finally {
-      spLoginPending = false;
-    }
-  }
-
   // ── Spotify audio (librespot) ─────────────────────────────────────────────────
   let spaStatus: SpotifyAudioStatusDto | null = $state(null);
   let spaLoading = $state(true);
   let spaPending = $state(false);
   let spaError: string | null = $state(null);
   let spaSuccess: string | null = $state(null);
+  let spaAuthorizing = $state(false);
+  let spaRedirectUrl = $state('');
 
   async function loadSpotifyAudio() {
     spaLoading = true;
@@ -380,6 +270,8 @@
     }
   }
 
+  const SPOTIFY_LIKED_URL = 'https://open.spotify.com/collection/tracks';
+
   async function handleSpotifyAudioConnect() {
     if (spaPending) return;
     spaPending = true;
@@ -387,11 +279,9 @@
     spaSuccess = null;
     try {
       const authorizeUrl = await connectSpotifyAudio();
-      // Approval happens in Spotify, the server catches the callback, so poll
-      // until the credentials land rather than blocking the request.
       window.open(authorizeUrl, '_blank', 'noopener');
-      spaSuccess = 'Approve the Spotify tab, then this card updates on its own.';
-      await pollSpotifyAudio();
+      spaAuthorizing = true;
+      spaSuccess = 'Approve in the Spotify tab, then paste the URL it lands on below.';
     } catch (e: unknown) {
       spaError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -399,22 +289,36 @@
     }
   }
 
-  /// Watch for the background callback to complete, for up to five minutes.
-  async function pollSpotifyAudio() {
-    for (let i = 0; i < 100; i++) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      try {
-        const status = await getSpotifyAudioStatus();
-        if (status.connected) {
-          spaStatus = status;
-          spaSuccess = `Spotify audio connected as ${status.username ?? 'your account'}.`;
-          return;
-        }
-      } catch {
-        // A transient failure while waiting is not worth surfacing.
-      }
+  async function handleSpotifyAudioComplete() {
+    if (spaPending || !spaRedirectUrl.trim()) return;
+    spaPending = true;
+    spaError = null;
+    spaSuccess = null;
+    try {
+      spaStatus = await completeSpotifyAudio(spaRedirectUrl.trim());
+      spaAuthorizing = false;
+      spaRedirectUrl = '';
+      spaSuccess = `Spotify connected as ${spaStatus.username ?? 'your account'}.`;
+    } catch (e: unknown) {
+      spaError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spaPending = false;
     }
-    spaError = 'Authorization did not complete. Try connecting again.';
+  }
+
+  async function handleSpotifyAudioSyncLikes() {
+    if (spaPending) return;
+    spaPending = true;
+    spaError = null;
+    spaSuccess = null;
+    try {
+      await downloadUrl(SPOTIFY_LIKED_URL);
+      spaSuccess = 'Liked Songs sync started. Follow its progress on the Tasks page.';
+    } catch (e: unknown) {
+      spaError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spaPending = false;
+    }
   }
 
   async function handleSpotifyAudioDisconnect() {
@@ -467,7 +371,18 @@
         <button class="btn-header" onclick={loadStorage} disabled={storageLoading}>
           {storageLoading ? 'Loading…' : 'Refresh'}
         </button>
+        <button
+          class="btn-header"
+          onclick={handleEmbedArtwork}
+          disabled={embedding}
+          title="Embed cover art into every library file so artwork stays with the audio offline"
+        >
+          {embedding ? 'Starting…' : 'Embed artwork'}
+        </button>
       </div>
+      {#if embedMsg}
+        <p class="status">{embedMsg}</p>
+      {/if}
 
       {#if storageError}
         <div class="feedback error"><strong>Error:</strong> {storageError}</div>
@@ -714,108 +629,7 @@
       <section class="schedule-card">
         <div class="schedule-header">
           <div class="schedule-info">
-            <span class="schedule-label">Spotify connection</span>
-          </div>
-          {#if !spLoading}
-            <div class="schedule-meta">
-              <span
-                class="status-badge"
-                class:enabled={spStatus?.connected}
-                class:paused={!spStatus?.connected}
-              >
-                {spStatus?.connected ? 'Connected' : 'Not connected'}
-              </span>
-            </div>
-          {/if}
-        </div>
-
-        <p class="provider-note">
-          Spotify is used to enrich metadata such as cover art, release date and track numbers. It
-          never supplies audio.
-        </p>
-
-        {#if spError}
-          <p class="feedback error">{spError}</p>
-        {/if}
-        {#if spSuccess}
-          <p class="feedback info">{spSuccess}</p>
-        {/if}
-        {#if spLoginError}
-          <p class="feedback error">{spLoginError}</p>
-        {/if}
-
-        {#if spLoading}
-          <p class="provider-note">Loading…</p>
-        {:else if spStatus?.connected || spStatus?.user_connected}
-          {#if spStatus.client_id}
-            <p class="provider-note">
-              Connected as app <strong>{spStatus.client_id}</strong>
-            </p>
-          {/if}
-          {#if spStatus.user_connected}
-            <p class="provider-note">
-              Logged in as <strong>{spStatus.user_name ?? 'your Spotify account'}</strong>
-            </p>
-          {/if}
-          <p class="provider-note">
-            Logging in lets Soundome read your Liked Songs. It does not download anything.
-          </p>
-          <div class="schedule-actions">
-            {#if spStatus.user_connected}
-              <button class="btn-accent" disabled={spPending} onclick={handleSpotifySyncLikes}>
-                {#if spPending}<span class="spinner"></span> Working…{:else}Sync my likes{/if}
-              </button>
-              <button class="btn-secondary" disabled={spLoginPending} onclick={handleSpotifyLogout}>
-                {#if spLoginPending}<span class="spinner"></span> Logging out…{:else}Log out{/if}
-              </button>
-            {:else}
-              <button class="btn-accent" disabled={spLoginPending} onclick={handleSpotifyLogin}>
-                {#if spLoginPending}<span class="spinner"></span> Redirecting…{:else}Log in with Spotify{/if}
-              </button>
-            {/if}
-            <button class="btn-danger" disabled={spPending} onclick={handleSpotifyDisconnect}>
-              {#if spPending}<span class="spinner"></span> Disconnecting…{:else}Disconnect{/if}
-            </button>
-          </div>
-        {:else}
-          <form class="form-row form-row--split" onsubmit={handleSpotifyConnect}>
-            <input
-              class="credential-input"
-              type="text"
-              placeholder="Client id"
-              bind:value={spClientId}
-              disabled={spPending}
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <input
-              class="credential-input"
-              type="password"
-              placeholder="Client secret"
-              bind:value={spClientSecret}
-              disabled={spPending}
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <button
-              type="submit"
-              class="btn-accent"
-              disabled={spPending || !spClientId.trim() || !spClientSecret.trim()}
-            >
-              {#if spPending}<span class="spinner"></span> Connecting…{:else}Connect{/if}
-            </button>
-          </form>
-          <p class="provider-note">
-            Where to find them: create an app at developer.spotify.com/dashboard, set any redirect
-            URI, then copy the client id and the client secret.
-          </p>
-        {/if}
-      </section>
-
-      <section class="schedule-card">
-        <div class="schedule-header">
-          <div class="schedule-info">
-            <span class="schedule-label">Spotify audio</span>
+            <span class="schedule-label">Spotify</span>
           </div>
           {#if !spaLoading}
             <div class="schedule-meta">
@@ -831,13 +645,9 @@
         </div>
 
         <p class="provider-note">
-          Direct-download session over librespot. Requires Spotify Premium. Once connected, Spotify
-          tracks download from Spotify itself as 320 kbps Ogg Vorbis, kept as is with no re-encode,
-          instead of being matched on YouTube.
-        </p>
-        <p class="provider-note">
-          Connecting opens a Spotify tab. Approve it and this card updates on its own. Only one
-          authorization can be in flight at a time; a pending one expires after five minutes.
+          Requires Spotify Premium. Connecting authorizes one Spotify session used for everything:
+          downloading your Liked Songs directly from Spotify, and reading metadata. Connecting opens
+          a browser on the server to authorize (works on a localhost install).
         </p>
 
         {#if spaError}
@@ -853,17 +663,43 @@
           <p class="provider-note">
             Connected as <strong>{spaStatus.username ?? 'your Spotify account'}</strong>
           </p>
+          <p class="provider-note">
+            Syncing creates a Spotify Liked Songs playlist and downloads every liked track
+            not already in your library. It runs as a background task on the Tasks page.
+          </p>
           <div class="schedule-actions">
+            <button class="btn-accent" disabled={spaPending} onclick={handleSpotifyAudioSyncLikes}>
+              {#if spaPending}<span class="spinner"></span> Working…{:else}Sync my Liked Songs{/if}
+            </button>
             <button class="btn-danger" disabled={spaPending} onclick={handleSpotifyAudioDisconnect}>
               {#if spaPending}<span class="spinner"></span> Disconnecting…{:else}Disconnect{/if}
             </button>
           </div>
         {:else}
-          <div class="schedule-actions">
-            <button class="btn-accent" disabled={spaPending} onclick={handleSpotifyAudioConnect}>
-              {#if spaPending}<span class="spinner"></span> Authorizing…{:else}Connect Spotify audio{/if}
-            </button>
-          </div>
+          {#if spaAuthorizing}
+            <p class="provider-note">
+              Approve in the Spotify tab, then paste the URL it redirects to (it starts with
+              <code>http://127.0.0.1:8898/login?code=</code>) here:
+            </p>
+            <form class="form-row" onsubmit={(e) => { e.preventDefault(); handleSpotifyAudioComplete(); }}>
+              <input
+                class="credential-input"
+                type="text"
+                placeholder="http://127.0.0.1:8898/login?code=..."
+                bind:value={spaRedirectUrl}
+                disabled={spaPending}
+              />
+              <button type="submit" class="btn-accent" disabled={spaPending || !spaRedirectUrl.trim()}>
+                {#if spaPending}<span class="spinner"></span> Connecting…{:else}Complete connection{/if}
+              </button>
+            </form>
+          {:else}
+            <div class="schedule-actions">
+              <button class="btn-accent" disabled={spaPending} onclick={handleSpotifyAudioConnect}>
+                {#if spaPending}<span class="spinner"></span> Opening…{:else}Connect Spotify{/if}
+              </button>
+            </div>
+          {/if}
         {/if}
       </section>
     </div>
@@ -942,9 +778,10 @@
     justify-content: space-between;
     align-items: baseline;
     padding: 1.5rem;
-    background: var(--surface);
-    border-radius: 8px;
-    border: 1px solid var(--border);
+    background: var(--float);
+    border-radius: 10px;
+    border: 1px solid var(--float-border);
+    box-shadow: var(--rim), var(--shadow-sm);
     margin-bottom: 1.5rem;
   }
 
@@ -1189,10 +1026,11 @@
   }
 
   .schedule-card {
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    border: 1px solid var(--float-border);
+    border-radius: 10px;
     padding: 1rem 1.1rem;
-    background: var(--surface);
+    background: var(--float);
+    box-shadow: var(--rim), var(--shadow-sm);
     display: flex;
     flex-direction: column;
     gap: 0.6rem;

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use config::Config;
 use domain::services::ServiceLayer;
 use rocket::{get, http::Status, serde::json::Json};
 use rocket_okapi::openapi;
@@ -61,14 +60,11 @@ pub struct ProvidersResponse {
 #[openapi]
 #[get("/providers")]
 pub fn get_providers() -> Json<ProvidersResponse> {
-    let config = Config::get();
     let mut providers = Vec::new();
 
-    // Spotify requires non-empty credentials
-    if let Some(spotify) = config.providers.spotify.as_ref() {
-        if !spotify.client_id.is_empty() && !spotify.client_secret.is_empty() {
-            providers.push("Spotify".to_string());
-        }
+    // Spotify is available once the librespot user account is connected.
+    if fetcher::spotify::session::stored_session().is_some() {
+        providers.push("Spotify".to_string());
     }
 
     // SoundCloud and YouTube don't require credentials

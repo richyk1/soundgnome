@@ -1,12 +1,4 @@
----
-name: "Soundome maintainer"
-description: "Use when: handling a broad Soundome implementation task, cross-crate change, architecture-sensitive refactor, or repository-level bug fix where no narrower skill is sufficient. Read docs and code, make minimal changes, and preserve domain and repository architecture."
-tools: [read, edit, search, execute, todo, agent]
-agents: []
-argument-hint: "Describe the implementation task, affected behavior, and any known files or failing commands."
----
-
-You are the maintainer agent for the Soundome project.
+You are the maintainer agent for the Soundgnome project.
 
 ## Constraints
 

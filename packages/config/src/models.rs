@@ -12,8 +12,6 @@ pub struct Config {
     #[serde(default)]
     pub database: DatabaseConfig,
     #[serde(default)]
-    pub providers: ProvidersConfig,
-    #[serde(default)]
     pub ai: AiConfig,
     pub proxy: Option<ProxyConfig>,
     #[serde(default)]
@@ -69,31 +67,6 @@ impl Config {
             .unwrap_or_else(|| Path::new("."))
             .join("spotify_librespot")
     }
-
-    /// The Spotify client id and secret to use, if any.
-    ///
-    /// A `[providers.spotify]` table in the config file always wins: an
-    /// operator who deployed credentials should not have them replaced by a
-    /// pair typed into the UI.
-    pub fn resolved_spotify_credentials(&self) -> Option<(String, String)> {
-        if let Some(spotify) = self.providers.spotify.as_ref() {
-            if !spotify.client_id.is_empty() && !spotify.client_secret.is_empty() {
-                return Some((spotify.client_id.clone(), spotify.client_secret.clone()));
-            }
-        }
-
-        let stored = std::fs::read_to_string(self.spotify_credentials_path()).ok()?;
-        let parsed: StoredSpotifyCredentials = serde_json::from_str(&stored).ok()?;
-        (!parsed.client_id.is_empty() && !parsed.client_secret.is_empty())
-            .then_some((parsed.client_id, parsed.client_secret))
-    }
-}
-
-/// On-disk shape of the credentials the Providers tab writes.
-#[derive(Debug, Clone, Deserialize, serde::Serialize)]
-pub struct StoredSpotifyCredentials {
-    pub client_id: String,
-    pub client_secret: String,
 }
 
 // ===============================================================================
@@ -111,7 +84,7 @@ pub struct GeneralConfig {
     /// Files submitted via `POST /api/library/ingest` without an explicit path
     /// are resolved relative to this directory.
     /// Defaults to `./ingest`.
-    /// ENV: SOUNDOME__GENERAL__INGEST_DIR
+    /// ENV: SOUNDGNOME__GENERAL__INGEST_DIR
     #[serde(default = "GeneralConfig::default_ingest_dir")]
     pub ingest_dir: String,
 }
@@ -189,25 +162,8 @@ impl Default for DatabaseConfig {
 
 impl DatabaseConfig {
     fn default_url() -> String {
-        "./data/soundome.db".to_string()
+        "./data/soundgnome.db".to_string()
     }
-}
-
-// ===============================================================================
-// Providers
-// ===============================================================================
-
-#[derive(Debug, Clone, Deserialize, Default)]
-#[allow(unused)]
-pub struct ProvidersConfig {
-    pub spotify: Option<SpotifyConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[allow(unused)]
-pub struct SpotifyConfig {
-    pub client_id: String,
-    pub client_secret: String,
 }
 
 // ===============================================================================
@@ -283,7 +239,7 @@ pub struct TaggerConfig {
     /// Defaults to `["spotify", "musicbrainz", "bandcamp"]` so that Spotify's
     /// richer metadata (cover art, ISRC, track_number) takes priority over
     /// MusicBrainz when ingesting files from disk.
-    /// ENV: SOUNDOME__TAGGER__INGEST_METADATA_PROVIDERS
+    /// ENV: SOUNDGNOME__TAGGER__INGEST_METADATA_PROVIDERS
     #[serde(default = "TaggerConfig::default_ingest_providers")]
     pub ingest_metadata_providers: Vec<String>,
 }
@@ -330,20 +286,20 @@ pub struct DownloaderConfig {
     /// `--audio-format`. Only tagger-writable codecs are supported: `"mp3"`,
     /// `"flac"`, `"m4a"` (aac). Untaggable targets (opus, wav, ...) would fail
     /// finalization, so avoid them.
-    /// ENV: SOUNDOME__DOWNLOADER__AUDIO_FORMAT
+    /// ENV: SOUNDGNOME__DOWNLOADER__AUDIO_FORMAT
     #[serde(default = "DownloaderConfig::default_audio_format")]
     pub audio_format: String,
 
     /// yt-dlp `--audio-quality` value (`"0"` = best VBR ... `"9"` = worst).
     /// Only applied when `audio_format` forces a transcode.
-    /// ENV: SOUNDOME__DOWNLOADER__AUDIO_QUALITY
+    /// ENV: SOUNDGNOME__DOWNLOADER__AUDIO_QUALITY
     #[serde(default = "DownloaderConfig::default_audio_quality")]
     pub audio_quality: String,
 
     /// Prefer a SoundCloud uploader's downloadable original file (often FLAC)
     /// over the streamed transcodes. Requires `cookies_file` — SoundCloud only
     /// exposes originals to authenticated clients.
-    /// ENV: SOUNDOME__DOWNLOADER__PREFER_ORIGINAL
+    /// ENV: SOUNDGNOME__DOWNLOADER__PREFER_ORIGINAL
     #[serde(default = "DownloaderConfig::default_prefer_original")]
     pub prefer_original: bool,
 
@@ -351,27 +307,36 @@ pub struct DownloaderConfig {
     /// better audio, for example a lossless original that was not offered (or
     /// not reachable) the first time. Costs one metadata request per already
     /// owned track during a sync.
-    /// ENV: SOUNDOME__DOWNLOADER__UPGRADE_EXISTING
+    /// ENV: SOUNDGNOME__DOWNLOADER__UPGRADE_EXISTING
     #[serde(default = "DownloaderConfig::default_upgrade_existing")]
     pub upgrade_existing: bool,
 
     /// How much better a lossy source must be before it replaces a lossy file,
     /// as a ratio of the stored bitrate. Lossless always wins regardless.
     /// Keeps a 161 vs 160 kbps difference from causing pointless churn.
-    /// ENV: SOUNDOME__DOWNLOADER__UPGRADE_BITRATE_MARGIN
+    /// ENV: SOUNDGNOME__DOWNLOADER__UPGRADE_BITRATE_MARGIN
     #[serde(default = "DownloaderConfig::default_upgrade_bitrate_margin")]
     pub upgrade_bitrate_margin: f32,
 
     /// Match Spotify tracks on YouTube when Spotify audio is not connected.
     /// Off by default: a YouTube match is a different recording at a different
     /// quality, so substituting one silently is worse than failing.
-    /// ENV: SOUNDOME__DOWNLOADER__ALLOW_YOUTUBE_FOR_SPOTIFY
+    /// ENV: SOUNDGNOME__DOWNLOADER__ALLOW_YOUTUBE_FOR_SPOTIFY
     #[serde(default)]
     pub allow_youtube_for_spotify: bool,
 
+    /// Require the 256k AAC master (itag 141) for YouTube downloads. When `true`,
+    /// a track with no 256k master (or where it is unavailable) errors instead of
+    /// downloading a lower tier — for Premium users who refuse anything below 256k.
+    /// When `false` (default), 256k is still preferred but the download falls back
+    /// to the next best taggable audio (e.g. 130k AAC) rather than failing.
+    /// ENV: SOUNDGNOME__DOWNLOADER__YOUTUBE_REQUIRE_256K
+    #[serde(default)]
+    pub youtube_require_256k: bool,
+
     /// Path to a Netscape-format cookies file passed to yt-dlp `--cookies`.
     /// Enables SoundCloud original (FLAC) downloads and age/region-gated content.
-    /// ENV: SOUNDOME__DOWNLOADER__COOKIES_FILE
+    /// ENV: SOUNDGNOME__DOWNLOADER__COOKIES_FILE
     pub cookies_file: Option<String>,
 }
 
@@ -384,6 +349,7 @@ impl Default for DownloaderConfig {
             upgrade_existing: Self::default_upgrade_existing(),
             upgrade_bitrate_margin: Self::default_upgrade_bitrate_margin(),
             allow_youtube_for_spotify: false,
+            youtube_require_256k: false,
             cookies_file: None,
         }
     }
@@ -493,10 +459,10 @@ pub enum ProxyStrategy {
 #[allow(unused)]
 pub struct ServerConfig {
     /// IP address or hostname to bind. E.g. "0.0.0.0" or "127.0.0.1".
-    /// ENV: SOUNDOME__SERVER__HOST
+    /// ENV: SOUNDGNOME__SERVER__HOST
     pub host: Option<String>,
     /// TCP port to listen on.
-    /// ENV: SOUNDOME__SERVER__PORT
+    /// ENV: SOUNDGNOME__SERVER__PORT
     pub port: Option<u16>,
 }
 

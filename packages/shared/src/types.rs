@@ -1,3 +1,3 @@
 use crate::errors::Error;
 
-pub type SoundomeResult<T> = Result<T, Error>;
+pub type SoundgnomeResult<T> = Result<T, Error>;

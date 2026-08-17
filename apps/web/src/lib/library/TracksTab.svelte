@@ -102,7 +102,7 @@
               <span class="play-slot" title={t.file_path ? null : 'Not downloaded yet'}>
                 <button
                   class="btn-play"
-                  onclick={(e) => { e.stopPropagation(); player?.play(t); }}
+                  onclick={(e) => { e.stopPropagation(); player?.play(t, lib.filteredTracks); }}
                   disabled={!t.file_path}
                 >
                   {player.isPlaying(t.id) ? 'Pause' : 'Play'}

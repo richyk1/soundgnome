@@ -30,17 +30,60 @@
       return null;
     }
   }
+
+  // Waveforms computed from the audio itself, for local tracks that have no
+  // precomputed peaks. Cached per url for the session (null = decode failed).
+  const computedCache = new Map<string, number[] | null>();
+
+  async function computePeaks(url: string): Promise<number[] | null> {
+    if (computedCache.has(url)) return computedCache.get(url) ?? null;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`audio request failed: ${res.status}`);
+      const bytes = await res.arrayBuffer();
+      const Ctor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ac = new Ctor();
+      const buf = await ac.decodeAudioData(bytes);
+      ac.close();
+      const ch = buf.getChannelData(0);
+      const N = 900;
+      const block = Math.max(1, Math.floor(ch.length / N));
+      const out: number[] = [];
+      let max = 0;
+      for (let i = 0; i < N; i += 1) {
+        const s = i * block;
+        const e = Math.min(ch.length, s + block);
+        let peak = 0;
+        for (let j = s; j < e; j += 1) {
+          const v = Math.abs(ch[j]);
+          if (v > peak) peak = v;
+        }
+        out.push(peak);
+        if (peak > max) max = peak;
+      }
+      const norm = max > 0 ? out.map((v) => Math.min(1, v / max)) : out;
+      computedCache.set(url, norm);
+      return norm;
+    } catch {
+      computedCache.set(url, null);
+      return null;
+    }
+  }
 </script>
 
 <script lang="ts">
   let {
     waveformUrl,
+    srcUrl,
     currentTime,
     duration,
     onSeek,
     available = $bindable(false),
   }: {
     waveformUrl: string | null | undefined;
+    srcUrl?: string | null;
     currentTime: number;
     duration: number;
     /** Ask the player to seek to `secs`. */
@@ -58,21 +101,24 @@
     duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0,
   );
 
-  // Fetch (or reuse) peaks whenever the url changes. Depends only on the url,
-  // so it never refetches when the player re-renders for time updates.
+  // Load precomputed peaks when a waveform url is given; otherwise compute peaks
+  // from the audio itself. Depends only on the urls, not on time updates.
   $effect(() => {
     const url = waveformUrl;
-    if (!url) {
+    const src = srcUrl;
+    const source = url ?? src;
+    if (!source) {
       peaks = null;
       return;
     }
-    if (peaksCache.has(url)) {
-      peaks = peaksCache.get(url) ?? null;
+    const cache = url ? peaksCache : computedCache;
+    if (cache.has(source)) {
+      peaks = cache.get(source) ?? null;
       return;
     }
     let cancelled = false;
     peaks = null;
-    loadPeaks(url).then((p) => {
+    (url ? loadPeaks(source) : computePeaks(source)).then((p) => {
       if (!cancelled) peaks = p;
     });
     return () => {

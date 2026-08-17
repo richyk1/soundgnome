@@ -1,6 +1,6 @@
 # Getting started
 
-Use this section when you need to understand how to run Soundome locally or how the project is expected to be configured.
+Use this section when you need to understand how to run Soundgnome locally or how the project is expected to be configured.
 
 ## Start here
 

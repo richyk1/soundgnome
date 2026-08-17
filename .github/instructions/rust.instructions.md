@@ -1,14 +1,14 @@
 ---
-description: "Use when: editing Rust code in Soundome and you need the repository-wide Rust conventions, error handling rules, logging expectations, and shared architectural patterns."
+description: "Use when: editing Rust code in Soundgnome and you need the repository-wide Rust conventions, error handling rules, logging expectations, and shared architectural patterns."
 applyTo: "**/*.rs"
 ---
 
-# Soundome Rust (global)
+# Soundgnome Rust (global)
 
 ## Principles
 
 - Prefer minimal changes that fit the existing crates.
-- Use `shared::types::SoundomeResult<T>` and `shared::errors::Error` for errors.
+- Use `shared::types::SoundgnomeResult<T>` and `shared::errors::Error` for errors.
 - Use `tracing::{info,warn,error,debug}` for logging.
 - Avoid panics such as `unwrap()` and `expect()` outside initialization or boot code.
 

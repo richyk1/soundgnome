@@ -34,7 +34,7 @@ export type HoveredItem = { type: 'track' | 'album' | 'artist'; id: number } | n
 // The Library page owns the audio element and hands these controls to every
 // track list through context. Tracks without a local file are not playable.
 export interface LibraryPlayer {
-  play(track: LibraryTrackDto): void;
+  play(track: LibraryTrackDto, queue?: LibraryTrackDto[]): void;
   isCurrent(id: number): boolean;
   isPlaying(id: number): boolean;
 }

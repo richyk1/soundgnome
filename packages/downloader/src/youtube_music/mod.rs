@@ -11,7 +11,7 @@ use rustypipe::{
 use shared::{
     errors::Error,
     models::{Album, Artist, Reference, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 
 use crate::{utils::ytdlp::download_with_ytdlp, Matcher, Provider};
@@ -54,7 +54,7 @@ impl YoutubeMusic {
     }
 
     /// Returns all search results without similarity filtering, for manual user selection.
-    pub async fn search_all(&self, track: &Track) -> SoundomeResult<Vec<Track>> {
+    pub async fn search_all(&self, track: &Track) -> SoundgnomeResult<Vec<Track>> {
         let query = self.create_search_query(track.clone());
         let results = self.get_results(&query).await?;
         Ok(results
@@ -65,7 +65,7 @@ impl YoutubeMusic {
             .collect())
     }
 
-    async fn get_results(&self, query: &str) -> SoundomeResult<MusicSearchResult<TrackItem>> {
+    async fn get_results(&self, query: &str) -> SoundgnomeResult<MusicSearchResult<TrackItem>> {
         self.client
             .query()
             .music_search_tracks(query)
@@ -123,7 +123,7 @@ impl YoutubeMusic {
 
 #[async_trait]
 impl Provider for YoutubeMusic {
-    async fn search(&self, track: &Track) -> SoundomeResult<Reference> {
+    async fn search(&self, track: &Track) -> SoundgnomeResult<Reference> {
         // 1. Create search query
         let search_query = self.create_search_query(track.clone());
 
@@ -153,8 +153,8 @@ impl Provider for YoutubeMusic {
         url: &str,
         file_name: &str,
         base_library_dir: PathBuf,
-    ) -> SoundomeResult<PathBuf> {
-        download_with_ytdlp(url, file_name, base_library_dir).await
+    ) -> SoundgnomeResult<PathBuf> {
+        download_with_ytdlp(url, file_name, base_library_dir, true).await
     }
 
     fn is_valid_url(url: &str) -> bool {

@@ -9,12 +9,12 @@ use api::ApiClient;
 
 const DEFAULT_API_URL: &str = "http://localhost:8000";
 
-/// Soundome CLI — interact with your local Soundome library via the API.
+/// Soundgnome CLI — interact with your local Soundgnome library via the API.
 #[derive(Parser)]
-#[command(name = "soundome", version, about, long_about = None)]
+#[command(name = "soundgnome", version, about, long_about = None)]
 struct Cli {
-    /// Soundome server base URL.
-    #[arg(long, env = "SOUNDOME_API_URL", default_value = DEFAULT_API_URL, global = true)]
+    /// Soundgnome server base URL.
+    #[arg(long, env = "SOUNDGNOME_API_URL", default_value = DEFAULT_API_URL, global = true)]
     api_url: String,
 
     #[command(subcommand)]

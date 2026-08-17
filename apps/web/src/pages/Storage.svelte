@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getStorageStats } from '../lib/api';
+  import { getStorageStats, embedArtwork } from '../lib/api';
   import type { StorageStatsDto } from '../lib/api';
 
   let stats: StorageStatsDto | null = $state(null);
@@ -33,6 +33,21 @@
     }
   }
 
+  let embedding = $state(false);
+  let embedMsg: string | null = $state(null);
+  async function handleEmbedArtwork() {
+    embedding = true;
+    embedMsg = null;
+    try {
+      await embedArtwork();
+      embedMsg = 'Embedding artwork into every library file in the background — this can take a few minutes.';
+    } catch (err: unknown) {
+      embedMsg = `Failed: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      embedding = false;
+    }
+  }
+
   function formatBytes(bytes: number): string {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let size = bytes;
@@ -56,7 +71,19 @@
     <button class="btn-header" onclick={handleRefresh} disabled={loading}>
       {loading ? 'Loading…' : 'Refresh'}
     </button>
+    <button
+      class="btn-header"
+      onclick={handleEmbedArtwork}
+      disabled={embedding}
+      title="Embed cover art into every library file so it stays with the audio offline"
+    >
+      {embedding ? 'Starting…' : 'Embed artwork'}
+    </button>
   </div>
+
+  {#if embedMsg}
+    <div class="feedback">{embedMsg}</div>
+  {/if}
 
   {#if error}
     <div class="feedback error">
@@ -173,9 +200,10 @@
     justify-content: space-between;
     align-items: baseline;
     padding: 1.5rem;
-    background: var(--surface);
-    border-radius: 8px;
-    border: 1px solid var(--border);
+    background: var(--float);
+    border-radius: 10px;
+    border: 1px solid var(--float-border);
+    box-shadow: var(--rim), var(--shadow-sm);
     margin-bottom: 2rem;
   }
 

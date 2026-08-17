@@ -28,7 +28,7 @@ diesel setup
 diesel migration run
 ```
 
-Rocket uses `Rocket.toml` and points SQLite to `data/soundome.db` by default.
+Rocket uses `Rocket.toml` and points SQLite to `data/soundgnome.db` by default.
 
 ## Configure the runtime
 

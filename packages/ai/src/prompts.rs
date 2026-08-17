@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
-use shared::{types::SoundomeResult, utils::string::render_template};
+use shared::{types::SoundgnomeResult, utils::string::render_template};
 
-pub fn clean_track_title_and_artist_name(single_track: bool) -> SoundomeResult<String> {
+pub fn clean_track_title_and_artist_name(single_track: bool) -> SoundgnomeResult<String> {
     let template: &str = r#"
         Refine and standardize track metadata from a JSON {{ if single_track }}object{{ else }}array{{ endif }} of objects with this format:
         ```json
@@ -55,7 +55,7 @@ const PROMPT_WITH_DATA: &str = r#"
     ```
     "#;
 
-pub fn prompt_with_data<T: Serialize>(prompt: &str, data: T) -> SoundomeResult<String> {
+pub fn prompt_with_data<T: Serialize>(prompt: &str, data: T) -> SoundgnomeResult<String> {
     serde_json::to_string(&data)
         .map(|data| {
             PROMPT_WITH_DATA

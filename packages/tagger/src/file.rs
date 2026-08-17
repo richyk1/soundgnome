@@ -3,7 +3,7 @@ use id3::TagLike;
 use shared::{
     errors::Error,
     models::{Album, Artist, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 use std::{path::PathBuf, str::FromStr};
 
@@ -12,7 +12,7 @@ use std::{path::PathBuf, str::FromStr};
 // ================================================================================================
 
 const SOUNDOME_ID_KEY: &str = "SOUNDOME_ID";
-const MP4_MEAN: &str = "com.soundome";
+const MP4_MEAN: &str = "com.soundgnome";
 const MP4_NAME: &str = "ID";
 
 // ================================================================================================
@@ -22,7 +22,7 @@ const MP4_NAME: &str = "ID";
 /**
  * Reads the tag from a file and returns a converted Track object.
  */
-pub fn get_track_from_file(file_path: &PathBuf) -> SoundomeResult<Track> {
+pub fn get_track_from_file(file_path: &PathBuf) -> SoundgnomeResult<Track> {
     tracing::info!("Reading tag from file: {:?}", file_path);
 
     let mut track = Tag::new()
@@ -41,7 +41,7 @@ pub fn get_track_from_file(file_path: &PathBuf) -> SoundomeResult<Track> {
  * Also writes the SOUNDOME_ID custom tag when `track.soundome_id` is set.
  * Optionally writes cover art when `cover_bytes` is provided.
  */
-pub fn tag_file_with_track(file_path: &PathBuf, track: &Track) -> SoundomeResult<()> {
+pub fn tag_file_with_track(file_path: &PathBuf, track: &Track) -> SoundgnomeResult<()> {
     tag_file_with_track_and_cover(file_path, track, None)
 }
 
@@ -50,7 +50,7 @@ pub fn tag_file_with_track_and_cover(
     file_path: &PathBuf,
     track: &Track,
     cover_bytes: Option<&[u8]>,
-) -> SoundomeResult<()> {
+) -> SoundgnomeResult<()> {
     // Ogg carries Vorbis comments, which audiotags cannot write.
     if crate::ogg::handles(file_path) {
         return crate::ogg::tag_file(file_path, track, cover_bytes, track.soundome_id.as_deref());
@@ -85,8 +85,8 @@ pub fn tag_file_with_track_and_cover(
 /// |-----------|------------------------|
 /// | MP3 / ID3 | `TXXX:SOUNDOME_ID`     |
 /// | FLAC      | Vorbis comment         |
-/// | MP4 / M4A | `----:com.soundome:ID` |
-pub fn write_soundome_id_tag(file_path: &PathBuf, soundome_id: &str) -> SoundomeResult<()> {
+/// | MP4 / M4A | `----:com.soundgnome:ID` |
+pub fn write_soundome_id_tag(file_path: &PathBuf, soundome_id: &str) -> SoundgnomeResult<()> {
     let ext = file_path
         .extension()
         .and_then(|e| e.to_str())
@@ -131,7 +131,7 @@ pub fn read_soundome_id_from_file(file_path: &PathBuf) -> Option<String> {
 // Format-specific helpers
 // ================================================================================================
 
-fn write_soundome_id_id3(file_path: &PathBuf, soundome_id: &str) -> SoundomeResult<()> {
+fn write_soundome_id_id3(file_path: &PathBuf, soundome_id: &str) -> SoundgnomeResult<()> {
     let mut tag = id3::Tag::read_from_path(file_path).unwrap_or_else(|e| {
         tracing::warn!(
             "Could not read existing ID3 tags from {:?}, will create new tag: {}",
@@ -162,7 +162,7 @@ fn read_soundome_id_id3(file_path: &PathBuf) -> Option<String> {
     value
 }
 
-fn write_soundome_id_flac(file_path: &PathBuf, soundome_id: &str) -> SoundomeResult<()> {
+fn write_soundome_id_flac(file_path: &PathBuf, soundome_id: &str) -> SoundgnomeResult<()> {
     let mut tag = metaflac::Tag::read_from_path(file_path)
         .map_err(|e| Error::Custom(format!("Failed to read FLAC tags: {}", e)))?;
 
@@ -183,7 +183,7 @@ fn read_soundome_id_flac(file_path: &PathBuf) -> Option<String> {
         .cloned()
 }
 
-fn write_soundome_id_mp4(file_path: &PathBuf, soundome_id: &str) -> SoundomeResult<()> {
+fn write_soundome_id_mp4(file_path: &PathBuf, soundome_id: &str) -> SoundgnomeResult<()> {
     let mut tag = mp4ameta::Tag::read_from_path(file_path)
         .map_err(|e| Error::Custom(format!("Failed to read MP4 tags: {}", e)))?;
 
@@ -244,7 +244,7 @@ fn convert_track_to_tag(tag: &mut Box<dyn AudioTag + Send + Sync>, track: &Track
     // tag.album_cover()
 
     tag.set_comment(
-        "Downloaded by Soundome\n---".to_string(), // + "\nSource: "
+        "Downloaded by Soundgnome\n---".to_string(), // + "\nSource: "
                                                    // + track
                                                    //     .source
                                                    //     .as_ref()

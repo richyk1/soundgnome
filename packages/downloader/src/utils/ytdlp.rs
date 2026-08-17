@@ -1,6 +1,6 @@
 use config::{models::DownloaderConfig, Config};
 use serde::Deserialize;
-use shared::{errors::Error, http::ProxyRotator, types::SoundomeResult};
+use shared::{errors::Error, http::ProxyRotator, types::SoundgnomeResult};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -27,6 +27,7 @@ pub async fn download_with_ytdlp(
     url: &str,
     file_name: &str,
     base_library_dir: PathBuf,
+    youtube: bool,
 ) -> Result<PathBuf, Error> {
     let base_library_dir = base_library_dir
         .to_str()
@@ -38,7 +39,7 @@ pub async fn download_with_ytdlp(
     // SoundCloud from the UI while the server is running.
     let cookies = config.resolved_cookies_file();
     let stdout = run_ytdlp_with_retry(|| {
-        build_download_args(url, &output_path, &config.downloader, cookies.as_deref())
+        build_download_args(url, &output_path, &config.downloader, cookies.as_deref(), youtube)
     })
     .await?;
 
@@ -54,7 +55,56 @@ pub async fn download_with_ytdlp(
         .map(PathBuf::from)
         .ok_or(Error::NotFound("downloaded file path".to_string()))?;
 
-    repack_lossless_to_flac(final_path).await
+    let final_path = repack_lossless_to_flac(final_path).await?;
+    // When `youtube_require_256k` is set, a YouTube track that could not be
+    // fetched at the 256k tier is a failure, not a downgrade. yt-dlp reports the
+    // adaptive m4a bitrate conservatively, so verify the actual file and reject
+    // anything below 256k. When the flag is off, the selector already fell back
+    // to the next best tier, so no gate is applied.
+    if youtube && config.downloader.youtube_require_256k {
+        ensure_sabr_quality(&final_path).await?;
+    }
+    Ok(final_path)
+}
+
+/// Below this, a YouTube download did not land the 256k AAC master.
+const MIN_SABR_BITRATE_BPS: u64 = 200_000;
+
+/// Reject a YouTube download that came back below the 256k tier. With a Premium
+/// account a track that cannot be fetched at 256k is an error, not a downgrade.
+/// yt-dlp advertises the adaptive m4a at ~130k even when it can deliver 256k, so
+/// the true quality is only known after downloading: a file under
+/// `MIN_SABR_BITRATE_BPS` means no 256k master was obtained (throttle, SABR
+/// degradation, or no such master); delete it and error rather than archive it.
+async fn ensure_sabr_quality(path: &Path) -> SoundgnomeResult<()> {
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| Error::InvalidPath(path.to_path_buf()))?;
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=bit_rate",
+            "-of",
+            "default=nk=1:nw=1",
+            path_str,
+        ])
+        .output()
+        .await?;
+    let bitrate: u64 = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .unwrap_or(0);
+    if bitrate < MIN_SABR_BITRATE_BPS {
+        let _ = std::fs::remove_file(path);
+        return Err(Error::Custom(format!(
+            "YouTube returned only {} kbps for this track (no 256k master); \
+             refusing to archive below 256k",
+            bitrate / 1000
+        )));
+    }
+    Ok(())
 }
 
 /// What the source can currently supply, without downloading it.
@@ -71,7 +121,7 @@ pub struct AvailableQuality {
 /// This is one metadata request, roughly a second, and it is what makes
 /// upgrade decisions possible: a file already in the library is only worth
 /// re-fetching when the source now offers something better.
-pub async fn probe_available_quality(url: &str) -> SoundomeResult<AvailableQuality> {
+pub async fn probe_available_quality(url: &str) -> SoundgnomeResult<AvailableQuality> {
     let config = Config::get();
     let cookies = config.resolved_cookies_file();
 
@@ -113,7 +163,7 @@ pub async fn probe_available_quality(url: &str) -> SoundomeResult<AvailableQuali
     })
 }
 
-/// Containers that carry lossless audio but cannot hold the tags Soundome
+/// Containers that carry lossless audio but cannot hold the tags Soundgnome
 /// writes. Uploaders most often offer WAV, so these must not be rejected.
 const UNTAGGABLE_LOSSLESS: [&str; 3] = ["wav", "aiff", "aif"];
 
@@ -179,15 +229,36 @@ fn build_download_args(
     output_path: &str,
     config: &DownloaderConfig,
     cookies_file: Option<&Path>,
+    youtube: bool,
 ) -> Vec<String> {
-    let mut args = vec![
-        url.to_string(),
-        "-f".to_string(),
-        config.format_selector(),
-        // Take the audio stream out of whatever container it arrives in,
-        // keeping the source codec (no --audio-format means no re-encode).
-        "--extract-audio".to_string(),
-    ];
+    let mut args = vec![url.to_string(), "-f".to_string()];
+    if youtube {
+        // YouTube: prefer the 256k AAC master (itag 141) via the web_music client,
+        // which serves it as a direct https/dash stream for audio-only tracks.
+        // yt-dlp handles pot + nsig. Requires the SABR-capable yt-dlp build, a PO
+        // token provider on 127.0.0.1:4416, deno on PATH, and a logged-in Premium
+        // `cookies_file`.
+        //
+        // With `youtube_require_256k`, request only 141: a track with no 256k
+        // master fails with "requested format is not available" and the caller
+        // propagates it. Otherwise fall back to 130k AAC (140), then the best
+        // taggable audio, so tracks without a 256k master still download.
+        let selector = if config.youtube_require_256k {
+            "141-1/141-dashy/141"
+        } else {
+            "141-1/141-dashy/140-1/140-dashy/bestaudio[ext=m4a]/bestaudio[ext=mp3]"
+        };
+        args.push(selector.to_string());
+        args.push("--extractor-args".to_string());
+        args.push(
+            "youtube:formats=duplicate;player_client=web_music;webpage_client=web_music".to_string(),
+        );
+    } else {
+        args.push(config.format_selector());
+    }
+    // Take the audio stream out of whatever container it arrives in, keeping the
+    // source codec (no --audio-format means no re-encode).
+    args.push("--extract-audio".to_string());
 
     // Transcode only when a specific format is requested; "best" keeps native.
     if let Some((format, quality)) = config.transcode_target() {
@@ -235,7 +306,7 @@ fn build_download_args(
 /// Minimal shape of a single JSON object emitted by
 /// `yt-dlp "ytsearchN:<query>" --dump-json --skip-download --flat-playlist`.
 /// yt-dlp emits many more fields (thumbnails, view_count, description, ...);
-/// only the ones Soundome actually needs are modeled here, the rest are
+/// only the ones Soundgnome actually needs are modeled here, the rest are
 /// ignored by serde.
 #[derive(Debug, Deserialize)]
 struct YtDlpSearchEntry {
@@ -250,7 +321,7 @@ struct YtDlpSearchEntry {
     duration: Option<f64>,
 }
 
-/// A single YouTube search result, already narrowed down to what Soundome needs.
+/// A single YouTube search result, already narrowed down to what Soundgnome needs.
 #[derive(Debug, Clone)]
 pub struct YtDlpSearchResult {
     pub id: String,
@@ -270,7 +341,7 @@ pub struct YtDlpSearchResult {
 pub async fn search_with_ytdlp(
     query: &str,
     limit: usize,
-) -> SoundomeResult<Vec<YtDlpSearchResult>> {
+) -> SoundgnomeResult<Vec<YtDlpSearchResult>> {
     let search_spec = format!("ytsearch{}:{}", limit, query);
 
     let stdout = run_ytdlp_with_retry(|| {
@@ -316,7 +387,7 @@ pub async fn search_with_ytdlp(
 /// `build_args` is called fresh on every attempt so that a rotating proxy
 /// (see `ProxyRotator`) can pick a different upstream IP on retry instead of
 /// repeating the same request that just got rate-limited.
-async fn run_ytdlp_with_retry<F>(mut build_args: F) -> SoundomeResult<Vec<u8>>
+async fn run_ytdlp_with_retry<F>(mut build_args: F) -> SoundgnomeResult<Vec<u8>>
 where
     F: FnMut() -> Vec<String>,
 {
@@ -376,7 +447,7 @@ fn is_transient_error(stderr: &str) -> bool {
 
 /// Spawn `yt-dlp` with the given args and return its captured stdout.
 /// Maps a non-zero exit code to `Error::ExitCode` carrying the captured stderr.
-async fn run_ytdlp(args: &[String]) -> SoundomeResult<Vec<u8>> {
+async fn run_ytdlp(args: &[String]) -> SoundgnomeResult<Vec<u8>> {
     let mut child = Command::new("yt-dlp")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

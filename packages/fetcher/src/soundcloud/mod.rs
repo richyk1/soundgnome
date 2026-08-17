@@ -17,7 +17,7 @@ use shared::{
     errors::Error,
     http::HttpClientBuilder,
     models::{Album, Artist, Platform, Playlist, PlaylistTrack, SimplifiedTrack, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 
 use crate::Source;
@@ -65,7 +65,7 @@ impl Soundcloud {
         url.split('?').next().unwrap_or(url).to_string()
     }
 
-    pub async fn new() -> SoundomeResult<Self> {
+    pub async fn new() -> SoundgnomeResult<Self> {
         // The stored session token is what makes private endpoints such as
         // "my likes" reachable; without it the client stays anonymous and those
         // return 401.
@@ -446,7 +446,7 @@ impl Soundcloud {
         &self,
         tracks: &mut [&mut Track],
         mut on_batch: Option<&mut (dyn FnMut(usize, usize) + Send)>,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         // AI cleanup is an enhancement, never a requirement: an unconfigured or
         // disabled backend must leave the raw SoundCloud metadata in place
         // rather than failing the download. Only backend availability is
@@ -618,7 +618,7 @@ impl Soundcloud {
 
 #[async_trait]
 impl Source for Soundcloud {
-    async fn get_track_from_url(&self, url: &str) -> SoundomeResult<Track> {
+    async fn get_track_from_url(&self, url: &str) -> SoundgnomeResult<Track> {
         tracing::info!("Getting SoundCloud track from URL: {}", url);
         let track = self
             .client
@@ -644,7 +644,7 @@ impl Source for Soundcloud {
         .await)
     }
 
-    async fn get_playlist_from_url(&self, url: &str) -> SoundomeResult<Playlist> {
+    async fn get_playlist_from_url(&self, url: &str) -> SoundgnomeResult<Playlist> {
         if Self::is_likes_url(url) {
             return Ok(Playlist {
                 id: None,
@@ -786,7 +786,7 @@ impl Source for Soundcloud {
         .await)
     }
 
-    async fn clean_track_metadata(&self, track: &mut Track) -> SoundomeResult<()> {
+    async fn clean_track_metadata(&self, track: &mut Track) -> SoundgnomeResult<()> {
         let mut tracks = vec![track];
         self.clean_tracks_metadata(&mut tracks, None).await
     }
@@ -795,7 +795,7 @@ impl Source for Soundcloud {
         &self,
         tracks: &mut Vec<&mut Track>,
         on_batch: Option<&mut (dyn FnMut(usize, usize) + Send)>,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         self.clean_tracks_title_and_artist_name(tracks, on_batch)
             .await
     }

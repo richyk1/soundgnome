@@ -4,7 +4,7 @@ use diesel::prelude::*;
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use shared::{
     models::{Reference, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 
 use crate::{
@@ -30,7 +30,7 @@ impl TrackRepository for DieselTrackRepository {
     // Custom
     // =================================================================================
 
-    fn get_recent(&self, conn: &mut SqliteConnection, limit: i64) -> SoundomeResult<Vec<Track>> {
+    fn get_recent(&self, conn: &mut SqliteConnection, limit: i64) -> SoundgnomeResult<Vec<Track>> {
         let tracks: Vec<TrackEntity> = schema::track::table
             .order(schema::track::id.desc())
             .limit(limit)
@@ -77,7 +77,7 @@ impl TrackRepository for DieselTrackRepository {
         Ok(result)
     }
 
-    fn get_pending_validations(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<Track>> {
+    fn get_pending_validations(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>> {
         let tracks: Vec<TrackEntity> = schema::track::table
             .filter(schema::track::needs_validation.eq(true))
             .load(conn)
@@ -132,7 +132,7 @@ impl TrackRepository for DieselTrackRepository {
         Ok(result)
     }
 
-    fn get_by_url(&self, conn: &mut SqliteConnection, url: &str) -> SoundomeResult<Track> {
+    fn get_by_url(&self, conn: &mut SqliteConnection, url: &str) -> SoundgnomeResult<Track> {
         let track_ref = schema::track_ref::table
             .filter(schema::track_ref::external_url.eq(url))
             .first::<TrackRefEntity>(conn)
@@ -148,7 +148,7 @@ impl TrackRepository for DieselTrackRepository {
         conn: &mut SqliteConnection,
         track_id: i32,
         references: &[Reference],
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         for reference in references {
             let new_track_ref = NewTrackRefEntity::convert_from_domain(reference, track_id);
 
@@ -170,7 +170,7 @@ impl TrackRepository for DieselTrackRepository {
         conn: &mut SqliteConnection,
         track_id: i32,
         references: &[Reference],
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         // Semantics:
         // - Source/Provider: replace (ensure single row): delete existing of that type then insert.
         // - Metadata/Reference: merge (insert missing only), preserving existing ids.
@@ -255,7 +255,7 @@ impl TrackRepository for DieselTrackRepository {
         Ok(())
     }
 
-    // fn find_by_unique_fields(&self, conn: &mut SqliteConnection, track: &Track) -> SoundomeResult<Option<Track>> {
+    // fn find_by_unique_fields(&self, conn: &mut SqliteConnection, track: &Track) -> SoundgnomeResult<Option<Track>> {
     //     use diesel::prelude::*;
     //     use crate::schema;
     //     use crate::schema::track::dsl::*;
@@ -292,7 +292,7 @@ impl TrackRepository for DieselTrackRepository {
     // CRUD
     // =================================================================================
 
-    fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<Track> {
+    fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<Track> {
         let (track, album): (TrackEntity, Option<AlbumEntity>) = schema::track::table
             .left_join(
                 schema::album::table.on(schema::album::id.nullable().eq(schema::track::album_id)),
@@ -326,7 +326,7 @@ impl TrackRepository for DieselTrackRepository {
         ))
     }
 
-    fn get_all(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<Track>> {
+    fn get_all(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>> {
         let tracks: Vec<TrackEntity> = schema::track::table.load(conn).map_err(|err| {
             shared::errors::Error::Database(format!("Failed to get all resources: {}", err))
         })?;
@@ -369,7 +369,7 @@ impl TrackRepository for DieselTrackRepository {
         Ok(result)
     }
 
-    fn create(&self, conn: &mut SqliteConnection, new_track: &Track) -> SoundomeResult<Track> {
+    fn create(&self, conn: &mut SqliteConnection, new_track: &Track) -> SoundgnomeResult<Track> {
         let new_track_entity = NewTrackEntity::convert_from_domain(new_track);
         let inserted_track = diesel::insert_into(schema::track::table)
             .values(&new_track_entity)
@@ -396,7 +396,7 @@ impl TrackRepository for DieselTrackRepository {
         conn: &mut SqliteConnection,
         id: i32,
         updated_track: &Track,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         let updated_track_entity = UpdateTrackEntity::convert_from_domain(updated_track);
         let updated_track = diesel::update(schema::track::table.filter(schema::track::id.eq(id)))
             .set(&updated_track_entity)
@@ -418,7 +418,7 @@ impl TrackRepository for DieselTrackRepository {
         ))
     }
 
-    fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         delete_with_relations!(
             conn,
             id,
@@ -443,7 +443,7 @@ impl TrackRepository for DieselTrackRepository {
         Ok(())
     }
 
-    fn count(&self, conn: &mut SqliteConnection) -> SoundomeResult<i64> {
+    fn count(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64> {
         schema::track::table
             .count()
             .get_result(conn)
@@ -452,7 +452,7 @@ impl TrackRepository for DieselTrackRepository {
             })
     }
 
-    fn count_pending_validations(&self, conn: &mut SqliteConnection) -> SoundomeResult<i64> {
+    fn count_pending_validations(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64> {
         schema::track::table
             .filter(schema::track::needs_validation.eq(true))
             .count()
@@ -469,7 +469,7 @@ impl TrackRepository for DieselTrackRepository {
         &self,
         conn: &mut SqliteConnection,
         soundome_id: &str,
-    ) -> SoundomeResult<Option<Track>> {
+    ) -> SoundgnomeResult<Option<Track>> {
         let track: Option<TrackEntity> = schema::track::table
             .filter(schema::track::soundome_id.eq(soundome_id))
             .first::<TrackEntity>(conn)
@@ -523,7 +523,7 @@ impl TrackRepository for DieselTrackRepository {
         )))
     }
 
-    fn get_all_finalized(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<Track>> {
+    fn get_all_finalized(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>> {
         let tracks: Vec<TrackEntity> = schema::track::table
             .filter(schema::track::file_path.is_not_null())
             .load(conn)
@@ -575,7 +575,7 @@ impl TrackRepository for DieselTrackRepository {
         Ok(result)
     }
 
-    fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundomeResult<()> {
+    fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundgnomeResult<()> {
         diesel::delete(schema::track_ref::table.filter(schema::track_ref::id.eq(ref_id)))
             .execute(conn)
             .map_err(|err| {

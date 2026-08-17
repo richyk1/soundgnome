@@ -136,9 +136,10 @@
     gap: 1rem;
   }
   .card {
-    background: var(--card-bg, #1c1c1c);
-    border: 1px solid var(--border, #333);
-    border-radius: 6px;
+    background: var(--float);
+    border: 1px solid var(--float-border);
+    border-radius: 10px;
+    box-shadow: var(--rim), var(--shadow-sm);
     overflow: hidden;
     display: flex;
     flex-direction: column;

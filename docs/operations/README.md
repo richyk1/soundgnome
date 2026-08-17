@@ -1,6 +1,6 @@
 # Operations documentation
 
-This section covers operational concerns for running and extending Soundome in real environments.
+This section covers operational concerns for running and extending Soundgnome in real environments.
 
 ## Main documents
 
@@ -13,7 +13,7 @@ This section covers operational concerns for running and extending Soundome in r
 ## Use this section when
 
 - you get a `yt-dlp` search/download failure (missing binary, outdated version, exit code error) → read [youtube-search-configuration.md](youtube-search-configuration.md)
-- you want to use the CLI to interact with a running Soundome server
+- you want to use the CLI to interact with a running Soundgnome server
 - you need to configure or debug proxy behavior
 - you want the code-level entry points for proxy-aware HTTP
 - you are documenting operational limitations of third-party integrations

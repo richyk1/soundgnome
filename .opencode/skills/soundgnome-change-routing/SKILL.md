@@ -1,9 +1,9 @@
 ---
-name: soundome-change-routing
-description: Use when identifying the right Soundome crate, entry point, owning abstraction, or validation command before changing code. Useful for routing work across server, domain, database, fetcher, downloader, tagger, organizer, config, shared, and web.
+name: soundgnome-change-routing
+description: Use when identifying the right Soundgnome crate, entry point, owning abstraction, or validation command before changing code. Useful for routing work across server, domain, database, fetcher, downloader, tagger, organizer, config, shared, and web.
 ---
 
-# Soundome Change Routing
+# Soundgnome Change Routing
 
 Use this skill when you need to decide where a change belongs before editing code.
 

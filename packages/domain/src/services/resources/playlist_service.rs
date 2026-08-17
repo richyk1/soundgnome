@@ -33,7 +33,7 @@ impl PlaylistService {
     pub fn get_all(
         &self,
         conn: &mut SqliteConnection,
-    ) -> shared::types::SoundomeResult<Vec<shared::models::Playlist>> {
+    ) -> shared::types::SoundgnomeResult<Vec<shared::models::Playlist>> {
         self.playlist_repo.get_all(conn)
     }
 
@@ -41,7 +41,7 @@ impl PlaylistService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> shared::types::SoundomeResult<shared::models::Playlist> {
+    ) -> shared::types::SoundgnomeResult<shared::models::Playlist> {
         self.playlist_repo.get_by_id(conn, id)
     }
 
@@ -61,7 +61,7 @@ impl PlaylistService {
         &self,
         conn: &mut SqliteConnection,
         playlist: &shared::models::Playlist,
-    ) -> shared::types::SoundomeResult<shared::models::Playlist> {
+    ) -> shared::types::SoundgnomeResult<shared::models::Playlist> {
         if let Some(url) = &playlist.source_url {
             if let Some(existing) = self.get_by_source_url(conn, url) {
                 let id = existing.id.expect("persisted playlist must have an id");
@@ -79,7 +79,7 @@ impl PlaylistService {
         playlist_id: i32,
         track_id: i32,
         position: Option<i32>,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         self.playlist_repo
             .add_track(conn, playlist_id, track_id, position)
     }
@@ -89,7 +89,7 @@ impl PlaylistService {
         &self,
         conn: &mut SqliteConnection,
         playlist_id: i32,
-    ) -> shared::types::SoundomeResult<Vec<shared::models::Track>> {
+    ) -> shared::types::SoundgnomeResult<Vec<shared::models::Track>> {
         self.playlist_repo.get_tracks(conn, playlist_id)
     }
 
@@ -101,7 +101,7 @@ impl PlaylistService {
         &self,
         conn: &mut SqliteConnection,
         playlist_id: i32,
-    ) -> shared::types::SoundomeResult<PathBuf> {
+    ) -> shared::types::SoundgnomeResult<PathBuf> {
         let playlist = self.playlist_repo.get_by_id(conn, playlist_id)?;
         let tracks = self.playlist_repo.get_tracks(conn, playlist_id)?;
 
@@ -120,7 +120,7 @@ impl PlaylistService {
         }
     }
 
-    pub fn count(&self, conn: &mut SqliteConnection) -> shared::types::SoundomeResult<i64> {
+    pub fn count(&self, conn: &mut SqliteConnection) -> shared::types::SoundgnomeResult<i64> {
         self.playlist_repo.count(conn)
     }
 
@@ -134,7 +134,7 @@ impl PlaylistService {
         conn: &mut SqliteConnection,
         id: i32,
         delete_tracks: bool,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         if delete_tracks {
             let tracks = self.playlist_repo.get_tracks(conn, id)?;
             // Remove playlist + junction rows first so they don't block track deletion.

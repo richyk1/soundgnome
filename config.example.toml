@@ -1,16 +1,16 @@
 # =============================================================================
-# Soundome — example configuration
+# Soundgnome — example configuration
 # =============================================================================
 #
 # Copy this file to config.toml and fill in your values.
 # Any key can be overridden at runtime with an environment variable using the
-# prefix SOUNDOME__ and double-underscore as the section separator.
+# prefix SOUNDGNOME__ and double-underscore as the section separator.
 # Examples:
-#   SOUNDOME__GENERAL__BASE_LIBRARY_DIR=/mnt/music
-#   SOUNDOME__PROVIDERS__SPOTIFY__CLIENT_SECRET=secret
+#   SOUNDGNOME__GENERAL__BASE_LIBRARY_DIR=/mnt/music
+#   SOUNDGNOME__LOGS__LEVEL=debug
 #
 # The path to this file itself can be changed via:
-#   SOUNDOME_CONFIG_PATH=/path/to/custom-config.toml
+#   SOUNDGNOME_CONFIG_PATH=/path/to/custom-config.toml
 #
 # =============================================================================
 
@@ -23,17 +23,17 @@
 # These keys take priority over Rocket.toml but are still overridden by
 # Rocket's own native env vars (ROCKET_ADDRESS, ROCKET_PORT).
 #
-# ENV: SOUNDOME__SERVER__HOST
-#      SOUNDOME__SERVER__PORT
+# ENV: SOUNDGNOME__SERVER__HOST
+#      SOUNDGNOME__SERVER__PORT
 # =============================================================================
 # [server]
 
 # IP address or hostname to bind. Use "0.0.0.0" to listen on all interfaces.
-# ENV: SOUNDOME__SERVER__HOST
+# ENV: SOUNDGNOME__SERVER__HOST
 # host = "0.0.0.0"
 
 # TCP port the server listens on.
-# ENV: SOUNDOME__SERVER__PORT
+# ENV: SOUNDGNOME__SERVER__PORT
 # port = 8000
 
 
@@ -46,18 +46,18 @@
 
 # Root directory of the organized music library.
 # Finalized tracks are placed under <base_library_dir>/<Artist>/<Album>/<Track>.
-# ENV: SOUNDOME__GENERAL__BASE_LIBRARY_DIR
+# ENV: SOUNDGNOME__GENERAL__BASE_LIBRARY_DIR
 base_library_dir = "./library"
 
 # Temporary staging directory for files being downloaded or processed.
 # Files are moved out of here once finalization succeeds.
-# ENV: SOUNDOME__GENERAL__TEMP_DOWNLOAD_DIR
+# ENV: SOUNDGNOME__GENERAL__TEMP_DOWNLOAD_DIR
 temp_download_dir = "./temp"
 
 # Directory where local audio files are dropped for ingestion.
-# Files submitted via `POST /api/library/ingest` or `soundome ingest <file>`
+# Files submitted via `POST /api/library/ingest` or `soundgnome ingest <file>`
 # are resolved relative to this directory when only a filename is provided.
-# ENV: SOUNDOME__GENERAL__INGEST_DIR
+# ENV: SOUNDGNOME__GENERAL__INGEST_DIR
 ingest_dir = "./ingest"
 
 
@@ -70,12 +70,12 @@ ingest_dir = "./ingest"
 
 # Minimum tracing level emitted to stdout.
 # Options: "error", "warn", "info", "debug", "trace"
-# ENV: SOUNDOME__LOGS__LEVEL
+# ENV: SOUNDGNOME__LOGS__LEVEL
 level = "info"
 
 # When true, enables verbose HTTP request/response logging from reqwest.
 # Useful for debugging provider calls. Requires level = "debug" or lower.
-# ENV: SOUNDOME__LOGS__ENABLE_REQWEST_LOGGING
+# ENV: SOUNDGNOME__LOGS__ENABLE_REQWEST_LOGGING
 enable_reqwest_logging = false
 
 
@@ -89,38 +89,26 @@ enable_reqwest_logging = false
 [database]
 
 # SQLite connection URL.
-# ENV: SOUNDOME__DATABASE__URL
-url = "./data/soundome.db"
+# ENV: SOUNDGNOME__DATABASE__URL
+url = "./data/soundgnome.db"
 
 # Optional connection pool size. Omit to use the default.
-# ENV: SOUNDOME__DATABASE__POOL_SIZE
+# ENV: SOUNDGNOME__DATABASE__POOL_SIZE
 # pool_size = 5
 
 
 # =============================================================================
-# [providers]
+# Providers
 # =============================================================================
-# Credentials and settings for external provider integrations.
+# Source/download providers that need an account (Spotify, SoundCloud) are
+# connected from the web UI under Tools -> Providers, not from this file.
+# Spotify uses a single Premium login (see docs/guides/spotify.md); there is no
+# app id or secret to configure here.
 # =============================================================================
-
-# -----------------------------------------------------------------------------
-# Spotify
-# Required. Used for metadata fetching and source resolution.
-# Obtain credentials at https://developer.spotify.com/dashboard
-# -----------------------------------------------------------------------------
-[providers.spotify]
-
-# Spotify OAuth client ID.
-# ENV: SOUNDOME__PROVIDERS__SPOTIFY__CLIENT_ID
-client_id = "your_spotify_client_id"
-
-# Spotify OAuth client secret.
-# ENV: SOUNDOME__PROVIDERS__SPOTIFY__CLIENT_SECRET
-client_secret = "your_spotify_client_secret"
 
 # -----------------------------------------------------------------------------
 # YouTube / YouTube Music
-# No configuration needed: Soundome shells out to the `yt-dlp` binary (must be
+# No configuration needed: Soundgnome shells out to the `yt-dlp` binary (must be
 # installed and on PATH) for both search and download. It talks to YouTube
 # directly and honors the shared [proxy] configuration below, if enabled.
 # -----------------------------------------------------------------------------
@@ -137,12 +125,12 @@ client_secret = "your_spotify_client_secret"
 [ai]
 
 # Master switch for AI-powered metadata enrichment.
-# ENV: SOUNDOME__AI__ENABLED
+# ENV: SOUNDGNOME__AI__ENABLED
 enabled = false
 
 # Ordered list of AI providers to try. Supported values: "ollama", "openrouter".
 # The first provider that responds successfully is used; others are fallbacks.
-# ENV: SOUNDOME__AI__PROVIDER_ORDER
+# ENV: SOUNDGNOME__AI__PROVIDER_ORDER
 provider_order = ["openrouter"]
 
 # -----------------------------------------------------------------------------
@@ -154,19 +142,19 @@ provider_order = ["openrouter"]
 # [ai.ollama]
 
 # Base URL of the Ollama instance (without port).
-# ENV: SOUNDOME__AI__OLLAMA__HOST
+# ENV: SOUNDGNOME__AI__OLLAMA__HOST
 # host = "http://localhost"
 
 # Port of the Ollama instance.
-# ENV: SOUNDOME__AI__OLLAMA__PORT
+# ENV: SOUNDGNOME__AI__OLLAMA__PORT
 # port = 11434
 
 # Model to use for completions, e.g. "llama3.2", "qwen2.5:7b", "mistral".
-# ENV: SOUNDOME__AI__OLLAMA__MODEL
+# ENV: SOUNDGNOME__AI__OLLAMA__MODEL
 # model = "llama3.2"
 
 # HTTP request timeout in seconds.
-# ENV: SOUNDOME__AI__OLLAMA__TIMEOUT
+# ENV: SOUNDGNOME__AI__OLLAMA__TIMEOUT
 # timeout = 60
 
 # -----------------------------------------------------------------------------
@@ -177,25 +165,25 @@ provider_order = ["openrouter"]
 # [ai.openrouter]
 
 # OpenRouter API key.
-# ENV: SOUNDOME__AI__OPENROUTER__API_KEY
+# ENV: SOUNDGNOME__AI__OPENROUTER__API_KEY
 # api_key = "your_openrouter_api_key"
 
 # Model identifier to use for completions, e.g. "openai/gpt-4o-mini".
 # Omit to use the application default.
-# ENV: SOUNDOME__AI__OPENROUTER__MODEL
+# ENV: SOUNDGNOME__AI__OPENROUTER__MODEL
 # model = "openai/gpt-4o-mini"
 
 # Preferred inference provider within OpenRouter, e.g. "openai".
 # Omit to let OpenRouter choose.
-# ENV: SOUNDOME__AI__OPENROUTER__PROVIDER
+# ENV: SOUNDGNOME__AI__OPENROUTER__PROVIDER
 # provider = "openai"
 
 # Override the OpenRouter API base URL. Useful for local proxies or testing.
-# ENV: SOUNDOME__AI__OPENROUTER__BASE_URL
+# ENV: SOUNDGNOME__AI__OPENROUTER__BASE_URL
 # base_url = "https://openrouter.ai/api/v1"
 
 # HTTP request timeout in seconds for OpenRouter calls.
-# ENV: SOUNDOME__AI__OPENROUTER__TIMEOUT
+# ENV: SOUNDGNOME__AI__OPENROUTER__TIMEOUT
 # timeout = 30
 
 # Example: Ollama as primary, OpenRouter as fallback
@@ -222,14 +210,14 @@ provider_order = ["openrouter"]
 # Ordered list of metadata providers. Providers are tried in the given order
 # and the first successful result is used.
 # Supported values: "musicbrainz", "bandcamp", "spotify"
-# ENV: SOUNDOME__TAGGER__METADATA_PROVIDERS
+# ENV: SOUNDGNOME__TAGGER__METADATA_PROVIDERS
 metadata_providers = ["musicbrainz", "bandcamp"]
 
 # Provider order used specifically when ingesting local audio files.
 # Spotify is placed first because it provides richer metadata (cover art,
 # track_number, ISRC) and avoids the false-match problem that MusicBrainz
 # can exhibit with tracks from the same album.
-# ENV: SOUNDOME__TAGGER__INGEST_METADATA_PROVIDERS
+# ENV: SOUNDGNOME__TAGGER__INGEST_METADATA_PROVIDERS
 ingest_metadata_providers = ["musicbrainz", "bandcamp"]
 
 
@@ -247,24 +235,35 @@ ingest_metadata_providers = ["musicbrainz", "bandcamp"]
 #     otherwise the native AAC/MP3 stream. YouTube keeps native AAC (m4a).
 #   A codec name forces a transcode. Only tagger-writable codecs are supported:
 #     "mp3", "flac", "m4a". Avoid opus/wav — they cannot be tagged.
-# ENV: SOUNDOME__DOWNLOADER__AUDIO_FORMAT
+# ENV: SOUNDGNOME__DOWNLOADER__AUDIO_FORMAT
 audio_format = "best"
 
 # yt-dlp --audio-quality ("0" = best VBR ... "9" = worst).
 # Only applied when audio_format forces a transcode.
-# ENV: SOUNDOME__DOWNLOADER__AUDIO_QUALITY
+# ENV: SOUNDGNOME__DOWNLOADER__AUDIO_QUALITY
 audio_quality = "0"
 
 # Prefer a SoundCloud uploader's downloadable original file (often FLAC) over
 # the streamed transcodes. Requires cookies_file — SoundCloud only exposes
 # originals to authenticated clients.
-# ENV: SOUNDOME__DOWNLOADER__PREFER_ORIGINAL
+# ENV: SOUNDGNOME__DOWNLOADER__PREFER_ORIGINAL
 prefer_original = true
+
+# Require the 256k AAC master (itag 141) for YouTube downloads.
+#   false (default) = prefer 256k, but fall back to the next best taggable audio
+#                     (e.g. 130k AAC) when no 256k master exists, so the track
+#                     still downloads.
+#   true            = a track with no 256k master ERRORS instead of downloading
+#                     a lower tier. For Premium users who refuse anything <256k.
+# Note: itag 141 needs the SABR-capable yt-dlp build, a PO-token provider, deno,
+# and logged-in Premium cookies (see cookies_file). Takes effect on restart.
+# ENV: SOUNDGNOME__DOWNLOADER__YOUTUBE_REQUIRE_256K
+youtube_require_256k = false
 
 # Path to a Netscape-format cookies.txt passed to yt-dlp --cookies.
 # Needed to fetch SoundCloud FLAC originals and age/region-gated tracks.
 # Export it from your browser while logged in to SoundCloud.
-# ENV: SOUNDOME__DOWNLOADER__COOKIES_FILE
+# ENV: SOUNDGNOME__DOWNLOADER__COOKIES_FILE
 # cookies_file = "/app/cookies.txt"
 
 
@@ -284,11 +283,11 @@ prefer_original = true
 # [proxy]
 
 # Enable or disable the proxy. Set to false to bypass without removing the section.
-# ENV: SOUNDOME__PROXY__ENABLED
+# ENV: SOUNDGNOME__PROXY__ENABLED
 # enabled = true
 
 # List of proxy URLs. When multiple URLs are given, the rotation strategy applies.
-# ENV: SOUNDOME__PROXY__URLS
+# ENV: SOUNDGNOME__PROXY__URLS
 # urls = [
 #     "socks5://localhost:1080",
 #     "http://user:pass@proxy.example.com:8080",
@@ -298,11 +297,11 @@ prefer_original = true
 # Proxy rotation strategy.
 # Options: "round_robin", "random", "sticky_per_hour", "first_available"
 # Default: "round_robin"
-# ENV: SOUNDOME__PROXY__STRATEGY
+# ENV: SOUNDGNOME__PROXY__STRATEGY
 # strategy = "round_robin"
 
 # Hosts and domains that bypass the proxy.
-# ENV: SOUNDOME__PROXY__NO_PROXY
+# ENV: SOUNDGNOME__PROXY__NO_PROXY
 # no_proxy = ["localhost", "127.0.0.1", "*.local"]
 
 # =============================================================================
@@ -314,5 +313,5 @@ prefer_original = true
 # Directory where .m3u8 playlist files are written after each sync.
 # May be an absolute path or relative to the working directory.
 # Defaults to "{general.base_library_dir}/Playlists/" when absent.
-# ENV: SOUNDOME__PLAYLISTS__M3U8_DIR
+# ENV: SOUNDGNOME__PLAYLISTS__M3U8_DIR
 # m3u8_dir = "library/Playlists"

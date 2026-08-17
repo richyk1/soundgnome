@@ -1,17 +1,17 @@
 #!/usr/bin/env sh
-# install.sh — one-liner installer for the Soundome CLI
+# install.sh — one-liner installer for the Soundgnome CLI
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/barthofu/soundome/main/helpers/scripts/install.sh | sh
+#   curl -sSL https://raw.githubusercontent.com/richyk1/soundgnome/main/helpers/scripts/install.sh | sh
 #
 # Options (env vars):
-#   SOUNDOME_VERSION  — specific version to install (default: latest)
+#   SOUNDGNOME_VERSION  — specific version to install (default: latest)
 #   INSTALL_DIR       — directory to install into (default: ~/.local/bin, or /usr/local/bin if root)
 #
 set -eu
 
-REPO="barthofu/soundome"
-BIN_NAME="soundome"
+REPO="richyk1/soundgnome"
+BIN_NAME="soundgnome"
 RELEASES_URL="https://github.com/${REPO}/releases"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -51,8 +51,8 @@ detect_target() {
 # ── resolve version ───────────────────────────────────────────────────────────
 
 resolve_version() {
-    if [ -n "${SOUNDOME_VERSION:-}" ]; then
-        echo "$SOUNDOME_VERSION"
+    if [ -n "${SOUNDGNOME_VERSION:-}" ]; then
+        echo "$SOUNDGNOME_VERSION"
         return
     fi
 

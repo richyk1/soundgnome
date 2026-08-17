@@ -1,6 +1,6 @@
 # Manual validation
 
-When Soundome cannot confidently determine the correct metadata for a track, it saves the track to the database but flags it as `needs_validation = true`. The audio file is staged (downloaded but not yet moved to the library). Nothing is lost — the track just waits for your decision.
+When Soundgnome cannot confidently determine the correct metadata for a track, it saves the track to the database but flags it as `needs_validation = true`. The audio file is staged (downloaded but not yet moved to the library). Nothing is lost — the track just waits for your decision.
 
 ## Why tracks end up in the validation queue
 
@@ -8,14 +8,14 @@ When Soundome cannot confidently determine the correct metadata for a track, it 
 |---|---|
 | `metadata_partial_match` | Enrichment found a likely match but the similarity score was below the exact-match threshold. The metadata may be mostly correct but uncertain. |
 | `metadata_no_match` | No enrichment provider returned any usable match. The track uses whatever metadata the source provided. |
-| `soundcloud_drm_protected` | SoundCloud's API refused to provide a download URL. Soundome already tried an automatic fallback (downloading via a known Spotify metadata match through YouTube/YouTube Music) — this reason means that fallback was unavailable or also failed. No audio file has been staged yet. |
+| `soundcloud_drm_protected` | SoundCloud's API refused to provide a download URL. Soundgnome already tried an automatic fallback (downloading via a known Spotify metadata match through YouTube/YouTube Music) — this reason means that fallback was unavailable or also failed. No audio file has been staged yet. |
 
 ## The Validations page
 
 Open the **Validations** tab in the web UI. Each row shows:
 
 - Cover art (if available), title, artists, album
-- The enrichment data Soundome found: genre, date, track number, disc number
+- The enrichment data Soundgnome found: genre, date, track number, disc number
 - The staged file path
 - The validation reason
 
@@ -43,7 +43,7 @@ Once a source is selected, clicking **Approve** downloads the audio from that UR
 
 ### Approving a track
 
-After confirming the metadata looks correct (editing fields if needed), click **Approve**. Soundome will:
+After confirming the metadata looks correct (editing fields if needed), click **Approve**. Soundgnome will:
 
 1. Apply the metadata values from the form
 2. Tag the staged audio file

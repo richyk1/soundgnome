@@ -1,4 +1,4 @@
-# Soundome - global Copilot instructions
+# Soundgnome - global Copilot instructions
 
 This repository is a Rust monorepo for an application that centralizes, downloads, enriches, tags, and organizes a personal music library from sources such as Spotify, SoundCloud, YouTube, and YouTube Music.
 
@@ -61,7 +61,7 @@ Useful code entry points:
 
 ## Config and runtime
 
-- `packages/config` loads `config.toml` by default and supports `SOUNDOME_CONFIG_PATH` and `SOUNDOME__...` overrides.
+- `packages/config` loads `config.toml` by default and supports `SOUNDGNOME_CONFIG_PATH` and `SOUNDGNOME__...` overrides.
 - Global initialization should happen through `shared::init_globals()`.
 - Server and CLI boot paths use `dotenvy` with `required = true`, so a local `.env` file is expected.
 - Rocket database configuration lives in `Rocket.toml`.
@@ -84,7 +84,7 @@ Useful code entry points:
 ## Code conventions
 
 - Use English for code, comments, and documentation.
-- Use `shared::types::SoundomeResult<T>` and `shared::errors::Error` for errors.
+- Use `shared::types::SoundgnomeResult<T>` and `shared::errors::Error` for errors.
 - Use `tracing` for logs.
 - Avoid `unwrap()` and `expect()` outside boot or initialization code.
 - Reuse the `ports/repositories` and `database/repositories` split.

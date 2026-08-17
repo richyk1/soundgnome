@@ -595,6 +595,15 @@ export async function getStorageStats(): Promise<StorageStatsDto> {
   return res.json();
 }
 
+/** Trigger a one-shot pass that embeds cover art into every library file. */
+export async function embedArtwork(): Promise<void> {
+  const res = await fetch(`${BASE}/library/embed-artwork`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+}
+
 export async function getVersion(): Promise<string> {
   const res = await fetch(`${BASE}/version`);
   if (!res.ok) return '';
@@ -643,92 +652,6 @@ export async function disconnectSoundcloud(): Promise<SoundcloudStatusDto> {
 }
 
 // ================================================================================================
-// Providers: Spotify
-// ================================================================================================
-
-export interface SpotifyStatusDto {
-  connected: boolean;
-  client_id: string | null;
-  user_connected: boolean;
-  user_name: string | null;
-}
-
-export async function getSpotifyStatus(): Promise<SpotifyStatusDto> {
-  const res = await fetch(`${BASE}/providers/spotify`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(body.message ?? res.statusText);
-  }
-  return res.json();
-}
-
-export async function connectSpotify(
-  clientId: string,
-  clientSecret: string,
-): Promise<SpotifyStatusDto> {
-  const res = await fetch(`${BASE}/providers/spotify`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(body.message ?? res.statusText);
-  }
-  return res.json();
-}
-
-export async function disconnectSpotify(): Promise<SpotifyStatusDto> {
-  const res = await fetch(`${BASE}/providers/spotify`, { method: 'DELETE' });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(body.message ?? res.statusText);
-  }
-  return res.json();
-}
-
-/**
- * Start the Spotify OAuth flow. Returns the authorize URL the browser must navigate to.
- * Fails with 400 when the app credentials are not stored yet.
- */
-export async function startSpotifyLogin(): Promise<string> {
-  const res = await fetch(`${BASE}/providers/spotify/login`, { method: 'POST' });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(body.message ?? res.statusText);
-  }
-  const body: { authorize_url: string } = await res.json();
-  return body.authorize_url;
-}
-
-/** Finish the PKCE login by handing the redirect's code to the server. */
-export async function completeSpotifyLogin(
-  code: string,
-  state: string,
-): Promise<SpotifyStatusDto> {
-  const res = await fetch(`${BASE}/providers/spotify/callback`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, state }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(body.message ?? res.statusText);
-  }
-  return res.json();
-}
-
-/** Forget the Spotify OAuth session while keeping the stored app credentials. */
-export async function logoutSpotify(): Promise<SpotifyStatusDto> {
-  const res = await fetch(`${BASE}/providers/spotify/session`, { method: 'DELETE' });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(body.message ?? res.statusText);
-  }
-  return res.json();
-}
-
-// ================================================================================================
 // Providers: Spotify audio (librespot)
 // ================================================================================================
 
@@ -747,8 +670,9 @@ export async function getSpotifyAudioStatus(): Promise<SpotifyAudioStatusDto> {
 }
 
 /**
- * Start the librespot login. Returns the URL to approve; the server catches the
- * callback in the background, so poll the status afterwards.
+ * Start the librespot login. Returns the URL to approve. After approving, the
+ * browser lands on the 127.0.0.1:8898 redirect; the user pastes that URL back
+ * to `completeSpotifyAudio`.
  */
 export async function connectSpotifyAudio(): Promise<string> {
   const res = await fetch(`${BASE}/providers/spotify-audio/login`, { method: 'POST' });
@@ -758,6 +682,22 @@ export async function connectSpotifyAudio(): Promise<string> {
   }
   const body: { authorize_url: string } = await res.json();
   return body.authorize_url;
+}
+
+/** Finish the librespot login with the redirect URL the user pasted back. */
+export async function completeSpotifyAudio(
+  redirectUrl: string,
+): Promise<SpotifyAudioStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify-audio/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ redirect_url: redirectUrl }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
 }
 
 export async function disconnectSpotifyAudio(): Promise<SpotifyAudioStatusDto> {

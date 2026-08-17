@@ -34,7 +34,7 @@
   <div class="pwa-update-prompt">
     <div class="pwa-update-content">
       <h3>Mise à jour disponible</h3>
-      <p>Une nouvelle version de Soundome est disponible.</p>
+      <p>Une nouvelle version de Soundgnome est disponible.</p>
       <div class="pwa-update-actions">
         <button class="btn-primary" on:click={handleUpdate}>
           Mettre à jour

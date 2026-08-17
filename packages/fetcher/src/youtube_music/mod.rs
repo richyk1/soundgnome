@@ -13,7 +13,7 @@ use shared::{
     errors::Error,
     http::HttpClientBuilder,
     models::{Album, Artist, Platform, Playlist, PlaylistTrack, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -55,7 +55,7 @@ impl YoutubeMusic {
         join_all(futures).await
     }
 
-    pub fn new() -> SoundomeResult<Self> {
+    pub fn new() -> SoundgnomeResult<Self> {
         let client = match Config::get().proxy.as_ref() {
             Some(proxy_config) if proxy_config.enabled => {
                 let reqwest_client = HttpClientBuilder::get_reqwest_client_builder()?;
@@ -63,7 +63,7 @@ impl YoutubeMusic {
                     // Skip writing `rustypipe_reports/*.json` files to disk. YT Music
                     // playlists routinely include tracks with partial metadata (no
                     // album, no artist channel id), which rustypipe treats as
-                    // WRN-level report-worthy events even though Soundome already
+                    // WRN-level report-worthy events even though Soundgnome already
                     // handles the resulting `None` gracefully. See also the WARN
                     // filter in `shared::utils::logs::init_logger`.
                     .no_reporter()
@@ -143,7 +143,7 @@ impl YoutubeMusic {
 
 #[async_trait]
 impl Source for YoutubeMusic {
-    async fn get_track_from_url(&self, url: &str) -> SoundomeResult<Track> {
+    async fn get_track_from_url(&self, url: &str) -> SoundgnomeResult<Track> {
         let track_id = self
             .get_id_from_url(url)
             .ok_or(Error::InvalidUrl(url.to_string()))?;
@@ -158,7 +158,7 @@ impl Source for YoutubeMusic {
         Ok(self.get_complete_track_from_music_track(track.track).await)
     }
 
-    async fn get_tracks_from_query(&self, query: &str) -> SoundomeResult<Vec<Track>> {
+    async fn get_tracks_from_query(&self, query: &str) -> SoundgnomeResult<Vec<Track>> {
         let results = self
             .client
             .query()
@@ -172,7 +172,7 @@ impl Source for YoutubeMusic {
         Ok(tracks)
     }
 
-    async fn get_playlist_from_url(&self, url: &str) -> SoundomeResult<Playlist> {
+    async fn get_playlist_from_url(&self, url: &str) -> SoundgnomeResult<Playlist> {
         let playlist_id = self
             .get_playlist_id_from_url(url)
             .ok_or(Error::InvalidUrl(url.to_string()))?;
@@ -193,7 +193,7 @@ impl Source for YoutubeMusic {
         })
     }
 
-    async fn get_playlist_tracks_from_url(&self, _url: &str) -> SoundomeResult<Vec<PlaylistTrack>> {
+    async fn get_playlist_tracks_from_url(&self, _url: &str) -> SoundgnomeResult<Vec<PlaylistTrack>> {
         let playlist_id = self
             .get_playlist_id_from_url(_url)
             .ok_or(Error::InvalidUrl(_url.to_string()))?;
@@ -234,7 +234,7 @@ impl Source for YoutubeMusic {
             .collect())
     }
 
-    async fn get_artist_from_url(&self, url: &str) -> SoundomeResult<Artist> {
+    async fn get_artist_from_url(&self, url: &str) -> SoundgnomeResult<Artist> {
         let artist_id = self
             .get_artist_id_from_url(url)
             .ok_or(Error::InvalidUrl(url.to_string()))?;
@@ -249,7 +249,7 @@ impl Source for YoutubeMusic {
         Ok(mappers::convert_artist(&artist))
     }
 
-    async fn get_artist_tracks_from_url(&self, url: &str) -> SoundomeResult<Vec<Track>> {
+    async fn get_artist_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<Track>> {
         let artist_id = self
             .get_artist_id_from_url(url)
             .ok_or(Error::InvalidUrl(url.to_string()))?;
@@ -294,7 +294,7 @@ impl Source for YoutubeMusic {
         Ok(all_tracks)
     }
 
-    async fn get_artists_from_query(&self, search: &str) -> SoundomeResult<Vec<Artist>> {
+    async fn get_artists_from_query(&self, search: &str) -> SoundgnomeResult<Vec<Artist>> {
         let results = self
             .client
             .query()
@@ -310,7 +310,7 @@ impl Source for YoutubeMusic {
             .collect())
     }
 
-    async fn get_album_from_url(&self, url: &str) -> SoundomeResult<Album> {
+    async fn get_album_from_url(&self, url: &str) -> SoundgnomeResult<Album> {
         let album_id = self
             .get_album_id_from_url(url)
             .ok_or(Error::InvalidUrl(url.to_string()))?;
@@ -325,7 +325,7 @@ impl Source for YoutubeMusic {
         Ok(mappers::convert_album(&album))
     }
 
-    async fn get_albums_from_query(&self, search: &str) -> SoundomeResult<Vec<Album>> {
+    async fn get_albums_from_query(&self, search: &str) -> SoundgnomeResult<Vec<Album>> {
         let results = self
             .client
             .query()
@@ -341,7 +341,7 @@ impl Source for YoutubeMusic {
             .collect())
     }
 
-    async fn get_album_tracks_from_url(&self, url: &str) -> SoundomeResult<Vec<Track>> {
+    async fn get_album_tracks_from_url(&self, url: &str) -> SoundgnomeResult<Vec<Track>> {
         let album_id = self
             .get_album_id_from_url(url)
             .ok_or(Error::InvalidUrl(url.to_string()))?;
@@ -358,7 +358,7 @@ impl Source for YoutubeMusic {
         Ok(tracks)
     }
 
-    async fn clean_track_metadata(&self, _track: &mut Track) -> SoundomeResult<()> {
+    async fn clean_track_metadata(&self, _track: &mut Track) -> SoundgnomeResult<()> {
         Ok(())
     }
 
@@ -366,7 +366,7 @@ impl Source for YoutubeMusic {
         &self,
         _tracks: &mut Vec<&mut Track>,
         _on_batch: Option<&mut (dyn FnMut(usize, usize) + Send)>,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         Ok(())
     }
 

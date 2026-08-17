@@ -97,7 +97,7 @@ impl TagProvider for Bandcamp {
 // ================================================================================================
 
 /// Bandcamp's search results frequently format a track's `name` as `"<band_name> - <title>"`
-/// (common on single/track pages), but Soundome already keeps the artist in `Track.artists`
+/// (common on single/track pages), but Soundgnome already keeps the artist in `Track.artists`
 /// and never wants it duplicated inside `Track.title`.
 ///
 /// Strip a leading `"<band_name> - "` prefix (also accepting en/em dash variants), but only

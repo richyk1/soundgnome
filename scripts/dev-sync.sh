@@ -8,21 +8,21 @@
 # Usage:
 #   scripts/dev-sync.sh              # watch and sync on every save
 #   scripts/dev-sync.sh --once       # single sync, then exit
-#   SOUNDOME_REMOTE=box scripts/dev-sync.sh
+#   SOUNDGNOME_REMOTE=box scripts/dev-sync.sh
 set -euo pipefail
 
-REMOTE="${SOUNDOME_REMOTE:-worker}"
-REMOTE_PATH="${SOUNDOME_REMOTE_PATH:-dev/soundome/}"
+REMOTE="${SOUNDGNOME_REMOTE:-worker}"
+REMOTE_PATH="${SOUNDGNOME_REMOTE_PATH:-dev/soundgnome/}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 EXCLUDES=(
   --exclude 'target/'
   --exclude 'node_modules/'
   --exclude '.git/'
-  --exclude 'library/'
-  --exclude 'data/'
-  --exclude 'temp/'
-  --exclude 'ingest/'
+  --exclude '/library/'
+  --exclude '/data/'
+  --exclude '/temp/'
+  --exclude '/ingest/'
   --exclude '.env'
   --exclude 'config.toml'
   --exclude 'apps/web/dev-dist/'
@@ -46,9 +46,9 @@ echo "watching $ROOT, syncing to $REMOTE:$REMOTE_PATH (ctrl-c to stop)"
 # watchexec honours .gitignore, so target/ and node_modules/ are already out.
 exec watchexec \
   --watch "$ROOT" \
-  --ignore 'library/**' \
-  --ignore 'data/**' \
-  --ignore 'temp/**' \
+  --ignore '/library/**' \
+  --ignore '/data/**' \
+  --ignore '/temp/**' \
   --debounce 300ms \
   --no-vcs-ignore \
   --ignore-file "$ROOT/.gitignore" \

@@ -60,7 +60,7 @@ fn ranks_lossless_above_lossy_and_higher_bitrate_above_lower() {
         return;
     }
 
-    let dir = std::env::temp_dir().join("soundome-audio-quality-test");
+    let dir = std::env::temp_dir().join("soundgnome-audio-quality-test");
     std::fs::create_dir_all(&dir).expect("failed to create fixture dir");
 
     let mp3_128 = track_at(encode(&dir, "tone-128.mp3", &["-b:a", "128k"]));

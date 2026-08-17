@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use diesel::SqliteConnection;
-use shared::{models::SyncSchedule, types::SoundomeResult};
+use shared::{models::SyncSchedule, types::SoundgnomeResult};
 
 use crate::{ports::repositories::SyncScheduleRepository, schedule::calculate_next_run};
 
@@ -14,11 +14,11 @@ impl SyncScheduleService {
         Self { repo }
     }
 
-    pub fn get_all(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<SyncSchedule>> {
+    pub fn get_all(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<SyncSchedule>> {
         self.repo.get_all(conn)
     }
 
-    pub fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<SyncSchedule> {
+    pub fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<SyncSchedule> {
         self.repo.get_by_id(conn, id)
     }
 
@@ -29,7 +29,7 @@ impl SyncScheduleService {
         label: Option<String>,
         interval_seconds: Option<i32>,
         cron_expression: Option<String>,
-    ) -> SoundomeResult<SyncSchedule> {
+    ) -> SoundgnomeResult<SyncSchedule> {
         let now = chrono::Utc::now().naive_utc();
         let next_run = calculate_next_run(now, interval_seconds, cron_expression.as_deref())?;
         let schedule = SyncSchedule {
@@ -51,19 +51,19 @@ impl SyncScheduleService {
         conn: &mut SqliteConnection,
         id: i32,
         schedule: &SyncSchedule,
-    ) -> SoundomeResult<SyncSchedule> {
+    ) -> SoundgnomeResult<SyncSchedule> {
         self.repo.update(conn, id, schedule)
     }
 
-    pub fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    pub fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         self.repo.delete(conn, id)
     }
 
-    pub fn get_due(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<SyncSchedule>> {
+    pub fn get_due(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<SyncSchedule>> {
         self.repo.get_due(conn)
     }
 
-    pub fn mark_ran(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    pub fn mark_ran(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         self.repo.mark_ran(conn, id)
     }
 }

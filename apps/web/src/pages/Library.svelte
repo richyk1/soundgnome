@@ -1,32 +1,55 @@
 <script lang="ts">
-  import { setContext } from 'svelte';
+  import { setContext, getContext } from 'svelte';
   import { lib, LIBRARY_PLAYER, type LibraryPlayer } from '../lib/library/store.svelte';
   import ArtistTab from '../lib/library/ArtistTab.svelte';
   import AlbumTab from '../lib/library/AlbumTab.svelte';
   import TracksTab from '../lib/library/TracksTab.svelte';
   import PlaylistsTab from '../lib/library/PlaylistsTab.svelte';
   import EditModal from '../lib/library/EditModal.svelte';
-  import AudioPlayer, { type PlayerHandle } from '../lib/AudioPlayer.svelte';
+  import { GLOBAL_PLAYER, type GlobalPlayer, type PlayerTrack } from '../lib/player';
   import type { LibraryTrackDto } from '../lib/types';
 
-  // ── Playback: one player shared by every track list on this page ───────────
-  let player: PlayerHandle | null = $state(null);
-  let playError: string | null = $state(null);
+  // ── Playback: driven by the single app-wide player mounted in the shell,
+  // so it keeps playing as the user navigates away from the library. ─────────
+  const player = getContext<GlobalPlayer>(GLOBAL_PLAYER);
+
+  // Most YouTube-sourced tracks have no cover in the DB, but their source/provider
+  // reference carries the video id — derive the thumbnail from it so the player
+  // shows art instead of a placeholder.
+  function ytThumb(refs: { external_url: string | null }[]): string | null {
+    for (const r of refs) {
+      const m = (r.external_url ?? '').match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})/);
+      const id = m?.[1] ?? m?.[2];
+      if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+    }
+    return null;
+  }
+
+  function spotifyTrackUrl(refs: { external_url: string | null }[]): string | null {
+    const r = refs.find((x) => (x.external_url ?? '').includes('open.spotify.com/track'));
+    return r?.external_url ?? null;
+  }
+
+  const toPlayerTrack = (t: LibraryTrackDto): PlayerTrack => ({
+    id: t.id,
+    title: t.title,
+    artist: t.artists.map((a) => a.name).join(', '),
+    artwork: t.cover ?? ytThumb(t.references),
+    spotifyUrl: spotifyTrackUrl(t.references),
+    durationSecs: t.duration,
+    source: 'library',
+  });
 
   setContext<LibraryPlayer>(LIBRARY_PLAYER, {
-    play(track: LibraryTrackDto) {
+    play(track: LibraryTrackDto, queue?: LibraryTrackDto[]) {
       if (!track.file_path) return;
-      playError = null;
-      player?.toggle({
-        id: track.id,
-        title: track.title,
-        artist: track.artists.map((a) => a.name).join(', '),
-        artwork: track.cover,
-        durationSecs: track.duration,
-      });
+      // Queue = the caller's visible list (falls back to the filtered library),
+      // playable tracks only, so prev/next/shuffle move through what the user sees.
+      const list = (queue ?? lib.filteredTracks).filter((t) => t.file_path);
+      player?.play(toPlayerTrack(track), list.map(toPlayerTrack));
     },
-    isCurrent: (id) => player?.isCurrent(id) ?? false,
-    isPlaying: (id) => player?.isPlaying(id) ?? false,
+    isCurrent: (id) => player?.isCurrent(id, 'library') ?? false,
+    isPlaying: (id) => player?.isPlaying(id, 'library') ?? false,
   });
 
   // Refresh all collections when arriving on this page.
@@ -83,7 +106,7 @@
 
 <div class="library-page">
   <div class="page-header">
-    <h1>Library</h1>
+    <h1>{lib.tab === 'artists' ? 'Artists' : lib.tab === 'albums' ? 'Albums' : lib.tab === 'tracks' ? 'Tracks' : 'Playlists'}</h1>
     <div class="header-right">
       {#if lib.lastRefreshed}
         <span class="last-refreshed">Updated {formatLastRefreshed(lib.lastRefreshed)}</span>
@@ -98,22 +121,6 @@
     </div>
   </div>
 
-  {#if playError}
-    <p class="status error">{playError}</p>
-  {/if}
-
-  <div class="tabs">
-    {#each (['artists', 'albums', 'tracks', 'playlists'] as const) as t}
-      <button class="tab" class:active={lib.tab === t} onclick={() => lib.switchTab(t)}>
-        {t === 'artists' ? 'Artists' : t === 'albums' ? 'Albums' : t === 'tracks' ? 'Tracks' : 'Playlists'}
-        {#if t === 'artists' && lib.artistsLoaded}<span class="tab-count">{lib.artists.length}</span>{/if}
-        {#if t === 'albums' && lib.albumsLoaded}<span class="tab-count">{lib.albums.length}</span>{/if}
-        {#if t === 'tracks' && lib.tracksLoaded}<span class="tab-count">{lib.tracks.length}</span>{/if}
-        {#if t === 'tracks' && lib.pendingCount > 0}<span class="tab-badge">{lib.pendingCount}</span>{/if}
-        {#if t === 'playlists' && lib.playlistsLoaded}<span class="tab-count">{lib.playlists.length}</span>{/if}
-      </button>
-    {/each}
-  </div>
 
   {#if (lib.tab === 'artists' || lib.tab === 'albums') && (lib.batchFetchingArtists || lib.batchFetchingAlbums || lib.batchFetchResult)}
     <div class="batch-tools">
@@ -197,17 +204,12 @@
 
 <EditModal />
 
-<AudioPlayer
-  bind:this={player}
-  resolveSrc={(track) => `/api/tracks/${track.id}/audio`}
-  onError={(_track, msg) => (playError = msg)}
-/>
 
 <style>
   .library-page { 
-    max-width: 1400px; 
-    margin: 0 auto; 
-    padding: 1rem 0.75rem 6rem;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 1.5rem 2rem 2rem;
   }
 
   @media (min-width: 640px) {
@@ -314,74 +316,6 @@
     animation: spin 0.7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  .tabs { 
-    display: flex; 
-    gap: 0.25rem; 
-    border-bottom: 1px solid var(--border); 
-    margin-bottom: 1.5rem;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .tab { 
-    background: none; 
-    border: none; 
-    color: var(--muted); 
-    font-size: 0.75rem; 
-    padding: 0.4rem 0.7rem; 
-    cursor: pointer; 
-    border-bottom: 2px solid transparent; 
-    margin-bottom: -1px; 
-    border-radius: 4px 4px 0 0; 
-    display: flex; 
-    align-items: center; 
-    gap: 0.3rem; 
-    transition: color 0.15s; 
-    font-family: inherit;
-    white-space: nowrap;
-  }
-
-  @media (min-width: 768px) {
-    .tab {
-      font-size: 0.875rem;
-      padding: 0.5rem 1rem;
-      gap: 0.4rem;
-    }
-  }
-
-  .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-count { 
-    font-size: 0.65rem; 
-    color: var(--muted); 
-    background: var(--surface-2); 
-    border-radius: 10px; 
-    padding: 0 0.3rem;
-  }
-
-  @media (min-width: 768px) {
-    .tab-count {
-      font-size: 0.75rem;
-      padding: 0 0.4rem;
-    }
-  }
-
-  .tab-badge { 
-    background: var(--warning); 
-    color: #000; 
-    font-size: 0.6rem; 
-    font-weight: 700; 
-    border-radius: 10px; 
-    padding: 0 0.25rem;
-  }
-
-  @media (min-width: 768px) {
-    .tab-badge {
-      font-size: 0.68rem;
-      padding: 0 0.35rem;
-    }
-  }
 
   .batch-tools {
     display: flex;

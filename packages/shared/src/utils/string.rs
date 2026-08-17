@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use strsim::{damerau_levenshtein, jaro_winkler, sorensen_dice};
 use unicode_normalization::UnicodeNormalization;
 
-use crate::{errors::Error, types::SoundomeResult};
+use crate::{errors::Error, types::SoundgnomeResult};
 
 pub enum SimilarityAlgorithm {
     Smart,
@@ -86,7 +86,7 @@ pub fn slugify(s: &str) -> String {
  * Applies a template to a context, replacing {placeholders}
  * with values using tinytemplate
  */
-pub fn render_template(template: &str, context: &HashMap<&str, &str>) -> SoundomeResult<String> {
+pub fn render_template(template: &str, context: &HashMap<&str, &str>) -> SoundgnomeResult<String> {
     let mut tt = tinytemplate::TinyTemplate::new();
     tt.add_template("template", template)
         .map_err(Error::TemplateRenderingError)?;
@@ -112,7 +112,7 @@ pub fn render_and_normalize_template(
     template: &str,
     context: &HashMap<&str, &str>,
     excluded_words: &Vec<&str>,
-) -> SoundomeResult<String> {
+) -> SoundgnomeResult<String> {
     let rendered = render_template(template, context)?.to_lowercase();
     Ok(slugify(&normalize_string(&remove_excluded_words(
         &rendered,

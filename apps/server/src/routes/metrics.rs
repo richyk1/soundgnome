@@ -44,28 +44,28 @@ pub async fn metrics(db: Db, services: &rocket::State<Arc<ServiceLayer>>) -> (Co
 
             format!(
                 "\
-# HELP soundome_tracks_total Total number of tracks in the library
-# TYPE soundome_tracks_total gauge
-soundome_tracks_total {tracks}
-# HELP soundome_tracks_pending_validation Number of tracks awaiting manual validation
-# TYPE soundome_tracks_pending_validation gauge
-soundome_tracks_pending_validation {tracks_pending}
-# HELP soundome_albums_total Total number of albums in the library
-# TYPE soundome_albums_total gauge
-soundome_albums_total {albums}
-# HELP soundome_artists_total Total number of artists in the library
-# TYPE soundome_artists_total gauge
-soundome_artists_total {artists}
-# HELP soundome_playlists_total Total number of playlists tracked
-# TYPE soundome_playlists_total gauge
-soundome_playlists_total {playlists}
-# HELP soundome_tasks_total Number of tasks by status
-# TYPE soundome_tasks_total gauge
-soundome_tasks_total{{status=\"Pending\"}} {tasks_pending}
-soundome_tasks_total{{status=\"Running\"}} {tasks_running}
-soundome_tasks_total{{status=\"Completed\"}} {tasks_completed}
-soundome_tasks_total{{status=\"Failed\"}} {tasks_failed}
-soundome_tasks_total{{status=\"Cancelled\"}} {tasks_cancelled}
+# HELP soundgnome_tracks_total Total number of tracks in the library
+# TYPE soundgnome_tracks_total gauge
+soundgnome_tracks_total {tracks}
+# HELP soundgnome_tracks_pending_validation Number of tracks awaiting manual validation
+# TYPE soundgnome_tracks_pending_validation gauge
+soundgnome_tracks_pending_validation {tracks_pending}
+# HELP soundgnome_albums_total Total number of albums in the library
+# TYPE soundgnome_albums_total gauge
+soundgnome_albums_total {albums}
+# HELP soundgnome_artists_total Total number of artists in the library
+# TYPE soundgnome_artists_total gauge
+soundgnome_artists_total {artists}
+# HELP soundgnome_playlists_total Total number of playlists tracked
+# TYPE soundgnome_playlists_total gauge
+soundgnome_playlists_total {playlists}
+# HELP soundgnome_tasks_total Number of tasks by status
+# TYPE soundgnome_tasks_total gauge
+soundgnome_tasks_total{{status=\"Pending\"}} {tasks_pending}
+soundgnome_tasks_total{{status=\"Running\"}} {tasks_running}
+soundgnome_tasks_total{{status=\"Completed\"}} {tasks_completed}
+soundgnome_tasks_total{{status=\"Failed\"}} {tasks_failed}
+soundgnome_tasks_total{{status=\"Cancelled\"}} {tasks_cancelled}
 "
             )
         })

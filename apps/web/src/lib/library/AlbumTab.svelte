@@ -210,7 +210,7 @@
 
 <style>
   h2 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.35rem; }
-  .detail-hero { display: flex; align-items: center; gap: 1.5rem; padding: 1.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .detail-hero { display: flex; align-items: center; gap: 1.5rem; padding: 1.5rem; background: var(--float); border: 1px solid var(--float-border); border-radius: 10px; box-shadow: var(--rim), var(--shadow-sm); margin-bottom: 1.5rem; flex-wrap: wrap; }
   .detail-cover { width: 110px; height: 110px; flex-shrink: 0; border-radius: 6px; overflow: hidden; }
   .detail-cover :global(.cover-wrap) { width: 100%; height: 100%; }
   .detail-info { flex: 1; min-width: 180px; }

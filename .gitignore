@@ -33,5 +33,8 @@ rustypipe_reports/
 # logs
 out
 
+# agent session logs (never commit)
+omp-session-*.html
+
 # macos
 .DS_Store

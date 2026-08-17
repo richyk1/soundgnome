@@ -10,10 +10,10 @@ use rocket_okapi::{
 };
 
 use shared::{init_globals, utils::logs::init_logger};
-use soundome_server::utils::{
+use soundgnome_server::utils::{
     cancellation::CancellationRegistry, database::Db, task_executor::TaskExecutor,
 };
-use soundome_server::{
+use soundgnome_server::{
     middlewares::cors::Cors,
     routes::{self, errors},
 };
@@ -36,6 +36,14 @@ fn rocket() -> _ {
     init_logger();
 
     tracing::info!("Starting server...");
+
+    // Mint Spotify Web API tokens from the librespot session instead of a
+    // fragile OAuth refresh token (avoids Spotify revoking it).
+    downloader::spotify::auth::register_token_minter();
+
+    // Read Liked Songs natively via the librespot session (spclient collection)
+    // instead of the throttle-prone /me/tracks Web API.
+    downloader::spotify::register_liked_provider();
 
     // Initialize database and run migrations
     let db_url = Config::get().database.url.clone();
@@ -196,26 +204,26 @@ fn rocket() -> _ {
     }
 
     // Rocket — build a figment from the standard Rocket.toml / ROCKET_* sources,
-    // then layer any SOUNDOME__SERVER__* overrides on top.
+    // then layer any SOUNDGNOME__SERVER__* overrides on top.
     let figment = {
-        let soundome_cfg = Config::get();
+        let soundgnome_cfg = Config::get();
         let mut f = rocket::Config::figment();
         // host
-        if let Some(host) = &soundome_cfg.server.host {
+        if let Some(host) = &soundgnome_cfg.server.host {
             f = f.merge(("address", host.as_str()));
         }
         // port
-        if let Some(port) = soundome_cfg.server.port {
+        if let Some(port) = soundgnome_cfg.server.port {
             f = f.merge(("port", port));
         }
         // rocket database
         // let db: rocket::figment::value::Map<_, rocket::figment::value::Value>  = rocket::figment::util::map! {
-        //     "url" => soundome_cfg.database.url.as_str().into(),
+        //     "url" => soundgnome_cfg.database.url.as_str().into(),
         //     "pool_size" => 10.into(),
         //     "timeout" => 5.into(),
         // };
         // f = f.merge(("databases.sqlite", db));
-        f = f.merge(("databases.sqlite.url", soundome_cfg.database.url.as_str()));
+        f = f.merge(("databases.sqlite.url", soundgnome_cfg.database.url.as_str()));
 
         f
     };
@@ -285,21 +293,17 @@ fn rocket() -> _ {
                 routes::library::ingest,
                 routes::library::list_ingest_files,
                 routes::library::ingest_all,
+                routes::library::embed_artwork,
                 routes::storage::storage_stats,
                 routes::soundcloud::get_status,
                 routes::soundcloud::connect,
                 routes::soundcloud::disconnect,
                 routes::soundcloud::list_likes,
                 routes::soundcloud::stream_url,
-                routes::spotify::get_status,
-                routes::spotify::connect,
-                routes::spotify::disconnect,
-                routes::spotify::login,
-                routes::spotify::callback,
-                routes::spotify::logout,
                 routes::spotify::list_likes,
                 routes::spotify_audio::get_status,
                 routes::spotify_audio::login,
+                routes::spotify_audio::callback,
                 routes::spotify_audio::disconnect,
                 routes::audio::stream,
             ],

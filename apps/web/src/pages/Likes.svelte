@@ -1,12 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { getSoundcloudLikes, getSoundcloudStreamUrl, downloadUrl } from '../lib/api';
+  import { onMount, getContext } from 'svelte';
+  import { getSoundcloudLikes, downloadUrl } from '../lib/api';
   import type { SoundcloudLikeDto } from '../lib/api';
-  import AudioPlayer, {
-    formatTime,
-    type PlayerHandle,
-    type PlayerTrack,
-  } from '../lib/AudioPlayer.svelte';
+  import { formatTime } from '../lib/AudioPlayer.svelte';
+  import { GLOBAL_PLAYER, type GlobalPlayer, type PlayerTrack } from '../lib/player';
 
   let tracks: SoundcloudLikeDto[] = $state([]);
   let count = $state(0);
@@ -15,7 +12,7 @@
   let search = $state('');
 
   // ── Playback: one shared player for every row ───────────────────────────────
-  let player: PlayerHandle | null = $state(null);
+  const player = getContext<GlobalPlayer>(GLOBAL_PLAYER);
 
   // ── Per row state ───────────────────────────────────────────────────────────
   let downloading: Record<number, boolean> = $state({});
@@ -43,6 +40,7 @@
       artwork: track.artwork_url,
       durationSecs: track.duration_secs,
       waveformUrl: track.waveform_url ?? null,
+      source: 'soundcloud',
     };
   }
 
@@ -66,12 +64,9 @@
 
   function toggle(track: SoundcloudLikeDto) {
     delete rowErrors[track.id];
-    player?.toggle(playerTrack(track));
+    player?.play(playerTrack(track), tracks.map(playerTrack));
   }
 
-  function onPlaybackError(track: PlayerTrack, msg: string) {
-    rowErrors[track.id] = msg;
-  }
 
   async function download(track: SoundcloudLikeDto) {
     downloading[track.id] = true;
@@ -121,7 +116,7 @@
     {:else}
       <ul class="rows">
         {#each filtered as track (track.id)}
-          <li class="row" class:current={player?.isCurrent(track.id)}>
+          <li class="row" class:current={player?.isCurrent(track.id, 'soundcloud')}>
             <div class="thumb">
               {#if track.artwork_url}
                 <img src={track.artwork_url} alt="" />
@@ -148,13 +143,13 @@
             <button
               class="btn-play"
               onclick={() => toggle(track)}
-              disabled={player?.isResolving(track.id)}
-              title={player?.isPlaying(track.id) ? 'Pause' : 'Play'}
-              aria-label={player?.isPlaying(track.id) ? 'Pause' : 'Play'}
+              disabled={player?.isResolving(track.id, 'soundcloud')}
+              title={player?.isPlaying(track.id, 'soundcloud') ? 'Pause' : 'Play'}
+              aria-label={player?.isPlaying(track.id, 'soundcloud') ? 'Pause' : 'Play'}
             >
-              {#if player?.isResolving(track.id)}
+              {#if player?.isResolving(track.id, 'soundcloud')}
                 <span class="spinner"></span>
-              {:else if player?.isPlaying(track.id)}
+              {:else if player?.isPlaying(track.id, 'soundcloud')}
                 <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <rect x="6" y="5" width="4" height="14" rx="1" />
                   <rect x="14" y="5" width="4" height="14" rx="1" />
@@ -184,11 +179,6 @@
   {/if}
 </div>
 
-<AudioPlayer
-  bind:this={player}
-  resolveSrc={(track) => getSoundcloudStreamUrl(track.id)}
-  onError={onPlaybackError}
-/>
 
 <style>
   .likes-page {
@@ -232,9 +222,10 @@
     align-items: center;
     gap: 0.65rem;
     padding: 0.45rem 0.6rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    background: var(--float);
+    border: 1px solid var(--float-border);
+    border-radius: 10px;
+    box-shadow: var(--rim), var(--shadow-sm);
   }
 
   .row.current {

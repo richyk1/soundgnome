@@ -2,7 +2,7 @@ use domain::ports::repositories::SyncScheduleRepository;
 use domain::schedule::calculate_next_run;
 
 use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl, SqliteConnection};
-use shared::{models::SyncSchedule, types::SoundomeResult};
+use shared::{models::SyncSchedule, types::SoundgnomeResult};
 
 use crate::{
     entities::{NewSyncScheduleEntity, SyncScheduleEntity, UpdateSyncScheduleEntity},
@@ -20,7 +20,7 @@ impl DieselSyncScheduleRepository {
 }
 
 impl SyncScheduleRepository for DieselSyncScheduleRepository {
-    fn get_all(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<SyncSchedule>> {
+    fn get_all(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<SyncSchedule>> {
         let entities = schema::sync_schedule::table
             .order(schema::sync_schedule::id.asc())
             .load::<SyncScheduleEntity>(conn)
@@ -31,7 +31,7 @@ impl SyncScheduleRepository for DieselSyncScheduleRepository {
             .collect())
     }
 
-    fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<SyncSchedule> {
+    fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<SyncSchedule> {
         let entity = schema::sync_schedule::table
             .filter(schema::sync_schedule::id.eq(id))
             .first::<SyncScheduleEntity>(conn)
@@ -43,7 +43,7 @@ impl SyncScheduleRepository for DieselSyncScheduleRepository {
         &self,
         conn: &mut SqliteConnection,
         schedule: &SyncSchedule,
-    ) -> SoundomeResult<SyncSchedule> {
+    ) -> SoundgnomeResult<SyncSchedule> {
         let new_entity = NewSyncScheduleEntity::convert_from_domain(schedule);
         diesel::insert_into(schema::sync_schedule::table)
             .values(&new_entity)
@@ -61,7 +61,7 @@ impl SyncScheduleRepository for DieselSyncScheduleRepository {
         conn: &mut SqliteConnection,
         id: i32,
         schedule: &SyncSchedule,
-    ) -> SoundomeResult<SyncSchedule> {
+    ) -> SoundgnomeResult<SyncSchedule> {
         let changeset = UpdateSyncScheduleEntity {
             label: schedule.label.clone(),
             interval_seconds: schedule.interval_seconds,
@@ -77,14 +77,14 @@ impl SyncScheduleRepository for DieselSyncScheduleRepository {
         self.get_by_id(conn, id)
     }
 
-    fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         diesel::delete(schema::sync_schedule::table.filter(schema::sync_schedule::id.eq(id)))
             .execute(conn)
             .map_err(map_error)?;
         Ok(())
     }
 
-    fn get_due(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<SyncSchedule>> {
+    fn get_due(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<SyncSchedule>> {
         use diesel::BoolExpressionMethods;
         let now = chrono::Utc::now().naive_utc();
         let entities = schema::sync_schedule::table
@@ -102,7 +102,7 @@ impl SyncScheduleRepository for DieselSyncScheduleRepository {
             .collect())
     }
 
-    fn mark_ran(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    fn mark_ran(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         // Fetch schedule to get interval_seconds and cron_expression
         let schedule = self.get_by_id(conn, id)?;
 

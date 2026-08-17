@@ -302,9 +302,9 @@
 
 <style>
   .edit-dialog {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    background: var(--float); border: 1px solid var(--float-border); border-radius: 12px;
     padding: 0; width: min(540px, 92vw); color: var(--text); font-family: inherit;
-    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    box-shadow: var(--rim), var(--float-shadow);
   }
   .edit-dialog::backdrop { background: rgba(0,0,0,0.55); backdrop-filter: blur(3px); }
   .dialog-header {

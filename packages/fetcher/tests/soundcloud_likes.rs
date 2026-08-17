@@ -6,8 +6,8 @@
 //! Run it against a repo checkout with:
 //!
 //! ```sh
-//! SOUNDOME_CONFIG_PATH=$PWD/config.toml \
-//! SOUNDOME__DATABASE__URL=$PWD/data/soundome.db \
+//! SOUNDGNOME_CONFIG_PATH=$PWD/config.toml \
+//! SOUNDGNOME__DATABASE__URL=$PWD/data/soundgnome.db \
 //!   cargo test -p fetcher --test soundcloud_likes -- --ignored --nocapture
 //! ```
 

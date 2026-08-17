@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use diesel::SqliteConnection;
-use shared::types::SoundomeResult;
+use shared::types::SoundgnomeResult;
 use tracing::debug;
 
 use crate::ports::repositories::{AlbumRepository, ArtistRepository, TrackRepository};
@@ -16,7 +16,7 @@ pub fn delete_track_with_cascade(
     track_repo: &Arc<dyn TrackRepository + Send + Sync>,
     album_repo: &Arc<dyn AlbumRepository + Send + Sync>,
     artist_repo: &Arc<dyn ArtistRepository + Send + Sync>,
-) -> SoundomeResult<()> {
+) -> SoundgnomeResult<()> {
     use diesel::Connection as _;
 
     conn.transaction(|tx| {

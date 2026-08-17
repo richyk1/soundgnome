@@ -19,13 +19,13 @@ impl Config {
     pub fn load() -> Result<Self, config::ConfigError> {
         // get config toml dir from env, with default
         let config_path =
-            std::env::var("SOUNDOME_CONFIG_PATH").unwrap_or_else(|_| String::from("./config.toml"));
+            std::env::var("SOUNDGNOME_CONFIG_PATH").unwrap_or_else(|_| String::from("./config.toml"));
 
         let config = config::Config::builder()
             // Add in config toml (optional, allows config-from-env-only setup)
             .add_source(config::File::with_name(&config_path).required(false))
-            // Add in settings from the environment (with a prefix of SOUNDOME)
-            .add_source(config::Environment::with_prefix("SOUNDOME").separator("__"))
+            // Add in settings from the environment (with a prefix of SOUNDGNOME)
+            .add_source(config::Environment::with_prefix("SOUNDGNOME").separator("__"))
             .build()?;
 
         config.try_deserialize()
@@ -69,7 +69,7 @@ mod tests {
         assert!(result.is_ok());
 
         let config = result.unwrap();
-        assert_eq!(config.database.url, "./data/soundome.db");
+        assert_eq!(config.database.url, "./data/soundgnome.db");
     }
 
     #[test]

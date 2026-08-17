@@ -1,10 +1,9 @@
 ---
-name: update-soundome-docs
-description: 'Use when: updating repository documentation, reorganizing docs, adding onboarding material, fixing stale architecture docs, or aligning Soundome docs with code and the categorized docs structure.'
-argument-hint: 'Describe the doc change, target audience, and code area the docs should reflect.'
+name: update-soundgnome-docs
+description: Use when updating repository documentation, reorganizing docs, adding onboarding material, fixing stale architecture docs, or aligning Soundgnome docs with code and the categorized docs structure.
 ---
 
-# Update Soundome Docs
+# Update Soundgnome Docs
 
 Use this skill when documentation needs to evolve with the codebase.
 

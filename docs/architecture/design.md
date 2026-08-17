@@ -1,10 +1,10 @@
 # Design
 
-This document summarizes the current technical design of Soundome based on the repository layout and the code paths that are already wired.
+This document summarizes the current technical design of Soundgnome based on the repository layout and the code paths that are already wired.
 
 ## System overview
 
-Soundome is a Cargo workspace centered on a domain orchestration layer. The server boot path wires repositories into services, exposes HTTP routes through Rocket, and serves the built web application from `data/web/`.
+Soundgnome is a Cargo workspace centered on a domain orchestration layer. The server boot path wires repositories into services, exposes HTTP routes through Rocket, and serves the built web application from `data/web/`.
 
 ## Main runtime entry points
 
@@ -29,12 +29,12 @@ The current end-to-end workflow is owned by `DownloadService`.
 
 The `ReferenceType` split is one of the core design decisions:
 
-- `Source`: where the user asked Soundome to import from.
+- `Source`: where the user asked Soundgnome to import from.
 - `Provider`: where the actual downloadable audio came from.
 - `Metadata`: durable identifiers that remain useful even if the audio source changes.
 - `Reference`: generic supporting reference data.
 
-This distinction matters during deduplication. When a better audio source replaces an existing track, Soundome should replace `Source` and `Provider` as needed while preserving useful metadata identifiers.
+This distinction matters during deduplication. When a better audio source replaces an existing track, Soundgnome should replace `Source` and `Provider` as needed while preserving useful metadata identifiers.
 
 ## Server and web application
 
@@ -51,7 +51,7 @@ The web app covers:
 
 ## Playlist M3U8 export
 
-After each playlist sync, `PlaylistService::export_m3u8` writes one `.m3u8` file per playlist to a configurable output directory (default: `{base_library_dir}/Playlists/`). This makes playlists visible to external music players such as Navidrome or Jellyfin without requiring Soundome to be running.
+After each playlist sync, `PlaylistService::export_m3u8` writes one `.m3u8` file per playlist to a configurable output directory (default: `{base_library_dir}/Playlists/`). This makes playlists visible to external music players such as Navidrome or Jellyfin without requiring Soundgnome to be running.
 
 The export can also be triggered on demand via `POST /api/playlists/:id/export`.
 

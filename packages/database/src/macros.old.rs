@@ -4,7 +4,7 @@ pub mod resource {
 
     macro_rules! find_one {
         ($table: ident, $type: ident) => {
-            pub fn find_one(conn: &mut SqliteConnection, id: i32) -> shared::types::SoundomeResult<$type> {
+            pub fn find_one(conn: &mut SqliteConnection, id: i32) -> shared::types::SoundgnomeResult<$type> {
                 crate::schema::$table::table.find(id).first::<$type>(conn)
                     .map_err(|err| {
                         shared::errors::Error::Database(format!(
@@ -18,7 +18,7 @@ pub mod resource {
 
     macro_rules! find_one_method {
         ($table: ident, $type: ident) => {
-            fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> shared::types::SoundomeResult<$type> {
+            fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> shared::types::SoundgnomeResult<$type> {
                 crate::schema::$table::table.find(id).first::<$type>(self.conn)
                     .map_err(|err| {
                         shared::errors::Error::Database(format!(
@@ -34,7 +34,7 @@ pub mod resource {
 
     macro_rules! find_all {
         ($table: ident, $type: ident) => {
-            pub fn find_all(conn: &mut SqliteConnection) -> shared::types::SoundomeResult<Vec<$type>> {
+            pub fn find_all(conn: &mut SqliteConnection) -> shared::types::SoundgnomeResult<Vec<$type>> {
                 crate::schema::$table::table
                     .select(crate::schema::$table::all_columns)
                     .load::<$type>(conn)
@@ -59,7 +59,7 @@ pub mod resource {
             pub fn create(
                 conn: &mut SqliteConnection,
                 new_resource: $new_type,
-            ) -> shared::types::SoundomeResult<$type> {
+            ) -> shared::types::SoundgnomeResult<$type> {
                 diesel::insert_into(crate::schema::$table::table)
                     .values(&new_resource)
                     .execute(conn)
@@ -91,7 +91,7 @@ pub mod resource {
                 conn: &mut SqliteConnection,
                 id: i32,
                 update_data: $update_type,
-            ) -> shared::types::SoundomeResult<$type> {
+            ) -> shared::types::SoundgnomeResult<$type> {
                 diesel::update(crate::schema::$table::table.find(id))
                     .set(&update_data)
                     .execute(conn)
@@ -150,7 +150,7 @@ pub mod association {
                 pub fn $function_name(
                     conn: &mut SqliteConnection,
                     resource: &$first_resource_type,
-                ) -> shared::types::SoundomeResult<Vec<$second_resource_type>> {
+                ) -> shared::types::SoundgnomeResult<Vec<$second_resource_type>> {
                     let ids = $association_type::belonging_to(resource)
                         .select(crate::schema::$association_table::$association_foreign_key);
 
@@ -225,7 +225,7 @@ pub mod association {
                     conn: &mut SqliteConnection,
                     first_resource: &$first_resource_type,
                     second_resource: &$second_resource_type,
-                ) -> shared::types::SoundomeResult<$association_type> {
+                ) -> shared::types::SoundgnomeResult<$association_type> {
                     diesel::insert_into(crate::schema::$association_table::table)
                         .values(&$association_type {
                             $first_foreign_key: first_resource.id,
