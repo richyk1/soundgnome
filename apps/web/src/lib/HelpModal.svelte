@@ -93,6 +93,7 @@
       <h5>Global</h5>
       <table class="shortcut-table">
         <tbody>
+          <tr><td><kbd>Space</kbd></td><td>Play / pause the current track</td></tr>
           <tr><td><kbd>?</kbd></td><td>Open / close this help panel</td></tr>
         </tbody>
       </table>

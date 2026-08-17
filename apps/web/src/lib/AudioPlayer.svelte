@@ -259,6 +259,11 @@
     else audio.pause();
   }
 
+  /** Exposed on the handle so the shell can bind Space to play/pause. */
+  export function playPause() {
+    if (current) togglePlay();
+  }
+
   onDestroy(() => audio?.pause());
 </script>
 

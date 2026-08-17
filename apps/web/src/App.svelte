@@ -72,10 +72,20 @@
 
     function onKeydown(e: KeyboardEvent) {
       const tgt = e.target as HTMLElement;
-      if (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT') return;
+      if (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt.isContentEditable)
+        return;
       if (e.key === '?') {
         e.preventDefault();
         helpOpen = !helpOpen;
+        return;
+      }
+      // Space toggles play/pause (media convention). Let real controls (buttons,
+      // links, role=button cards) keep their native Space activation; otherwise
+      // stop the page from scrolling and toggle the current track.
+      if ((e.key === ' ' || e.code === 'Space') && playing) {
+        if (tgt.closest('button, a, [role="button"]')) return;
+        e.preventDefault();
+        player?.playPause();
       }
     }
     document.addEventListener('keydown', onKeydown);

@@ -31,6 +31,8 @@ export type TrackSource = 'library' | 'soundcloud';
 /** What a parent gets back through `bind:this` on the player component. */
 export interface PlayerHandle {
   toggle(track: PlayerTrack, queue?: PlayerTrack[]): Promise<void>;
+  /** Toggle play/pause of the currently-loaded track (no-op if nothing is loaded). */
+  playPause(): void;
   isCurrent(id: number, source?: TrackSource): boolean;
   isPlaying(id: number, source?: TrackSource): boolean;
   isResolving(id: number, source?: TrackSource): boolean;
