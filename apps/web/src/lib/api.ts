@@ -665,6 +665,18 @@ export async function embedArtwork(): Promise<void> {
   }
 }
 
+/**
+ * Trigger a one-shot pass that computes an acoustic fingerprint for every library
+ * file that lacks one, so re-uploads of songs already in the library are detected.
+ */
+export async function backfillFingerprints(): Promise<void> {
+  const res = await fetch(`${BASE}/library/backfill-fingerprints`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+}
+
 export async function getVersion(): Promise<string> {
   const res = await fetch(`${BASE}/version`);
   if (!res.ok) return '';

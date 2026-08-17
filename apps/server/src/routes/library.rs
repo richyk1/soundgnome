@@ -313,6 +313,19 @@ pub async fn embed_artwork(executor: &rocket::State<Arc<TaskExecutor>>) -> Json<
     Json(serde_json::json!({ "started": true }))
 }
 
+/// Compute and store a Chromaprint acoustic fingerprint for every library file
+/// that lacks one. This lets acoustic dedup recognize re-uploads of songs already
+/// in the library (which predate fingerprinting). Runs in the background on the
+/// serial task queue; never re-downloads or moves audio.
+#[openapi(tag = "library")]
+#[post("/library/backfill-fingerprints")]
+pub async fn backfill_fingerprints(
+    executor: &rocket::State<Arc<TaskExecutor>>,
+) -> Json<serde_json::Value> {
+    executor.enqueue_backfill_fingerprints();
+    Json(serde_json::json!({ "started": true }))
+}
+
 // ================================================================================================
 // Upload (browser -> ingest dir)
 // ================================================================================================

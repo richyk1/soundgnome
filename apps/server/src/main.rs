@@ -296,6 +296,7 @@ fn rocket() -> _ {
                 routes::library::upload,
                 routes::library::ingest_session,
                 routes::library::embed_artwork,
+                routes::library::backfill_fingerprints,
                 routes::storage::storage_stats,
                 routes::soundcloud::get_status,
                 routes::soundcloud::connect,

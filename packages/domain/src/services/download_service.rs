@@ -120,6 +120,16 @@ pub struct ArtworkBackfillSummary {
     pub errors: usize,
 }
 
+/// Result of a one-shot acoustic-fingerprint backfill over the library.
+#[derive(Debug, Default, Clone)]
+pub struct FingerprintBackfillSummary {
+    pub total: usize,
+    pub fingerprinted: usize,
+    pub already_had: usize,
+    pub no_file: usize,
+    pub errors: usize,
+}
+
 /// Fetch raw image bytes for a cover URL (blocking request off the async runtime).
 async fn fetch_cover_bytes(url: String) -> Option<Vec<u8>> {
     tokio::task::spawn_blocking(move || {
@@ -218,6 +228,90 @@ impl DownloadService {
         tracing::info!(
             "Artwork backfill complete: {} embedded, {} no-art, {} missing-file, {} no-path, {} errors (of {})",
             s.embedded, s.no_art, s.missing_file, s.no_file, s.errors, total
+        );
+        Ok(s)
+    }
+
+    /// One-shot acoustic-fingerprint backfill: compute and store a Chromaprint
+    /// fingerprint for every finalized library track that lacks one, so the acoustic
+    /// dedup tier can recognize re-uploads of songs already in the library (which
+    /// predate fingerprinting).
+    pub async fn backfill_fingerprints(
+        &self,
+        conn: &mut SqliteConnection,
+    ) -> SoundgnomeResult<FingerprintBackfillSummary> {
+        let tracks = self.track_service.get_all(conn)?;
+        let total = tracks.len();
+        let mut s = FingerprintBackfillSummary {
+            total,
+            ..Default::default()
+        };
+        tracing::info!("Fingerprint backfill: starting over {} tracks", total);
+
+        for (i, track) in tracks.into_iter().enumerate() {
+            let Some(id) = track.id else {
+                continue;
+            };
+            let already = track.references.iter().any(|r| {
+                r.external_url
+                    .as_deref()
+                    .is_some_and(|u| u.starts_with(CHROMAPRINT_PREFIX))
+            });
+            if already {
+                s.already_had += 1;
+                continue;
+            }
+            let Some(path) = track.file_path.clone() else {
+                s.no_file += 1;
+                continue;
+            };
+            if !path.exists() {
+                s.no_file += 1;
+                continue;
+            }
+
+            match compute_fingerprint(&path) {
+                Ok(fp) => {
+                    let reference = Reference {
+                        id: None,
+                        ref_type: ReferenceType::Metadata,
+                        platform: Platform::Unknown,
+                        external_id: None,
+                        external_url: Some(format!(
+                            "{CHROMAPRINT_PREFIX}{}",
+                            encode_fingerprint(&fp)
+                        )),
+                    };
+                    if let Err(e) = self.track_service.add_reference(conn, id, reference) {
+                        tracing::warn!("Fingerprint backfill: could not store fp for {id}: {e}");
+                        s.errors += 1;
+                    } else {
+                        s.fingerprinted += 1;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Fingerprint backfill: failed for {path:?}: {e}");
+                    s.errors += 1;
+                }
+            }
+
+            if (i + 1) % 50 == 0 {
+                tracing::info!(
+                    "Fingerprint backfill: {}/{} processed ({} fingerprinted)",
+                    i + 1,
+                    total,
+                    s.fingerprinted
+                );
+            }
+        }
+
+        tracing::info!(
+            "Fingerprint backfill complete: {} fingerprinted, {} already had, {} no-file, {} errors (of {})",
+            s.fingerprinted,
+            s.already_had,
+            s.no_file,
+            s.errors,
+            total
         );
         Ok(s)
     }
@@ -1080,6 +1174,12 @@ impl DownloadService {
 
         tracing::info!("Read tags from file: {}", track.display());
 
+        // Adopt the source file as the track's path up front so quality comparison
+        // (`audio_quality`, which probes `file_path`) can weigh this upload against
+        // an existing copy. The needs-validation and finalize paths overwrite this
+        // with the staged/organized path as usual.
+        track.file_path = Some(file_path.to_path_buf());
+
         // Step 1c: Exact-duplicate short-circuit. Hash the raw file and skip if a
         // byte-identical file was already ingested. This catches re-uploads of the
         // same file regardless of metadata quality — including files that would
@@ -1117,11 +1217,10 @@ impl DownloadService {
         };
         if let Some(fp) = &fingerprint {
             if let Some(existing) = self.dedupe_by_fingerprint(conn, &track, fp).await {
-                tracing::info!(
-                    "Ingest: acoustic duplicate of {}, skipping",
-                    existing.display()
-                );
-                return Ok((existing, IngestOutcome::Duplicate));
+                tracing::info!("Ingest: acoustic match with {}", existing.display());
+                return self
+                    .resolve_existing_match(conn, existing, &track, file_path)
+                    .await;
             }
             track.references.push(Reference {
                 id: None,
@@ -1157,42 +1256,9 @@ impl DownloadService {
         };
 
         match existing_track {
-            Some(mut existing_track) => {
-                tracing::info!(
-                    "Ingest: existing track found: {}, comparing quality",
-                    existing_track.display()
-                );
-
-                let new_is_better = self
-                    .track_service
-                    .is_better_quality(&existing_track, &track);
-
-                if new_is_better {
-                    tracing::info!("Ingest: new file has better quality, replacing");
-
-                    let mut track_for_merge = track.clone();
-                    normalize_album_and_artist_refs_as_metadata(&mut track_for_merge);
-                    existing_track.transpose_refs(&track_for_merge);
-                    apply_source_provider_replacement(&mut existing_track, &track);
-
-                    self.process_track_file(&mut existing_track, file_path)
-                        .await?;
-                    let updated = self.save_track(conn, &existing_track).await?;
-                    Ok((updated, IngestOutcome::Replaced))
-                } else {
-                    tracing::info!(
-                        "Ingest: existing file is equal or better quality, skipping file move"
-                    );
-
-                    // Keep existing audio; merge useful metadata from the ingested file.
-                    let mut track_for_merge = track.clone();
-                    normalize_album_and_artist_refs_as_metadata(&mut track_for_merge);
-                    demote_track_source_and_provider_to_metadata(&mut track_for_merge);
-                    existing_track.transpose_refs(&track_for_merge);
-
-                    let updated = self.save_track(conn, &existing_track).await?;
-                    Ok((updated, IngestOutcome::Duplicate))
-                }
+            Some(existing_track) => {
+                self.resolve_existing_match(conn, existing_track, &track, file_path)
+                    .await
             }
             None => {
                 tracing::info!("Ingest: no existing track, finalising");
@@ -1960,6 +2026,65 @@ impl DownloadService {
             }
         }
         None
+    }
+
+    /// Resolve an ingested file against an already-known duplicate (found by
+    /// acoustic fingerprint or by title/artist): keep whichever copy is higher
+    /// quality. When the incoming file wins, it replaces the existing audio (and
+    /// the lower-quality original is deleted); otherwise the existing audio is kept
+    /// and only useful metadata is merged in. Either way the library ends with a
+    /// single, best-quality copy.
+    async fn resolve_existing_match(
+        &self,
+        conn: &mut SqliteConnection,
+        mut existing_track: Track,
+        track: &Track,
+        file_path: &Path,
+    ) -> SoundgnomeResult<(Track, IngestOutcome)> {
+        tracing::info!(
+            "Ingest: duplicate of existing track {}, comparing quality",
+            existing_track.display()
+        );
+
+        let new_is_better = self.track_service.is_better_quality(&existing_track, track);
+
+        if new_is_better {
+            tracing::info!("Ingest: uploaded file is higher quality, replacing existing copy");
+
+            // Remember the current library file so it can be discarded once the
+            // higher-quality upload is organized into place (the new file may land
+            // at a different path when the format/extension differs).
+            let old_path = existing_track.file_path.clone();
+
+            let mut track_for_merge = track.clone();
+            normalize_album_and_artist_refs_as_metadata(&mut track_for_merge);
+            existing_track.transpose_refs(&track_for_merge);
+            apply_source_provider_replacement(&mut existing_track, track);
+
+            self.process_track_file(&mut existing_track, file_path)
+                .await?;
+            let updated = self.save_track(conn, &existing_track).await?;
+
+            if let Some(old) = old_path {
+                if existing_track.file_path.as_ref() != Some(&old) && old.exists() {
+                    if let Err(e) = std::fs::remove_file(&old) {
+                        tracing::warn!("Ingest: could not remove superseded file {old:?}: {e}");
+                    }
+                }
+            }
+            Ok((updated, IngestOutcome::Replaced))
+        } else {
+            tracing::info!("Ingest: existing copy is equal or higher quality, keeping it");
+
+            // Keep existing audio; merge useful metadata from the ingested file.
+            let mut track_for_merge = track.clone();
+            normalize_album_and_artist_refs_as_metadata(&mut track_for_merge);
+            demote_track_source_and_provider_to_metadata(&mut track_for_merge);
+            existing_track.transpose_refs(&track_for_merge);
+
+            let updated = self.save_track(conn, &existing_track).await?;
+            Ok((updated, IngestOutcome::Duplicate))
+        }
     }
 
     /// Tag the downloaded file with the track metadata, then move it to the correct location

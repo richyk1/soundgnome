@@ -55,6 +55,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   (for weakly-tagged files) the title/artist tier both miss. Fingerprints are
   stored as track references, so there is no schema migration and the match is a
   narrow, offline, in-process comparison.
+  On a match the higher-quality copy is kept: a better upload replaces the
+  existing library file (the superseded file is deleted) and a worse one is
+  discarded, so a duplicate never lands in the review queue.
+- **Fingerprint-library backfill.** A one-shot Tools -> Storage action
+  ("Fingerprint library") computes and stores fingerprints for existing library
+  files that predate fingerprinting, so re-uploads of songs already in the library
+  are recognized even when their tags differ. Runs in the background, idempotent.
 
 ### Changed
 

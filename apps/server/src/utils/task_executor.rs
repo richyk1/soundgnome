@@ -69,6 +69,9 @@ pub enum QueuedJob {
     },
     /// One-shot: (re)embed cover art into every library file in place. No task row.
     EmbedArtwork,
+    /// One-shot: compute and store a Chromaprint fingerprint for every library file
+    /// that lacks one, so acoustic dedup can recognize re-uploads. No task row.
+    BackfillFingerprints,
 }
 
 /// Handle used by producers to enqueue jobs on the shared serial worker.
@@ -147,10 +150,14 @@ impl TaskExecutor {
         self.send(QueuedJob::SingleTrack { url, responder });
         rx
     }
-
-    /// Enqueue a one-shot artwork backfill over the whole library. Non-blocking.
     pub fn enqueue_embed_artwork(&self) {
         self.send(QueuedJob::EmbedArtwork);
+    }
+
+    /// Enqueue a one-shot acoustic-fingerprint backfill over the whole library.
+    /// Non-blocking.
+    pub fn enqueue_backfill_fingerprints(&self) {
+        self.send(QueuedJob::BackfillFingerprints);
     }
 
     fn send(&self, job: QueuedJob) {
@@ -257,6 +264,12 @@ async fn run_job(
             Ok(summary) => tracing::info!("Artwork backfill finished: {:?}", summary),
             Err(e) => tracing::error!("Artwork backfill failed: {}", e),
         },
+        QueuedJob::BackfillFingerprints => {
+            match services.download_service.backfill_fingerprints(conn).await {
+                Ok(summary) => tracing::info!("Fingerprint backfill finished: {:?}", summary),
+                Err(e) => tracing::error!("Fingerprint backfill failed: {}", e),
+            }
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud,
-    getSpotifyAudioStatus, connectSpotifyAudio, completeSpotifyAudio, disconnectSpotifyAudio, downloadUrl, embedArtwork } from '../lib/api';
+    getSpotifyAudioStatus, connectSpotifyAudio, completeSpotifyAudio, disconnectSpotifyAudio, downloadUrl, embedArtwork, backfillFingerprints } from '../lib/api';
   import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyAudioStatusDto } from '../lib/api';
 
   // ── Tab ────────────────────────────────────────────────────────────────────
@@ -44,6 +44,22 @@
       embedMsg = `Failed: ${err instanceof Error ? err.message : String(err)}`;
     } finally {
       embedding = false;
+    }
+  }
+
+  let fingerprinting = $state(false);
+  let fingerprintMsg: string | null = $state(null);
+  async function handleBackfillFingerprints() {
+    fingerprinting = true;
+    fingerprintMsg = null;
+    try {
+      await backfillFingerprints();
+      fingerprintMsg =
+        'Fingerprinting the library in the background so re-uploads of existing songs are detected — this can take a while.';
+    } catch (err: unknown) {
+      fingerprintMsg = `Failed: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      fingerprinting = false;
     }
   }
 
@@ -373,6 +389,14 @@
           >
             {#if embedding}<span class="spinner"></span>Starting{:else}<i class="lni lni-gallery" aria-hidden="true"></i>Embed artwork{/if}
           </button>
+          <button
+            class="btn-ghost btn-sm"
+            onclick={handleBackfillFingerprints}
+            disabled={fingerprinting}
+            title="Compute acoustic fingerprints for the existing library so re-uploads of songs you already have are detected and quality-compared"
+          >
+            {#if fingerprinting}<span class="spinner"></span>Starting{:else}<i class="lni lni-fingerprint-1" aria-hidden="true"></i>Fingerprint library{/if}
+          </button>
         </div>
       </div>
 
@@ -380,6 +404,13 @@
         <div class="callout callout-info" role="status">
           <i class="lni lni-gallery" aria-hidden="true"></i>
           <div class="callout-body"><span>{embedMsg}</span></div>
+        </div>
+      {/if}
+
+      {#if fingerprintMsg}
+        <div class="callout callout-info" role="status">
+          <i class="lni lni-fingerprint-1" aria-hidden="true"></i>
+          <div class="callout-body"><span>{fingerprintMsg}</span></div>
         </div>
       {/if}
 
