@@ -124,6 +124,9 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
   }
+  .card.playing .card-title {
+    color: var(--accent);
+  }
 
   .card-foot {
     display: flex;

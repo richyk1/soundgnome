@@ -64,9 +64,13 @@
 <style>
   .table-wrap tbody tr.playable { cursor: pointer; }
   .table-wrap tbody tr.playing {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .table-wrap tbody tr.playing td.idx { color: var(--accent); }
+  .table-wrap tbody tr.playing .title-cell {
+    color: var(--accent);
+    font-weight: 600;
+  }
 
   /* The # cell doubles as the play affordance: the number morphs into a
      play/pause icon on row hover (and while this row is the current track),
