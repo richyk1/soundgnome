@@ -17,6 +17,12 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   A connected Spotify **Premium** session now streams and decrypts the track
   audio directly, instead of always matching the track on YouTube. YouTube /
   YouTube Music remain the fallback when no Spotify session is available.
+- **Built-in equalizer.** A 10-band graphic EQ (plus preamp) in the player,
+  built on the Web Audio API, so you no longer need a browser EQ extension.
+  Opt-in per the on/off toggle, with presets (Bass boost, Vocal, Loudness, …),
+  per-band ±12 dB sliders, reset, and settings persisted across reloads. It
+  routes the library audio (same-origin) through a `BiquadFilter` chain; default
+  playback is untouched until you enable it.
 - **Missing files view + re-sync.** A `Tools -> Missing files` tab lists library
   tracks whose audio file has gone from disk (the database keeps a track's
   metadata independently of its file). Each can be re-synced: the track is

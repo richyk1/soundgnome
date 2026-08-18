@@ -27,6 +27,8 @@
   import { onDestroy, onMount, untrack } from 'svelte';
   import type { PlayerTrack, TrackSource } from './player';
   import Waveform from './Waveform.svelte';
+  import EqPanel from './EqPanel.svelte';
+  import { Equalizer, loadEqState, saveEqState, type EqState } from './equalizer';
 
   let {
     resolveSrc,
@@ -44,6 +46,33 @@
     /** Upcoming tracks (queue after the current one), for the sidebar queue. */
     upNext?: PlayerTrack[];
   } = $props();
+
+  // -- Equalizer (opt-in Web Audio graph on the shared <audio> element) --------
+  const eq = new Equalizer();
+  let eqState = $state<EqState>(loadEqState());
+  let eqOpen = $state(false);
+
+  /** Push EQ changes onto the graph (building it on first enable) and persist. */
+  function handleEqUpdate(s: EqState) {
+    if (audio) {
+      if (s.enabled && !eq.isBuilt) {
+        eq.attach(audio, s);
+        eq.resume();
+      } else {
+        eq.apply(s);
+        if (s.enabled) eq.resume();
+      }
+    }
+    saveEqState(s);
+  }
+
+  /** Build the graph on the first play if EQ was left enabled, and resume the
+     AudioContext (it starts suspended until a user gesture). */
+  function ensureEq() {
+    if (!audio) return;
+    if (eqState.enabled && !eq.isBuilt) eq.attach(audio, eqState);
+    if (eq.isBuilt) eq.resume();
+  }
 
 
   // -- Persistence: keep the queue + current track across page reloads --------
@@ -176,6 +205,7 @@
       duration = 0;
       srcUrl = src;
       el.src = src;
+      ensureEq();
       el.play().catch(() => {});
     } catch (err: unknown) {
       onError?.(track, message(err));
@@ -375,6 +405,7 @@
 
   function togglePlay() {
     if (!audio) return;
+    ensureEq();
     if (audio.paused) audio.play().catch(() => {});
     else audio.pause();
   }
@@ -443,6 +474,25 @@
     </div>
 
     <div class="pl-right">
+      <div class="eq-wrap">
+        <button
+          class="eq-btn"
+          class:on={eqState.enabled}
+          onclick={() => (eqOpen = !eqOpen)}
+          title="Equalizer"
+          aria-label="Equalizer"
+          aria-expanded={eqOpen}
+        >
+          <i class="lni lni-sliders-triple-vertical-1"></i>
+        </button>
+        {#if eqOpen}
+          <button class="eq-backdrop" aria-label="Close equalizer" onclick={() => (eqOpen = false)}
+          ></button>
+          <div class="eq-pop">
+            <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} />
+          </div>
+        {/if}
+      </div>
       <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}>
         <i class="lni {muted || volume === 0 ? 'lni-volume-off' : volume < 0.5 ? 'lni-volume-low' : 'lni-volume-high'}"></i>
       </button>
@@ -617,6 +667,41 @@
   }
   .mute:hover { color: var(--text-bright); }
   .mute .lni { font-size: 17px; }
+
+  /* ── Equalizer button + popover ──────────────────────────────────────── */
+  .eq-wrap { position: relative; display: flex; align-items: center; }
+  .eq-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+  }
+  .eq-btn:hover { color: var(--text-bright); }
+  .eq-btn.on { color: var(--accent); }
+  .eq-btn .lni { font-size: 17px; }
+  .eq-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: default;
+  }
+  .eq-pop {
+    position: absolute;
+    bottom: calc(100% + 12px);
+    right: 0;
+    z-index: 50;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
 
   /* Native range inputs (seek + volume), themed to the violet accent. */
   .range, .volume {
