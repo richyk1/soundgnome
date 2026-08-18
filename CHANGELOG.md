@@ -13,6 +13,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Added
 
+- **Native-feel PWA.** Media Session integration puts the current track (title,
+  artist, artwork) on the lock screen and notification shade and wires up OS,
+  headphone, and Bluetooth transport controls (play/pause/next/prev/seek) plus
+  background playback. Added an in-app **Install** button (Android/desktop) with
+  an iOS "Add to Home Screen" hint, safe-area insets so content clears the notch
+  and home bar, a dark launch splash (was white), and touch tuning (no tap-flash,
+  no pull-to-refresh, no double-tap zoom).
 - **Last.fm scrobbling.** Connect a Last.fm account under `Tools -> Providers`
   (paste an API key + shared secret, then authorize) and everything you play is
   scrobbled: now-playing on start and a scrobble once a track passes half its

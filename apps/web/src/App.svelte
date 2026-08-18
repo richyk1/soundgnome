@@ -11,6 +11,7 @@
   import Likes from './pages/Likes.svelte';
   import HelpModal from './lib/HelpModal.svelte';
   import PWAUpdatePrompt from './components/PWAUpdatePrompt.svelte';
+  import InstallPrompt from './components/InstallPrompt.svelte';
   import AudioPlayer from './lib/AudioPlayer.svelte';
   import {
     GLOBAL_PLAYER,
@@ -196,6 +197,7 @@
           {/if}
         </div>
 
+        <InstallPrompt />
         <div class="side-links">
           <button class="side-link" onclick={() => navigate('likes')}><i class="lni lni-heart"></i>Liked</button>
           <button class="side-link" onclick={() => navigate('tasks')}>
@@ -256,7 +258,8 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 8px;
+    padding: calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right))
+      calc(8px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
     box-sizing: border-box;
     overflow: hidden;
   }

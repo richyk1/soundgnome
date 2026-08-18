@@ -79,6 +79,37 @@ body {
   height: 100%;
 }
 
+/* ── Native-app touch feel ─────────────────────────────────────────────── */
+/* No browser pull-to-refresh / rubber-band reload. */
+html,
+body {
+  overscroll-behavior: none;
+}
+/* No grey tap flash, no long-press callout, no 300ms delay / double-tap zoom. */
+button,
+a,
+select,
+summary,
+[role='button'],
+input[type='range'],
+.card,
+.nav-item,
+.side-link,
+.tab,
+.queue-row {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+/* Chrome shouldn't be selectable on touch; page content still is. */
+button,
+.nav-item,
+.side-link,
+.tab {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 code {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 0.85em;

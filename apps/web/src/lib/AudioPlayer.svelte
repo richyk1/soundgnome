@@ -240,6 +240,40 @@
     if (current) scrobbler.onProgress(current, currentTime, total);
   });
 
+  // Media Session: shows the track on the lock screen / notification shade and
+  // drives OS + headphone/Bluetooth transport controls and background playback.
+  $effect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const t = current;
+    if (!t) {
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+    const art = t.artwork ?? resolvedArt;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t.title,
+      artist: t.artist,
+      artwork: art ? [{ src: art, sizes: '512x512' }] : [],
+    });
+  });
+  $effect(() => {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = current ? (paused ? 'paused' : 'playing') : 'none';
+  });
+  $effect(() => {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    if (!current || !(total > 0) || !Number.isFinite(currentTime)) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: total,
+        position: Math.min(currentTime, total),
+        playbackRate: 1,
+      });
+    } catch {
+      /* duration not settled yet — ignore */
+    }
+  });
+
   function message(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
   }
@@ -309,6 +343,27 @@
 
   onMount(() => {
     scrobbler.flushQueue();
+
+    if ('mediaSession' in navigator) {
+      const ms = navigator.mediaSession;
+      const set = (action: MediaSessionAction, handler: MediaSessionActionHandler) => {
+        try {
+          ms.setActionHandler(action, handler);
+        } catch {
+          /* action unsupported on this browser */
+        }
+      };
+      set('play', () => void audio?.play());
+      set('pause', () => audio?.pause());
+      set('previoustrack', () => prev());
+      set('nexttrack', () => next());
+      set('seekbackward', (d) => seekTo(Math.max(0, currentTime - (d.seekOffset ?? 10))));
+      set('seekforward', (d) => seekTo(currentTime + (d.seekOffset ?? 10)));
+      set('seekto', (d) => {
+        if (d.seekTime != null) seekTo(d.seekTime);
+      });
+      set('stop', () => audio?.pause());
+    }
     const save = () => writeSnapshot();
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') writeSnapshot();
