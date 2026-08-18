@@ -13,6 +13,12 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Added
 
+- **Last.fm scrobbling.** Connect a Last.fm account under `Tools -> Providers`
+  (paste an API key + shared secret, then authorize) and everything you play is
+  scrobbled: now-playing on start and a scrobble once a track passes half its
+  length or 4 minutes (Last.fm's rule). The shared secret stays server-side (all
+  `api_sig` signing happens there); failed sends are queued locally and retried,
+  and scrobbling has its own on/off toggle.
 - **Direct Spotify audio downloads** via [librespot](https://github.com/librespot-org/librespot).
   A connected Spotify **Premium** session now streams and decrypts the track
   audio directly, instead of always matching the track on YouTube. YouTube /

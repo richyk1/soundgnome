@@ -861,3 +861,96 @@ export async function getSoundcloudStreamUrl(id: number): Promise<string> {
   return data.url;
 }
 
+// ── Last.fm ───────────────────────────────────────────────────────────────────
+
+export interface LastfmStatusDto {
+  configured: boolean;
+  connected: boolean;
+  username: string | null;
+}
+
+export async function getLastfmStatus(): Promise<LastfmStatusDto> {
+  const res = await fetch(`${BASE}/providers/lastfm`);
+  if (!res.ok) throw new Error(`Failed to fetch Last.fm status: ${res.statusText}`);
+  return res.json();
+}
+
+export async function setLastfmCredentials(
+  apiKey: string,
+  apiSecret: string,
+): Promise<LastfmStatusDto> {
+  const res = await fetch(`${BASE}/providers/lastfm/credentials`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function lastfmLogin(): Promise<{ url: string; token: string }> {
+  const res = await fetch(`${BASE}/providers/lastfm/login`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function lastfmComplete(token: string): Promise<LastfmStatusDto> {
+  const res = await fetch(`${BASE}/providers/lastfm/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function disconnectLastfm(): Promise<LastfmStatusDto> {
+  const res = await fetch(`${BASE}/providers/lastfm`, { method: 'DELETE' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export interface ScrobblePayload {
+  artist: string;
+  track: string;
+  album?: string | null;
+  duration_secs?: number | null;
+  timestamp: number;
+}
+
+export async function lastfmNowPlaying(body: Omit<ScrobblePayload, 'timestamp'>): Promise<void> {
+  const res = await fetch(`${BASE}/lastfm/now-playing`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+}
+
+export async function lastfmScrobble(scrobbles: ScrobblePayload[]): Promise<void> {
+  const res = await fetch(`${BASE}/lastfm/scrobble`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scrobbles }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+}
+

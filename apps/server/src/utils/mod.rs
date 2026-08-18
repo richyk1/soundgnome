@@ -1,6 +1,7 @@
 pub mod cancellation;
 pub mod database;
 pub mod error;
+pub mod lastfm;
 pub mod macros;
 pub mod quality_cache;
 pub mod range;

@@ -3,6 +3,7 @@ pub mod audio;
 pub mod download;
 pub mod errors;
 pub mod images;
+pub mod lastfm;
 pub mod library;
 pub mod metrics;
 pub mod misc;

@@ -29,6 +29,7 @@
   import Waveform from './Waveform.svelte';
   import EqPanel from './EqPanel.svelte';
   import { Equalizer, loadEqState, saveEqState, type EqState } from './equalizer';
+  import * as scrobbler from './scrobbler';
 
   let {
     resolveSrc,
@@ -234,6 +235,11 @@
     };
   });
 
+  // Report playback to the Last.fm scrobbler (no-op unless connected + enabled).
+  $effect(() => {
+    if (current) scrobbler.onProgress(current, currentTime, total);
+  });
+
   function message(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
   }
@@ -254,6 +260,7 @@
       el.src = src;
       ensureEq();
       el.play().catch(() => {});
+      void scrobbler.onPlay(track);
     } catch (err: unknown) {
       onError?.(track, message(err));
     } finally {
@@ -301,6 +308,7 @@
   }
 
   onMount(() => {
+    scrobbler.flushQueue();
     const save = () => writeSnapshot();
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') writeSnapshot();

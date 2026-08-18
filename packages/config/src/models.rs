@@ -67,6 +67,24 @@ impl Config {
             .unwrap_or_else(|| Path::new("."))
             .join("spotify_librespot")
     }
+
+    /// Where Last.fm API credentials (key + shared secret) submitted through the
+    /// UI are stored. Kept beside the other stored credentials.
+    pub fn lastfm_credentials_path(&self) -> PathBuf {
+        Path::new(&self.database.url)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("lastfm_credentials.json")
+    }
+
+    /// Where the connected Last.fm user session (session key + username) is
+    /// stored. The session key does not expire, so this persists the login.
+    pub fn lastfm_session_path(&self) -> PathBuf {
+        Path::new(&self.database.url)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("lastfm_session.json")
+    }
 }
 
 // ===============================================================================

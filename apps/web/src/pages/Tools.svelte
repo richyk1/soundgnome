@@ -5,6 +5,8 @@
   import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud,
     getSpotifyAudioStatus, connectSpotifyAudio, completeSpotifyAudio, disconnectSpotifyAudio, downloadUrl, embedArtwork, backfillFingerprints } from '../lib/api';
   import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyAudioStatusDto } from '../lib/api';
+  import { getLastfmStatus, setLastfmCredentials, lastfmLogin, lastfmComplete, disconnectLastfm, type LastfmStatusDto } from '../lib/api';
+  import { isScrobbleEnabled, setScrobbleEnabled, refreshStatus as refreshScrobbler } from '../lib/scrobbler';
 
   // ── Tab ────────────────────────────────────────────────────────────────────
   type Tab = 'sync' | 'storage' | 'providers' | 'artwork' | 'fingerprints' | 'missing';
@@ -160,6 +162,7 @@
     loadSync();
     loadSoundcloud();
     loadSpotifyAudio();
+    loadLastfm();
   });
 
   function switchTab(tab: Tab) {
@@ -319,6 +322,97 @@
     } finally {
       spaPending = false;
     }
+  }
+
+  // ── Last.fm ───────────────────────────────────────────────────────────────────
+  let lfmStatus: LastfmStatusDto | null = $state(null);
+  let lfmLoading = $state(true);
+  let lfmPending = $state(false);
+  let lfmError: string | null = $state(null);
+  let lfmSuccess: string | null = $state(null);
+  let lfmKey = $state('');
+  let lfmSecret = $state('');
+  let lfmToken: string | null = $state(null);
+  let scrobbleOn = $state(isScrobbleEnabled());
+
+  async function loadLastfm() {
+    lfmLoading = true;
+    lfmError = null;
+    try {
+      lfmStatus = await getLastfmStatus();
+    } catch (e: unknown) {
+      lfmError = e instanceof Error ? e.message : String(e);
+    } finally {
+      lfmLoading = false;
+    }
+  }
+
+  async function handleLastfmCredentials(e: Event) {
+    e.preventDefault();
+    if (lfmPending || !lfmKey.trim() || !lfmSecret.trim()) return;
+    lfmPending = true;
+    lfmError = null;
+    lfmSuccess = null;
+    try {
+      lfmStatus = await setLastfmCredentials(lfmKey.trim(), lfmSecret.trim());
+      lfmSecret = '';
+      lfmSuccess = 'API credentials saved. Now connect your account.';
+    } catch (e: unknown) {
+      lfmError = e instanceof Error ? e.message : String(e);
+    } finally {
+      lfmPending = false;
+    }
+  }
+
+  async function handleLastfmConnect() {
+    if (lfmPending) return;
+    lfmPending = true;
+    lfmError = null;
+    lfmSuccess = null;
+    try {
+      const { url, token } = await lastfmLogin();
+      lfmToken = token;
+      window.open(url, '_blank', 'noopener');
+    } catch (e: unknown) {
+      lfmError = e instanceof Error ? e.message : String(e);
+    } finally {
+      lfmPending = false;
+    }
+  }
+
+  async function handleLastfmComplete() {
+    if (lfmPending || !lfmToken) return;
+    lfmPending = true;
+    lfmError = null;
+    try {
+      lfmStatus = await lastfmComplete(lfmToken);
+      lfmToken = null;
+      refreshScrobbler();
+      lfmSuccess = `Last.fm connected as ${lfmStatus.username ?? 'your account'}.`;
+    } catch (e: unknown) {
+      lfmError = e instanceof Error ? e.message : String(e);
+    } finally {
+      lfmPending = false;
+    }
+  }
+
+  async function handleLastfmDisconnect() {
+    lfmPending = true;
+    lfmError = null;
+    lfmSuccess = null;
+    try {
+      lfmStatus = await disconnectLastfm();
+      refreshScrobbler();
+    } catch (e: unknown) {
+      lfmError = e instanceof Error ? e.message : String(e);
+    } finally {
+      lfmPending = false;
+    }
+  }
+
+  function toggleScrobble() {
+    scrobbleOn = !scrobbleOn;
+    setScrobbleEnabled(scrobbleOn);
   }
 </script>
 
@@ -765,6 +859,85 @@
               </button>
             </div>
           {/if}
+        {/if}
+      </div>
+
+      <div class="provider-panel">
+        <div class="provider-head">
+          <div class="provider-title">
+            <i class="lni lni-radio provider-brand" aria-hidden="true"></i>
+            <span class="provider-name">Last.fm</span>
+          </div>
+          {#if !lfmLoading}
+            <span class="pill" class:pill-success={lfmStatus?.connected} class:pill-muted={!lfmStatus?.connected}>
+              {lfmStatus?.connected ? 'Connected' : 'Not connected'}
+            </span>
+          {/if}
+        </div>
+
+        <p class="provider-note">
+          Scrobble what you play here to your Last.fm profile. Now-playing and completed plays are
+          reported automatically (a play counts after half the track, or 4 minutes).
+        </p>
+
+        {#if lfmError}
+          <div class="callout callout-error" role="alert">
+            <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+            <div class="callout-body"><span>{lfmError}</span></div>
+          </div>
+        {/if}
+        {#if lfmSuccess}
+          <div class="callout callout-success" role="status">
+            <i class="lni lni-check-circle-1" aria-hidden="true"></i>
+            <div class="callout-body"><span>{lfmSuccess}</span></div>
+          </div>
+        {/if}
+
+        {#if lfmLoading}
+          <p class="provider-note">Loading…</p>
+        {:else if lfmStatus?.connected}
+          <p class="provider-note">
+            Connected as <strong>{lfmStatus.username ?? 'your account'}</strong>
+          </p>
+          <label class="scrobble-toggle">
+            <input type="checkbox" checked={scrobbleOn} onchange={toggleScrobble} />
+            <span>Scrobble what I play</span>
+          </label>
+          <div class="provider-actions">
+            <button class="btn-danger" disabled={lfmPending} onclick={handleLastfmDisconnect}>
+              {#if lfmPending}<span class="spinner"></span>Disconnecting{:else}<i class="lni lni-plug-1" aria-hidden="true"></i>Disconnect{/if}
+            </button>
+          </div>
+        {:else if lfmStatus?.configured}
+          {#if lfmToken}
+            <p class="provider-note">
+              Approve access in the tab that opened, then finish the connection.
+            </p>
+            <div class="provider-actions">
+              <button class="btn-accent" disabled={lfmPending} onclick={handleLastfmComplete}>
+                {#if lfmPending}<span class="spinner"></span>Finishing{:else}<i class="lni lni-check-circle-1" aria-hidden="true"></i>I've approved, finish{/if}
+              </button>
+            </div>
+          {:else}
+            <div class="provider-actions">
+              <button class="btn-accent" disabled={lfmPending} onclick={handleLastfmConnect}>
+                {#if lfmPending}<span class="spinner"></span>Opening{:else}<i class="lni lni-radio" aria-hidden="true"></i>Connect Last.fm{/if}
+              </button>
+            </div>
+          {/if}
+        {:else}
+          <form class="create-row" onsubmit={handleLastfmCredentials}>
+            <input class="input" type="text" placeholder="API key" bind:value={lfmKey} disabled={lfmPending} autocomplete="off" spellcheck="false" />
+            <input class="input" type="password" placeholder="Shared secret" bind:value={lfmSecret} disabled={lfmPending} autocomplete="off" spellcheck="false" />
+            <button type="submit" class="btn-accent" disabled={lfmPending || !lfmKey.trim() || !lfmSecret.trim()}>
+              {#if lfmPending}<span class="spinner"></span>Saving{:else}<i class="lni lni-link-1-angular-right" aria-hidden="true"></i>Save{/if}
+            </button>
+          </form>
+          <p class="provider-note">
+            Create a free API account at
+            <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">last.fm/api/account/create</a>
+            to get an API key and shared secret.
+          </p>
         {/if}
       </div>
     </section>
@@ -1489,5 +1662,18 @@
     .artist-meta {
       grid-area: meta;
     }
+  }
+  .scrobble-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.875rem;
+    color: var(--text);
+    cursor: pointer;
+    margin: 0.25rem 0 0.6rem;
+  }
+  .scrobble-toggle input {
+    accent-color: var(--accent);
+    cursor: pointer;
   }
 </style>

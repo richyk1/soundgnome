@@ -358,6 +358,13 @@ fn rocket() -> _ {
                 routes::spotify_audio::login,
                 routes::spotify_audio::callback,
                 routes::spotify_audio::disconnect,
+                routes::lastfm::get_status,
+                routes::lastfm::set_credentials,
+                routes::lastfm::login,
+                routes::lastfm::callback,
+                routes::lastfm::disconnect,
+                routes::lastfm::now_playing,
+                routes::lastfm::scrobble,
                 routes::audio::stream,
             ],
         )
