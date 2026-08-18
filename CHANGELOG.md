@@ -13,6 +13,14 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Added
 
+- **Mobile is now a listening app.** On phones the desktop cockpit gives way to a
+  listening-first shell: a bottom tab bar (Home / Search / Library) with the
+  curation tools (Ingest, Validations, Activity, Tools) tucked behind a **More**
+  sheet. Tapping the player bar opens a full-screen **Now Playing** with large
+  art, a waveform scrubber, full transport, like/dislike, EQ, volume, and the
+  Up Next queue; swipe down to dismiss. Track lists collapse from the desktop
+  table into tap-to-play rows, and desktop-only chrome (page headers, sort/view
+  toggles, batch tools) is hidden. The desktop layout is unchanged.
 - **Like / dislike your library, with a Liked page to match.** Every track row
   and card now has thumbs up/down. The sidebar **Liked** page is now a two-tab
   view of your own library - **Liked** and **Disliked** - instead of listing your
