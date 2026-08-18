@@ -156,4 +156,8 @@
     opacity: 0.5;
     cursor: default;
   }
+  @media (max-width: 860px) {
+    .toolbar .view-toggle,
+    .toolbar .count { display: none; }
+  }
 </style>

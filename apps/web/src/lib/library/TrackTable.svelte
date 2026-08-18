@@ -44,14 +44,14 @@
             {/if}
           </td>
           <td class="title-cell">
-            {t.title}
-            {#if t.needs_validation}<span class="badge-warn" title="Awaiting validation">!</span>{/if}
+            <span class="row-title">{t.title}{#if t.needs_validation}<span class="badge-warn" title="Awaiting validation">!</span>{/if}</span>
+            <span class="row-sub">{t.artists.map(a => a.name).join(', ') || '\u2014'}</span>
           </td>
-          <td class="muted">{t.artists.map(a => a.name).join(', ') || '\u2014'}</td>
-          {#if showAlbumCol}<td class="muted">{t.album?.title ?? '\u2014'}</td>{/if}
-          <td class="muted">{t.genre ?? '\u2014'}</td>
-          <td class="muted mono">{lib.fmtDuration(t.duration)}</td>
-          <td><QualityBadge quality={t.quality} /></td>
+          <td class="muted col-artist">{t.artists.map(a => a.name).join(', ') || '\u2014'}</td>
+          {#if showAlbumCol}<td class="muted col-album">{t.album?.title ?? '\u2014'}</td>{/if}
+          <td class="muted col-genre">{t.genre ?? '\u2014'}</td>
+          <td class="muted mono col-dur">{lib.fmtDuration(t.duration)}</td>
+          <td class="col-quality"><QualityBadge quality={t.quality} /></td>
           <td class="actions">
             <button
               class="btn-rate"
@@ -110,4 +110,33 @@
   .table-wrap tbody tr.playable:hover .idx-play { display: flex; }
   .table-wrap tbody tr.playing .idx-num { visibility: hidden; }
   .table-wrap tbody tr.playing .idx-play { display: flex; color: var(--accent); }
+
+  /* ── Mobile: collapse the table into a tap-to-play list ────────────────── */
+  .row-sub { display: none; }
+  @media (max-width: 860px) {
+    .table-wrap { overflow-x: hidden; }
+    .table-wrap thead { display: none; }
+    .table-wrap table,
+    .table-wrap tbody { display: block; width: 100%; }
+    .table-wrap tbody tr {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 2px;
+      border-bottom: 1px solid var(--border);
+    }
+    .table-wrap td { padding: 0; border: none; }
+    .col-artist, .col-album, .col-genre, .col-dur, .col-quality, .actions { display: none; }
+    .table-wrap td.idx { flex: 0 0 auto; width: 2.4em; text-align: center; }
+    .table-wrap td.title-cell { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: left; }
+    .row-title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-bright); }
+    .row-sub {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
 </style>

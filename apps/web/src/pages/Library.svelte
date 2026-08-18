@@ -392,4 +392,8 @@
     }
     .lib-chips::-webkit-scrollbar { display: none; }
   }
+  @media (max-width: 860px) {
+    .library-page .page-header { display: none; }
+    .batch-tools { display: none; }
+  }
 </style>
