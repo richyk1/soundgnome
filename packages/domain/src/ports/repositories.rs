@@ -29,6 +29,19 @@ pub trait TrackRepository: Send + Sync {
     ) -> SoundgnomeResult<Track>;
     fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()>;
 
+    /// Set (or clear, with `None`) the user's like/dislike rating for a track.
+    fn set_rating(
+        &self,
+        conn: &mut SqliteConnection,
+        id: i32,
+        rating: Option<shared::models::Rating>,
+    ) -> SoundgnomeResult<()>;
+    /// All non-null ratings as `(track_id, rating)` pairs.
+    fn get_ratings(
+        &self,
+        conn: &mut SqliteConnection,
+    ) -> SoundgnomeResult<Vec<(i32, shared::models::Rating)>>;
+
     fn get_recent(&self, conn: &mut SqliteConnection, limit: i64) -> SoundgnomeResult<Vec<Track>>;
     fn get_pending_validations(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>>;
     fn get_by_url(&self, conn: &mut SqliteConnection, url: &str) -> SoundgnomeResult<Track>;

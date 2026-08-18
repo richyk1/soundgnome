@@ -144,6 +144,8 @@ export interface TrackQualityDto {
   lossless: boolean;
 }
 
+export type TrackRating = 'liked' | 'disliked';
+
 export interface LibraryTrackDto {
   id: number;
   title: string;
@@ -160,6 +162,8 @@ export interface LibraryTrackDto {
   quality?: TrackQualityDto | null;
   needs_validation: boolean;
   references: ReferenceDto[];
+  /** User like/dislike curation. Null = unrated. */
+  rating: TrackRating | null;
 }
 
 export interface UpdateTrackBody {

@@ -4,9 +4,10 @@
   import { lib, LIBRARY_PLAYER, type LibraryPlayer } from './store.svelte';
   import QualityBadge from './QualityBadge.svelte';
 
-  let { tracks, showAlbumCol = true }: {
+  let { tracks, showAlbumCol = true, showDelete = false }: {
     tracks: LibraryTrackDto[];
     showAlbumCol?: boolean;
+    showDelete?: boolean;
   } = $props();
 
   const player = getContext<LibraryPlayer | undefined>(LIBRARY_PLAYER);
@@ -52,8 +53,24 @@
           <td class="muted mono">{lib.fmtDuration(t.duration)}</td>
           <td><QualityBadge quality={t.quality} /></td>
           <td class="actions">
+            <button
+              class="btn-rate"
+              class:active-like={t.rating === 'liked'}
+              title="Like"
+              aria-label="Like"
+              onclick={(e) => { e.stopPropagation(); lib.setRating(t, t.rating === 'liked' ? null : 'liked'); }}
+            ><i class="lni lni-thumbs-up-1"></i></button>
+            <button
+              class="btn-rate"
+              class:active-dislike={t.rating === 'disliked'}
+              title="Dislike"
+              aria-label="Dislike"
+              onclick={(e) => { e.stopPropagation(); lib.setRating(t, t.rating === 'disliked' ? null : 'disliked'); }}
+            ><i class="lni lni-thumbs-down-1"></i></button>
             <button class="btn-edit" onclick={(e) => { e.stopPropagation(); lib.startEditTrack(t); }}>Edit</button>
-            <button class="btn-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeleteTrack(t.id); }}>Delete</button>
+            {#if showDelete}
+              <button class="btn-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeleteTrack(t.id); }}>Delete</button>
+            {/if}
           </td>
         </tr>
       {/each}

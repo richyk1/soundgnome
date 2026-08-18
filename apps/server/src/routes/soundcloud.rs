@@ -10,7 +10,6 @@ use rocket::{delete, get, http::Status, post, serde::json::Json};
 use rocket_okapi::openapi;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use shared::models::{Platform, ReferenceType};
 
 use crate::utils::error::{CustomError, Error};
 
@@ -118,83 +117,9 @@ pub fn disconnect() -> Result<Json<SoundcloudStatus>, Error> {
 }
 
 #[derive(Serialize, JsonSchema)]
-pub struct LikedTrack {
-    /// SoundCloud track id, used to resolve a preview stream.
-    pub id: u64,
-    pub title: String,
-    /// Uploader name. SoundCloud has no reliable multi-artist field.
-    pub artist: String,
-    pub duration_secs: Option<i32>,
-    pub artwork_url: Option<String>,
-    /// Public track page, and what the download endpoint accepts.
-    pub permalink_url: String,
-    /// Peaks JSON for the SoundCloud waveform. The CDN allows cross-origin
-    /// reads, so the browser fetches it directly.
-    pub waveform_url: Option<String>,
-}
-
-#[derive(Serialize, JsonSchema)]
-pub struct LikedTracks {
-    pub count: usize,
-    pub tracks: Vec<LikedTrack>,
-}
-
-#[derive(Serialize, JsonSchema)]
 pub struct StreamUrl {
     /// Short-lived signed CDN URL, playable directly by an audio element.
     pub url: String,
-}
-
-/// List the connected account's liked tracks.
-///
-/// Read-only: nothing is persisted and no audio is fetched, so this is safe to
-/// call before deciding what to download. Expect a few seconds for a large
-/// account, the feed is paginated 50 at a time.
-#[openapi]
-#[get("/soundcloud/likes")]
-pub async fn list_likes() -> Result<Json<LikedTracks>, Error> {
-    let soundcloud = Soundcloud::new()
-        .await
-        .map_err(|e| internal(e.to_string()))?;
-
-    let tracks = soundcloud
-        .list_liked_tracks()
-        .await
-        .map_err(|e| bad_request("LikesUnavailable", e.to_string()))?;
-
-    let tracks: Vec<LikedTrack> = tracks
-        .into_iter()
-        .filter_map(|liked| {
-            let track = liked.track;
-            // The SoundCloud source reference carries both the numeric id and
-            // the public URL. A track without one is unusable here, so drop it
-            // rather than surfacing a row that cannot play or download.
-            let source = track.references.iter().find(|r| {
-                r.ref_type == ReferenceType::Source && r.platform == Platform::SoundCloud
-            })?;
-            let id = source.external_id.as_deref()?.parse().ok()?;
-            let permalink_url = source.external_url.clone()?;
-
-            Some(LikedTrack {
-                id,
-                title: track.title,
-                artist: track
-                    .artists
-                    .first()
-                    .map(|a| a.name.clone())
-                    .unwrap_or_else(|| "Unknown artist".to_string()),
-                duration_secs: track.duration,
-                artwork_url: track.cover,
-                permalink_url,
-                waveform_url: liked.waveform_url,
-            })
-        })
-        .collect();
-
-    Ok(Json(LikedTracks {
-        count: tracks.len(),
-        tracks,
-    }))
 }
 
 /// Resolve a preview stream URL for a SoundCloud track.

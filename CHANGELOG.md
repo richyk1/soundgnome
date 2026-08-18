@@ -13,6 +13,11 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Added
 
+- **Like / dislike your library, with a Liked page to match.** Every track row
+  and card now has thumbs up/down. The sidebar **Liked** page is now a two-tab
+  view of your own library - **Liked** and **Disliked** - instead of listing your
+  SoundCloud likes. The Disliked tab doubles as a cleanup queue: remove tracks
+  there one by one or with **Delete all**.
 - **Native-feel PWA.** Media Session integration puts the current track (title,
   artist, artwork) on the lock screen and notification shade and wires up OS,
   headphone, and Bluetooth transport controls (play/pause/next/prev/seek) plus
@@ -99,6 +104,10 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Changed
 
+- **Tracks page shows everything, with less chrome.** Dropped the
+  All / Validated / Needs-review filter (the list now shows every track by
+  default; the Validations page owns review) and removed the per-row Delete -
+  deleting a track now lives in the Liked page's Disliked tab.
 - **Validations page redesigned (flatter, fewer alerts).** The nested "card in a
   card in a card" layout is gone: each track is a flat row with its candidates
   listed directly beneath, and matches load automatically as you scroll instead

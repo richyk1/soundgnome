@@ -1,56 +1,18 @@
 <script lang="ts">
   import { setContext, getContext } from 'svelte';
-  import { lib, LIBRARY_PLAYER, type LibraryPlayer } from '../lib/library/store.svelte';
+  import { lib, LIBRARY_PLAYER, createLibraryPlayer, type LibraryPlayer } from '../lib/library/store.svelte';
   import ArtistTab from '../lib/library/ArtistTab.svelte';
   import AlbumTab from '../lib/library/AlbumTab.svelte';
   import TracksTab from '../lib/library/TracksTab.svelte';
   import PlaylistsTab from '../lib/library/PlaylistsTab.svelte';
   import EditModal from '../lib/library/EditModal.svelte';
-  import { GLOBAL_PLAYER, type GlobalPlayer, type PlayerTrack } from '../lib/player';
-  import type { LibraryTrackDto } from '../lib/types';
+  import { GLOBAL_PLAYER, type GlobalPlayer } from '../lib/player';
 
   // ── Playback: driven by the single app-wide player mounted in the shell,
   // so it keeps playing as the user navigates away from the library. ─────────
   const player = getContext<GlobalPlayer>(GLOBAL_PLAYER);
 
-  // Most YouTube-sourced tracks have no cover in the DB, but their source/provider
-  // reference carries the video id — derive the thumbnail from it so the player
-  // shows art instead of a placeholder.
-  function ytThumb(refs: { external_url: string | null }[]): string | null {
-    for (const r of refs) {
-      const m = (r.external_url ?? '').match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})/);
-      const id = m?.[1] ?? m?.[2];
-      if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-    }
-    return null;
-  }
-
-  function spotifyTrackUrl(refs: { external_url: string | null }[]): string | null {
-    const r = refs.find((x) => (x.external_url ?? '').includes('open.spotify.com/track'));
-    return r?.external_url ?? null;
-  }
-
-  const toPlayerTrack = (t: LibraryTrackDto): PlayerTrack => ({
-    id: t.id,
-    title: t.title,
-    artist: t.artists.map((a) => a.name).join(', '),
-    artwork: t.cover ?? ytThumb(t.references),
-    spotifyUrl: spotifyTrackUrl(t.references),
-    durationSecs: t.duration,
-    source: 'library',
-  });
-
-  setContext<LibraryPlayer>(LIBRARY_PLAYER, {
-    play(track: LibraryTrackDto, queue?: LibraryTrackDto[]) {
-      if (!track.file_path) return;
-      // Queue = the caller's visible list (falls back to the filtered library),
-      // playable tracks only, so prev/next/shuffle move through what the user sees.
-      const list = (queue ?? lib.filteredTracks).filter((t) => t.file_path);
-      player?.play(toPlayerTrack(track), list.map(toPlayerTrack));
-    },
-    isCurrent: (id) => player?.isCurrent(id, 'library') ?? false,
-    isPlaying: (id) => player?.isPlaying(id, 'library') ?? false,
-  });
+  setContext<LibraryPlayer>(LIBRARY_PLAYER, createLibraryPlayer(player, () => lib.filteredTracks));
 
   // Refresh all collections when arriving on this page.
   $effect(() => {

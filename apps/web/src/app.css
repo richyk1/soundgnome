@@ -141,6 +141,22 @@ code {
 .btn-edit:hover { background: var(--surface-2); }
 .btn-delete { background: transparent; color: var(--error); border: 1px solid var(--error); }
 .btn-delete:hover { background: color-mix(in srgb, var(--error) 12%, transparent); }
+/* Icon-only like/dislike toggles in track rows and cards. */
+.btn-rate {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 3px 6px;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+}
+.btn-rate:hover { color: var(--text-bright); background: var(--surface-2); }
+.btn-rate.active-like { color: var(--accent); }
+.btn-rate.active-dislike { color: var(--error); }
 .btn-save { 
   background: var(--accent); 
   color: #fff; 

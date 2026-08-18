@@ -55,6 +55,22 @@ impl TrackService {
         self.track_repo.get_by_id(conn, id)
     }
 
+    pub fn set_rating(
+        &self,
+        conn: &mut SqliteConnection,
+        id: i32,
+        rating: Option<shared::models::Rating>,
+    ) -> SoundgnomeResult<()> {
+        self.track_repo.set_rating(conn, id, rating)
+    }
+
+    pub fn get_ratings(
+        &self,
+        conn: &mut SqliteConnection,
+    ) -> SoundgnomeResult<Vec<(i32, shared::models::Rating)>> {
+        self.track_repo.get_ratings(conn)
+    }
+
     pub fn get_all(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>> {
         self.track_repo.get_all(conn)
     }

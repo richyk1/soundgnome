@@ -128,6 +128,41 @@ impl TrackRepository for DieselTrackRepository {
         self.get_by_id(conn, track_ref.track_id)
     }
 
+    fn set_rating(
+        &self,
+        conn: &mut SqliteConnection,
+        id: i32,
+        rating: Option<shared::models::Rating>,
+    ) -> SoundgnomeResult<()> {
+        let value: Option<String> = rating.map(|r| r.as_db().to_string());
+        diesel::update(schema::track::table.find(id))
+            .set(schema::track::rating.eq(value))
+            .execute(conn)
+            .map_err(|err| {
+                shared::errors::Error::Database(format!("Failed to set track rating: {}", err))
+            })?;
+        Ok(())
+    }
+
+    fn get_ratings(
+        &self,
+        conn: &mut SqliteConnection,
+    ) -> SoundgnomeResult<Vec<(i32, shared::models::Rating)>> {
+        let rows: Vec<(i32, Option<String>)> = schema::track::table
+            .filter(schema::track::rating.is_not_null())
+            .select((schema::track::id, schema::track::rating))
+            .load::<(i32, Option<String>)>(conn)
+            .map_err(|err| {
+                shared::errors::Error::Database(format!("Failed to load ratings: {}", err))
+            })?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, r)| {
+                r.and_then(|s| shared::models::Rating::from_db(&s)).map(|r| (id, r))
+            })
+            .collect())
+    }
+
     fn fingerprint_candidates(
         &self,
         conn: &mut SqliteConnection,

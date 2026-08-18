@@ -105,6 +105,34 @@ impl TrackProvider {
     }
 }
 
+/// A user's like or dislike on a library track (absent = unrated). Persisted as
+/// lowercase text in the DB and serialized identically over the API. Deliberately
+/// not part of [`Track`]: it is a user-facing curation signal, so it never rides
+/// through the fetch/tag/organize pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Rating {
+    Liked,
+    Disliked,
+}
+
+impl Rating {
+    pub fn as_db(self) -> &'static str {
+        match self {
+            Rating::Liked => "liked",
+            Rating::Disliked => "disliked",
+        }
+    }
+
+    pub fn from_db(s: &str) -> Option<Self> {
+        match s {
+            "liked" => Some(Rating::Liked),
+            "disliked" => Some(Rating::Disliked),
+            _ => None,
+        }
+    }
+}
+
 // ================================================================================================
 // Structs
 // ================================================================================================

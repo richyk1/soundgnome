@@ -39,6 +39,10 @@ pub struct TrackEntity {
     pub validation_reason: Option<String>,
 
     pub soundome_id: Option<String>,
+
+    /// User curation flag ('liked' | 'disliked' | NULL). Read-only through this
+    /// entity; written via `set_rating` so edits/creates never clobber it.
+    pub rating: Option<String>,
 }
 
 #[derive(Debug, Clone, Insertable, Deserialize, JsonSchema)]

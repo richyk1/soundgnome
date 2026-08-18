@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use domain::services::ServiceLayer;
 use rocket::fs::NamedFile;
-use rocket::{delete, get, http::Status, patch, post, serde::json::Json};
+use rocket::{delete, get, http::Status, patch, post, put, serde::json::Json};
 use rocket_okapi::openapi;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use shared::models::{Album, Artist, Platform, Reference, ReferenceType, Track};
+use shared::models::{Album, Artist, Platform, Rating, Reference, ReferenceType, Track};
 
 use crate::utils::{database::Db, error::CustomError, response::Success};
 
@@ -141,6 +141,7 @@ pub struct TrackDto {
     /// be read.
     pub quality: Option<TrackQualityDto>,
     pub references: Vec<ReferenceDto>,
+    pub rating: Option<Rating>,
 }
 
 /// Measured properties of the audio file backing a track.
@@ -238,6 +239,7 @@ impl TrackDto {
             needs_validation: track.needs_validation,
             quality,
             references: references_to_dto(track.references),
+            rating: None,
         })
     }
 }
@@ -255,6 +257,12 @@ pub struct UpdateTrackBody {
     pub cover: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SetRatingBody {
+    /// New rating, or null to clear it.
+    pub rating: Option<Rating>,
+}
+
 // ================================================================================================
 // Routes
 // ================================================================================================
@@ -266,13 +274,23 @@ pub async fn get_all(
     services: &rocket::State<Arc<ServiceLayer>>,
 ) -> Result<Json<Vec<TrackDto>>, crate::utils::error::Error> {
     let services = Arc::clone(services);
-    db.run(move |conn| services.track_service.get_all(conn))
+    db.run(move |conn| -> shared::types::SoundgnomeResult<(Vec<Track>, Vec<(i32, Rating)>)> {
+        let tracks = services.track_service.get_all(conn)?;
+        let ratings = services.track_service.get_ratings(conn)?;
+        Ok((tracks, ratings))
+    })
         .await
-        .map(|tracks| {
+        .map(|(tracks, ratings)| {
+            let ratings: std::collections::HashMap<i32, Rating> = ratings.into_iter().collect();
             Json(
                 tracks
                     .into_iter()
-                    .filter_map(TrackDto::from_track)
+                    .filter_map(|t| {
+                        let id = t.id?;
+                        let mut dto = TrackDto::from_track(t)?;
+                        dto.rating = ratings.get(&id).copied();
+                        Some(dto)
+                    })
                     .collect(),
             )
         })
@@ -293,11 +311,22 @@ pub async fn get(
     services: &rocket::State<Arc<ServiceLayer>>,
 ) -> Result<Json<TrackDto>, crate::utils::error::Error> {
     let services = Arc::clone(services);
-    db.run(move |conn| services.track_service.get_by_id(conn, id))
+    db.run(move |conn| -> shared::types::SoundgnomeResult<(Track, Option<Rating>)> {
+        let track = services.track_service.get_by_id(conn, id)?;
+        let rating = services
+            .track_service
+            .get_ratings(conn)?
+            .into_iter()
+            .find(|(tid, _)| *tid == id)
+            .map(|(_, r)| r);
+        Ok((track, rating))
+    })
         .await
-        .and_then(|track| {
-            TrackDto::from_track(track)
-                .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))
+        .and_then(|(track, rating)| {
+            let mut dto = TrackDto::from_track(track)
+                .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))?;
+            dto.rating = rating;
+            Ok(dto)
         })
         .map(Json)
         .map_err(|err| {
@@ -411,6 +440,37 @@ pub async fn update(
     .and_then(|track| {
         TrackDto::from_track(track)
             .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))
+    })
+    .map(Json)
+    .map_err(|err| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::InternalServerError,
+            code: "Internal".to_string(),
+            message: err.to_string(),
+        })
+    })
+}
+
+#[openapi]
+#[put("/tracks/<id>/rating", format = "application/json", data = "<body>")]
+pub async fn set_rating(
+    id: i32,
+    body: Json<SetRatingBody>,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<Json<TrackDto>, crate::utils::error::Error> {
+    let services = Arc::clone(services);
+    let rating = body.into_inner().rating;
+    db.run(move |conn| -> shared::types::SoundgnomeResult<Track> {
+        services.track_service.set_rating(conn, id, rating)?;
+        services.track_service.get_by_id(conn, id)
+    })
+    .await
+    .and_then(|track| {
+        let mut dto = TrackDto::from_track(track)
+            .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))?;
+        dto.rating = rating;
+        Ok(dto)
     })
     .map(Json)
     .map_err(|err| {

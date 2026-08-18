@@ -181,6 +181,22 @@ export async function deleteTrack(id: number): Promise<void> {
   }
 }
 
+export async function setTrackRating(
+  id: number,
+  rating: 'liked' | 'disliked' | null,
+): Promise<LibraryTrackDto> {
+  const res = await fetch(`${BASE}/tracks/${id}/rating`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
 // ================================================================================================
 // Library — Albums
 // ================================================================================================
@@ -812,39 +828,11 @@ export async function disconnectSpotifyAudio(): Promise<SpotifyAudioStatusDto> {
 }
 
 // ================================================================================================
-// SoundCloud likes
+// SoundCloud stream
 // ================================================================================================
-
-export interface SoundcloudLikeDto {
-  id: number;
-  title: string;
-  artist: string;
-  duration_secs: number;
-  artwork_url: string | null;
-  permalink_url: string;
-  waveform_url?: string | null;
-}
-
-export interface SoundcloudLikesDto {
-  count: number;
-  tracks: SoundcloudLikeDto[];
-}
 
 export interface SoundcloudStreamDto {
   url: string;
-}
-
-/**
- * List the connected account's SoundCloud likes without downloading anything.
- * Takes a few seconds for large collections.
- */
-export async function getSoundcloudLikes(): Promise<SoundcloudLikesDto> {
-  const res = await fetch(`${BASE}/soundcloud/likes`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(body.message ?? res.statusText);
-  }
-  return res.json();
 }
 
 /**

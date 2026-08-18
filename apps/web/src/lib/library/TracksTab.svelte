@@ -38,13 +38,6 @@
 {:else}
   <div class="toolbar">
     <input class="search" placeholder="Search tracks or artists… (S)" bind:value={lib.trackSearch} />
-    <div class="filter-group">
-      <button class="filter-btn" class:active={lib.trackFilter === 'all'} onclick={() => (lib.trackFilter = 'all')}>All</button>
-      <button class="filter-btn" class:active={lib.trackFilter === 'ok'} onclick={() => (lib.trackFilter = 'ok')}>Validated</button>
-      <button class="filter-btn" class:active={lib.trackFilter === 'pending'} onclick={() => (lib.trackFilter = 'pending')}>
-        Needs review{#if lib.pendingCount > 0}&nbsp;<span class="mini-badge">{lib.pendingCount}</span>{/if}
-      </button>
-    </div>
     <SortDropdown
       value={lib.tracksSortBy}
       direction={lib.tracksSortDir}
@@ -109,8 +102,9 @@
                 </button>
               </span>
             {/if}
+            <button class="btn-rate" class:active-like={t.rating === 'liked'} title="Like" aria-label="Like" onclick={(e) => { e.stopPropagation(); lib.setRating(t, t.rating === 'liked' ? null : 'liked'); }}><i class="lni lni-thumbs-up-1"></i></button>
+            <button class="btn-rate" class:active-dislike={t.rating === 'disliked'} title="Dislike" aria-label="Dislike" onclick={(e) => { e.stopPropagation(); lib.setRating(t, t.rating === 'disliked' ? null : 'disliked'); }}><i class="lni lni-thumbs-down-1"></i></button>
             <button class="btn-edit" onclick={(e) => { e.stopPropagation(); lib.startEditTrack(t); }}>Edit</button>
-            <button class="btn-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeleteTrack(t.id); }}>Delete</button>
           </div>
         </div>
       {/each}
