@@ -333,6 +333,26 @@
   let lfmKey = $state('');
   let lfmSecret = $state('');
   let lfmToken: string | null = $state(null);
+  let lfmAuthUrl: string | null = $state(null);
+  const LFM_PENDING = 'soundgnome:lastfm:pending';
+  function savePending(url: string, token: string) {
+    lfmAuthUrl = url;
+    lfmToken = token;
+    try {
+      localStorage.setItem(LFM_PENDING, JSON.stringify({ url, token }));
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  function clearPending() {
+    lfmAuthUrl = null;
+    lfmToken = null;
+    try {
+      localStorage.removeItem(LFM_PENDING);
+    } catch {
+      /* storage unavailable */
+    }
+  }
   let scrobbleOn = $state(isScrobbleEnabled());
 
   async function loadLastfm() {
@@ -340,6 +360,19 @@
     lfmError = null;
     try {
       lfmStatus = await getLastfmStatus();
+      if (!lfmStatus.connected) {
+        // Restore a pending authorization so a reload doesn't lose the finish step.
+        try {
+          const raw = localStorage.getItem(LFM_PENDING);
+          if (raw) {
+            const p = JSON.parse(raw);
+            lfmAuthUrl = typeof p?.url === 'string' ? p.url : null;
+            lfmToken = typeof p?.token === 'string' ? p.token : null;
+          }
+        } catch {
+          /* ignore malformed pending */
+        }
+      }
     } catch (e: unknown) {
       lfmError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -371,7 +404,7 @@
     lfmSuccess = null;
     try {
       const { url, token } = await lastfmLogin();
-      lfmToken = token;
+      savePending(url, token);
       window.open(url, '_blank', 'noopener');
     } catch (e: unknown) {
       lfmError = e instanceof Error ? e.message : String(e);
@@ -386,7 +419,7 @@
     lfmError = null;
     try {
       lfmStatus = await lastfmComplete(lfmToken);
-      lfmToken = null;
+      clearPending();
       refreshScrobbler();
       lfmSuccess = `Last.fm connected as ${lfmStatus.username ?? 'your account'}.`;
     } catch (e: unknown) {
@@ -403,6 +436,7 @@
     try {
       lfmStatus = await disconnectLastfm();
       refreshScrobbler();
+      clearPending();
     } catch (e: unknown) {
       lfmError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -911,12 +945,15 @@
         {:else if lfmStatus?.configured}
           {#if lfmToken}
             <p class="provider-note">
-              Approve access in the tab that opened, then finish the connection.
+              A Last.fm tab should have opened. If it didn't,
+              {#if lfmAuthUrl}<a href={lfmAuthUrl} target="_blank" rel="noopener noreferrer">open the authorization page</a>{:else}re-open it{/if}.
+              Click <strong>Allow access</strong> there, then finish here.
             </p>
             <div class="provider-actions">
               <button class="btn-accent" disabled={lfmPending} onclick={handleLastfmComplete}>
                 {#if lfmPending}<span class="spinner"></span>Finishing{:else}<i class="lni lni-check-circle-1" aria-hidden="true"></i>I've approved, finish{/if}
               </button>
+              <button class="btn-ghost" disabled={lfmPending} onclick={clearPending}>Cancel</button>
             </div>
           {:else}
             <div class="provider-actions">

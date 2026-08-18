@@ -51,9 +51,6 @@ async function ensureStatus(): Promise<LastfmStatusDto> {
   return statusPromise;
 }
 
-function active(): boolean {
-  return enabled && !!status?.connected;
-}
 
 // ── Current track tracking ────────────────────────────────────────────────────
 
@@ -65,38 +62,49 @@ function trackKey(t: PlayerTrack): string {
   return `${t.source ?? 'library'}:${t.id}`;
 }
 
-/** Call when a track starts playing. */
-export async function onPlay(track: PlayerTrack): Promise<void> {
+/** Call when a track starts playing. Resets state and kicks a status fetch;
+   the actual arming + now-playing happens in `onProgress` once status is known,
+   so this also works when the user connects mid-playback. */
+export async function onPlay(_track: PlayerTrack): Promise<void> {
+  currentKey = '';
+  scrobbled = false;
   await ensureStatus();
   void flushQueue();
-  if (!active()) return;
+}
 
-  startedAt = Math.floor(Date.now() / 1000);
-  scrobbled = false;
-  currentKey = trackKey(track);
+/** Call on playback progress; arms the track (now-playing) the first time it is
+   seen while connected, then scrobbles once the threshold is met. */
+export function onProgress(track: PlayerTrack, currentTime: number, duration: number): void {
+  if (!enabled) return;
+  if (!status) {
+    // Not fetched yet (e.g. just connected). Kick it; a later tick will act.
+    void ensureStatus();
+    return;
+  }
+  if (!status.connected) return;
 
   const artist = track.artist?.trim();
   const title = track.title?.trim();
   if (!artist || !title) return;
-  try {
-    await lastfmNowPlaying({
+
+  const key = trackKey(track);
+  if (key !== currentKey) {
+    // First tick for this track while connected: a fresh play, or the user
+    // connected / the page loaded mid-playback. Arm it, reconstructing when it
+    // started so the scrobble timestamp is correct, and send now-playing.
+    currentKey = key;
+    scrobbled = false;
+    startedAt = Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(currentTime));
+    lastfmNowPlaying({
       artist,
       track: title,
       album: null,
       duration_secs: track.durationSecs ?? null,
+    }).catch(() => {
+      /* now-playing is best-effort */
     });
-  } catch {
-    /* now-playing is best-effort; a missed one is not worth queuing */
   }
-}
-
-/** Call on playback progress; scrobbles once the threshold is met. */
-export function onProgress(track: PlayerTrack, currentTime: number, duration: number): void {
-  if (!active() || scrobbled || trackKey(track) !== currentKey) return;
-
-  const artist = track.artist?.trim();
-  const title = track.title?.trim();
-  if (!artist || !title) return;
+  if (scrobbled) return;
 
   const dur = duration > 0 ? duration : (track.durationSecs ?? 0);
   // >= 30 s: half or 4 min, whichever first. Unknown length: 4 min. Too short: never.
