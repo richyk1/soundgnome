@@ -51,6 +51,31 @@
   const eq = new Equalizer();
   let eqState = $state<EqState>(loadEqState());
   let eqOpen = $state(false);
+  let eqBtnEl: HTMLButtonElement | undefined = $state();
+  let eqStyle = $state('');
+
+  /** Move a node to <body> so it escapes the player bar's clipping/stacking. */
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
+  }
+
+  /** Anchor the popover just above the EQ button, right-aligned, viewport-fixed. */
+  function positionEq() {
+    if (!eqBtnEl) return;
+    const r = eqBtnEl.getBoundingClientRect();
+    const right = Math.max(8, window.innerWidth - r.right);
+    const bottom = window.innerHeight - r.top + 12;
+    eqStyle = `right:${right}px; bottom:${bottom}px;`;
+  }
+
+  $effect(() => {
+    if (!eqOpen) return;
+    positionEq();
+    const onResize = () => positionEq();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  });
 
   /** Push EQ changes onto the graph (building it on first enable) and persist. */
   function handleEqUpdate(s: EqState) {
@@ -478,6 +503,7 @@
         <button
           class="eq-btn"
           class:on={eqState.enabled}
+          bind:this={eqBtnEl}
           onclick={() => (eqOpen = !eqOpen)}
           title="Equalizer"
           aria-label="Equalizer"
@@ -486,9 +512,13 @@
           <i class="lni lni-sliders-triple-vertical-1"></i>
         </button>
         {#if eqOpen}
-          <button class="eq-backdrop" aria-label="Close equalizer" onclick={() => (eqOpen = false)}
+          <button
+            class="eq-backdrop"
+            aria-label="Close equalizer"
+            onclick={() => (eqOpen = false)}
+            use:portal
           ></button>
-          <div class="eq-pop">
+          <div class="eq-pop" style={eqStyle} use:portal>
             <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} />
           </div>
         {/if}
@@ -682,20 +712,20 @@
   .eq-btn:hover { color: var(--text-bright); }
   .eq-btn.on { color: var(--accent); }
   .eq-btn .lni { font-size: 17px; }
+  /* Portalled to <body>, so positioned via viewport-fixed inline coords. This
+     escapes the player bar's `overflow: hidden` (which was clipping it). */
   .eq-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 40;
+    z-index: 290;
     background: transparent;
     border: none;
     padding: 0;
     cursor: default;
   }
   .eq-pop {
-    position: absolute;
-    bottom: calc(100% + 12px);
-    right: 0;
-    z-index: 50;
+    position: fixed;
+    z-index: 300;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
