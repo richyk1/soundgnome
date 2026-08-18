@@ -468,6 +468,14 @@ impl DownloadService {
         url: &str,
         original_available: Option<bool>,
     ) -> bool {
+        // A missing or unreadable file always warrants a re-download regardless of
+        // source platform or the `upgrade_existing` setting: restoring a lost file
+        // is a repair, not an optional quality upgrade.
+        let Some(stored) = existing.audio_quality() else {
+            tracing::info!("Refetch: {} has no readable file", existing.display());
+            return true;
+        };
+
         let config = Config::get();
         if !config.downloader.upgrade_existing {
             return false;
@@ -476,15 +484,6 @@ impl DownloadService {
         if existing.get_source_platform() != shared::models::Platform::SoundCloud {
             return false;
         }
-
-        // No readable file: whatever is on disk cannot be worse than nothing.
-        let Some(stored) = existing.audio_quality() else {
-            tracing::info!(
-                "Upgrade: {} has no readable file, refetching",
-                existing.display()
-            );
-            return true;
-        };
 
         // Already lossless: SoundCloud has nothing better than the original.
         if stored.lossless {
@@ -1750,16 +1749,31 @@ impl DownloadService {
             }
             Err(e) => return Err(e),
         };
+        // Repair path: if this source is already a finalized library track whose
+        // audio file has gone missing, adopt the fresh download into it — keeping
+        // its reviewed metadata and identity — regardless of the enrich/dedup
+        // outcome below (which would otherwise keep the broken, fileless row or
+        // discard the download as "no better quality").
+        if let Some(new_file) = &file_path_opt {
+            if let Some(existing) = self.existing_staged_track(conn, &track) {
+                if !existing.needs_validation && !self.library_file_present(&existing) {
+                    tracing::info!(
+                        "Repairing missing library file for {} from re-download",
+                        existing.display()
+                    );
+                    let mut repaired = existing;
+                    self.process_track_file(&mut repaired, new_file).await?;
+                    return self.save_track(conn, &repaired).await;
+                }
+            }
+        }
 
         if should_validate || file_path_opt.is_none() {
             if let Some(existing) = self.existing_staged_track(conn, &track) {
-                // A source we already finalized must not be dragged back into the
-                // validation queue by a re-sync. `enrich_metada` re-derives a
-                // partial/no-match from the raw source metadata on every pass, but
-                // the user already reviewed this track: a finalized row (soundome_id
-                // set, needs_validation = false) is authoritative. Keep it as-is and
-                // discard the freshly staged copy so it never re-enters the queue.
                 if !existing.needs_validation {
+                    // Already finalized and reviewed (any missing file was repaired
+                    // above). A re-sync must not re-validate it: discard the freshly
+                    // staged copy and keep the library entry as-is.
                     tracing::info!(
                         "Source already finalized as {} — skipping re-validation",
                         existing.display()
@@ -2363,6 +2377,46 @@ impl DownloadService {
             tracing::debug!("File location unchanged, no reorganization needed");
             Ok(false)
         }
+    }
+
+    /// Resolve a possibly-relative library `file_path` against `base_library_dir`,
+    /// mirroring [`Self::update_track_file_metadata`]'s resolution rules.
+    fn resolve_library_path(&self, file_path: &Path) -> PathBuf {
+        if file_path.is_absolute() {
+            return file_path.to_path_buf();
+        }
+        let base = PathBuf::from(&Config::get().general.base_library_dir);
+        if file_path
+            .to_string_lossy()
+            .starts_with(base.to_string_lossy().as_ref())
+        {
+            file_path.to_path_buf()
+        } else {
+            base.join(file_path)
+        }
+    }
+
+    /// Whether the track's audio file exists on disk (resolving relative paths).
+    pub fn library_file_present(&self, track: &Track) -> bool {
+        track
+            .file_path
+            .as_ref()
+            .is_some_and(|fp| self.resolve_library_path(fp).exists())
+    }
+
+    /// Finalized library tracks whose audio file is missing on disk. A track with a
+    /// `soundome_id` was organized into the library; if its file is gone it is a
+    /// broken, resyncable entry rather than a validation candidate. Staged
+    /// (`needs_validation`) rows and rows still pointing at cleaned-up staging
+    /// files are excluded.
+    pub fn list_missing_files(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>> {
+        Ok(self
+            .track_service
+            .get_all_finalized(conn)?
+            .into_iter()
+            .filter(|t| t.soundome_id.is_some() && !t.needs_validation)
+            .filter(|t| !self.library_file_present(t))
+            .collect())
     }
 
     /// The row already holding this source URL, if any.

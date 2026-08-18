@@ -680,6 +680,32 @@ export async function backfillFingerprints(): Promise<{ task_id: number }> {
   return res.json();
 }
 
+export interface MissingTrackDto {
+  id: number | null;
+  title: string;
+  artists: string[];
+  album: string | null;
+  file_path: string | null;
+  source_url: string | null;
+}
+
+/** Finalized library tracks whose audio file is missing on disk. */
+export async function getMissingTracks(): Promise<MissingTrackDto[]> {
+  const res = await fetch(`${BASE}/library/missing`);
+  if (!res.ok) throw new Error(`Failed to fetch missing tracks: ${res.statusText}`);
+  return res.json();
+}
+
+/** Re-download a library track from its source and re-file it in place. */
+export async function resyncTrack(id: number): Promise<MissingTrackDto> {
+  const res = await fetch(`${BASE}/library/tracks/${id}/resync`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
 export async function getVersion(): Promise<string> {
   const res = await fetch(`${BASE}/version`);
   if (!res.ok) return '';

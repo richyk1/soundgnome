@@ -17,6 +17,11 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   A connected Spotify **Premium** session now streams and decrypts the track
   audio directly, instead of always matching the track on YouTube. YouTube /
   YouTube Music remain the fallback when no Spotify session is available.
+- **Missing files view + re-sync.** A `Tools -> Missing files` tab lists library
+  tracks whose audio file has gone from disk (the database keeps a track's
+  metadata independently of its file). Each can be re-synced: the track is
+  re-downloaded from its original source and re-filed in place, keeping its
+  identity, or a clear error is shown when the source can no longer supply audio.
 - **Spotify library sync.** App-credential (public catalogue) auth plus a
   per-user authorization flow (PKCE) to read the signed-in user's Liked Songs
   and private playlists, with the display name and liked songs cached.
@@ -89,6 +94,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Organizer no longer deletes a file it then fails to move.** `move_track_file`
+  removed any existing destination *before* renaming the new file into place, so a
+  re-organize whose source and destination resolved to the same path (or whose
+  rename then failed) deleted the only copy and left the database pointing at an
+  empty path. It now relies on `rename`'s atomic replace and skips a no-op move,
+  so a re-organize can no longer lose the audio. Re-syncing an existing track also
+  now repairs it when its file is missing instead of keeping the broken row.
 - **Finalized library tracks no longer get dragged back into validation.**
   Re-syncing a source already in the library re-derived a partial/no-match from
   the raw source metadata and folded `needs_validation` onto the finalized row,

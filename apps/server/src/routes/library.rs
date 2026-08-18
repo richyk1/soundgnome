@@ -6,15 +6,17 @@ use std::{
 
 use config::Config;
 use domain::services::{scan_service::ScanReport, ServiceLayer};
-use rocket::{data::ToByteUnit, get, post, serde::json::Json, Data};
+use rocket::{data::ToByteUnit, get, http::Status, post, serde::json::Json, Data};
 use rocket_okapi::openapi;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use shared::models::Track;
 use tokio::runtime::Handle;
 use walkdir::WalkDir;
 
 use crate::utils::{
-    cancellation::CancellationRegistry, database::Db, error::Error, task_executor::TaskExecutor,
+    cancellation::CancellationRegistry, database::Db, error::CustomError, error::Error,
+    task_executor::TaskExecutor,
 };
 
 // ================================================================================================
@@ -28,6 +30,36 @@ pub struct ScanRequest {
     /// When `true`, no mutations are applied to the database.
     #[serde(default)]
     pub dry_run: bool,
+}
+
+/// A finalized library track whose audio file is missing on disk. Unlike the
+/// library list DTO this never probes the (absent) file for quality.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct MissingTrackDto {
+    pub id: Option<i32>,
+    pub title: String,
+    pub artists: Vec<String>,
+    pub album: Option<String>,
+    /// The recorded (now-missing) file path.
+    pub file_path: Option<String>,
+    /// Source URL a resync would re-download from, if known.
+    pub source_url: Option<String>,
+}
+
+impl MissingTrackDto {
+    fn from_track(t: &Track) -> Self {
+        Self {
+            id: t.id,
+            title: t.title.clone(),
+            artists: t.artists.iter().map(|a| a.name.clone()).collect(),
+            album: t.album.as_ref().map(|a| a.title.clone()),
+            file_path: t
+                .file_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string()),
+            source_url: t.get_source().and_then(|s| s.external_url),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -117,6 +149,86 @@ pub async fn scan(
         .map_err(Error::from)?;
 
     Ok(Json(report))
+}
+
+/// Finalized library tracks whose audio file is missing on disk (deleted or moved
+/// away). Each can be repaired with `POST /library/tracks/<id>/resync`.
+#[openapi(tag = "library")]
+#[get("/library/missing")]
+pub async fn missing_files(
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<Json<Vec<MissingTrackDto>>, Error> {
+    let services = Arc::clone(services);
+    let tracks = db
+        .run(move |conn| services.download_service.list_missing_files(conn))
+        .await
+        .map_err(Error::from)?;
+    Ok(Json(
+        tracks.iter().map(MissingTrackDto::from_track).collect(),
+    ))
+}
+
+/// Re-download a library track from its original source and re-file it in place,
+/// keeping its identity. Repairs a track whose audio file went missing.
+#[openapi(tag = "library")]
+#[post("/library/tracks/<id>/resync")]
+pub async fn resync_track(
+    id: i32,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+    executor: &rocket::State<Arc<TaskExecutor>>,
+) -> Result<Json<MissingTrackDto>, Error> {
+    let svc = Arc::clone(services);
+    let svc_check = Arc::clone(services);
+    let track = db
+        .run(move |conn| svc.track_service.get_by_id(conn, id))
+        .await
+        .map_err(Error::from)?;
+
+    let url = track
+        .get_source()
+        .and_then(|s| s.external_url)
+        .ok_or_else(|| {
+            Error::Custom(CustomError {
+                status: Status::UnprocessableEntity,
+                code: "NoSource".to_string(),
+                message: "This track has no source URL to re-sync from.".to_string(),
+            })
+        })?;
+
+    let repaired = executor
+        .enqueue_single_track(url)
+        .await
+        .map_err(|_| {
+            Error::Custom(CustomError {
+                status: Status::InternalServerError,
+                code: "TaskExecutorClosed".to_string(),
+                message: "Task executor dropped the request before completion".to_string(),
+            })
+        })?
+        .map_err(|err| {
+            Error::Custom(CustomError {
+                status: Status::InternalServerError,
+                code: "ResyncFailed".to_string(),
+                message: err.to_string(),
+            })
+        })?;
+
+    // A re-download that could not retrieve audio (e.g. DRM-protected or dead
+    // source) leaves the finalized row unchanged, so the file is still missing.
+    // Surface that as a failure instead of a misleading success.
+    if !svc_check.download_service.library_file_present(&repaired) {
+        return Err(Error::Custom(CustomError {
+            status: Status::UnprocessableEntity,
+            code: "ResyncFailed".to_string(),
+            message: "Re-downloaded, but no audio could be retrieved. The source may be \
+                      DRM-protected or no longer available."
+                .to_string(),
+        }));
+    }
+
+    Ok(Json(MissingTrackDto::from_track(&repaired)))
 }
 
 /// Ingest a single local audio file into the library.

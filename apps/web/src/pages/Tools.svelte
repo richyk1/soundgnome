@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import BackfillPanel from '../lib/BackfillPanel.svelte';
+  import MissingFiles from '../lib/MissingFiles.svelte';
   import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud,
     getSpotifyAudioStatus, connectSpotifyAudio, completeSpotifyAudio, disconnectSpotifyAudio, downloadUrl, embedArtwork, backfillFingerprints } from '../lib/api';
   import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyAudioStatusDto } from '../lib/api';
 
   // ── Tab ────────────────────────────────────────────────────────────────────
-  type Tab = 'sync' | 'storage' | 'providers' | 'artwork' | 'fingerprints';
+  type Tab = 'sync' | 'storage' | 'providers' | 'artwork' | 'fingerprints' | 'missing';
 
   let {
     initialTab = 'sync',
@@ -346,6 +347,9 @@
     <button class="tab" class:active={activeTab === 'fingerprints'} onclick={() => switchTab('fingerprints')}>
       <i class="lni lni-fingerprint-1" aria-hidden="true"></i>Fingerprints
     </button>
+    <button class="tab" class:active={activeTab === 'missing'} onclick={() => switchTab('missing')}>
+      <i class="lni lni-unlink" aria-hidden="true"></i>Missing files
+    </button>
   </div>
 
   <!-- ── Artwork tab ─────────────────────────────────────────────────────────── -->
@@ -377,6 +381,13 @@
         note="Runs in the background and is idempotent: already-fingerprinted tracks are skipped, so re-running is cheap. Expect roughly a second or two per track."
         start={backfillFingerprints}
       />
+    </section>
+  {/if}
+
+  <!-- ── Missing files tab ───────────────────────────────────────────────────── -->
+  {#if activeTab === 'missing'}
+    <section class="tab-content">
+      <MissingFiles />
     </section>
   {/if}
 
