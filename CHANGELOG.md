@@ -102,6 +102,11 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Shuffle now matches the shown queue.** In shuffle mode the Next button picked
+  a fresh random track on every press, which never agreed with the "up next" list
+  (and could replay tracks). Shuffle now builds a stable shuffled play order (the
+  current track pinned first); Next/Previous step through it and the sidebar queue
+  displays that exact order, so they always agree. The order persists across reloads.
 - **Organizer no longer deletes a file it then fails to move.** `move_track_file`
   removed any existing destination *before* renaming the new file into place, so a
   re-organize whose source and destination resolved to the same path (or whose

@@ -112,6 +112,8 @@
     repeat: 'off' | 'all' | 'one';
     volume: number;
     muted: boolean;
+    order: number[];
+    orderPos: number;
   }
   function readPersisted(): PersistedPlayer | null {
     if (typeof localStorage === 'undefined') return null;
@@ -146,11 +148,27 @@
   let qIndex = $state(persisted?.qIndex ?? 0);
   let shuffle = $state(persisted?.shuffle ?? false);
   let repeat: 'off' | 'all' | 'one' = $state(persisted?.repeat ?? 'off');
+  // `order` is the play order: a permutation of queue indices. In shuffle it is a
+  // shuffled permutation (current track pinned first); otherwise the identity.
+  // Both the transport (next/prev) and the shown queue read from it, so they agree.
+  let order: number[] = $state(persisted?.order ?? []);
+  let orderPos = $state(persisted?.orderPos ?? 0);
+  // Init-only: rebuild unless the restored order still matches the restored queue.
+  // Read from the plain snapshot (not the reactive state) to avoid a spurious
+  // "captures initial value" warning.
+  const restoredOrderValid =
+    persisted != null &&
+    Array.isArray(persisted.order) &&
+    persisted.order.length === (persisted.queue?.length ?? 0) &&
+    persisted.order[persisted.orderPos ?? 0] === (persisted.qIndex ?? 0);
+  if (!restoredOrderValid) rebuildOrder();
   let canStep = $derived(queue.length > 1);
   // Keep `active` in sync with whether a track is loaded.
   $effect(() => {
     active = current != null;
-    upNext = qIndex >= 0 ? queue.slice(qIndex + 1) : [];
+    let upcoming = order.slice(orderPos + 1);
+    if (repeat === 'all') upcoming = upcoming.concat(order.slice(0, orderPos));
+    upNext = upcoming.map((i) => queue[i]).filter((t): t is PlayerTrack => t != null);
   });
 
   // Persist the queue + current track (with position) so a reload restores them.
@@ -166,6 +184,8 @@
           current,
           queue,
           qIndex,
+          order,
+          orderPos,
           currentTime,
           paused,
           shuffle,
@@ -182,6 +202,8 @@
     void current;
     void queue;
     void qIndex;
+    void order;
+    void orderPos;
     void paused;
     void shuffle;
     void repeat;
@@ -296,10 +318,35 @@
     };
   });
 
-  function playIndex(i: number) {
-    if (i < 0 || i >= queue.length) return;
-    qIndex = i;
-    playTrack(queue[i]);
+  /** Rebuild the play order from the current queue, shuffle flag, and qIndex. */
+  function rebuildOrder() {
+    const n = queue.length;
+    const idxs = Array.from({ length: n }, (_, i) => i);
+    if (shuffle && n > 1) {
+      // Fisher–Yates, then pin the current track first so toggling shuffle (or
+      // adopting a new queue) never jumps away from what is playing.
+      for (let i = n - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [idxs[i], idxs[j]] = [idxs[j], idxs[i]];
+      }
+      const p = idxs.indexOf(qIndex);
+      if (p > 0) {
+        idxs.splice(p, 1);
+        idxs.unshift(qIndex);
+      }
+      orderPos = 0;
+    } else {
+      orderPos = Math.max(0, idxs.indexOf(qIndex));
+    }
+    order = idxs;
+  }
+
+  /** Play the track at position `pos` within the current play order. */
+  function playAt(pos: number) {
+    if (pos < 0 || pos >= order.length) return;
+    orderPos = pos;
+    qIndex = order[pos];
+    playTrack(queue[qIndex]);
   }
 
   export async function toggle(track: PlayerTrack, q?: PlayerTrack[]) {
@@ -320,6 +367,8 @@
       }
     }
 
+    rebuildOrder();
+
     if (current?.id === track.id) {
       if (paused) el.play().catch(() => {});
       else el.pause();
@@ -328,22 +377,15 @@
     await playTrack(track);
   }
 
-  /** Move within the queue. Shuffle picks a random other track; otherwise step
-     linearly, wrapping only when repeat is 'all'. */
+  /** Step within the play order. Shuffle is baked into `order`, so this is a
+     simple positional move in both modes — and it matches the shown queue. */
   function stepTo(delta: number) {
-    const n = queue.length;
+    const n = order.length;
     if (!n) return;
-    let i: number;
-    if (shuffle && n > 1) {
-      do {
-        i = Math.floor(Math.random() * n);
-      } while (i === qIndex);
-    } else {
-      i = qIndex + delta;
-      if (i < 0) i = repeat === 'all' ? n - 1 : 0;
-      else if (i >= n) i = repeat === 'all' ? 0 : n - 1;
-    }
-    playIndex(i);
+    let p = orderPos + delta;
+    if (p < 0) p = repeat === 'all' ? n - 1 : 0;
+    else if (p >= n) p = repeat === 'all' ? 0 : n - 1;
+    playAt(p);
   }
 
   function next() {
@@ -359,14 +401,15 @@
   }
   function toggleShuffle() {
     shuffle = !shuffle;
+    rebuildOrder();
   }
   function cycleRepeat() {
     repeat = repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off';
   }
 
-  /** Auto-advance when a track finishes, honoring repeat/shuffle. */
+  /** Auto-advance when a track finishes, honoring repeat and the play order. */
   function onEndedInternal() {
-    const n = queue.length;
+    const n = order.length;
     if (repeat === 'one') {
       if (audio) {
         audio.currentTime = 0;
@@ -374,16 +417,12 @@
       }
       return;
     }
-    if (shuffle && n > 1) {
-      stepTo(1);
-      return;
-    }
-    if (qIndex + 1 < n) {
-      playIndex(qIndex + 1);
+    if (orderPos + 1 < n) {
+      playAt(orderPos + 1);
       return;
     }
     if (repeat === 'all' && n > 0) {
-      playIndex(0);
+      playAt(0);
       return;
     }
     onEnded?.();
