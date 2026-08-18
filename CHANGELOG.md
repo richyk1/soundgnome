@@ -115,6 +115,11 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Mobile is now edge-to-edge.** The desktop "rounded panels floating on black"
+  look left black bars framing the content on phones, and the header/drawer sat
+  under the status bar. On phones the shell padding and panel radii are dropped so
+  content fills the screen, the menu drawer is full-bleed, and the header, drawer,
+  and player bar carry safe-area insets so nothing hides under the notch or home bar.
 - **PWA update prompt was in French.** The "update available" banner had
   hardcoded French strings; it's now English ("Update available" / "Update" /
   "Later").

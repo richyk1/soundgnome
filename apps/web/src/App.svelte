@@ -520,14 +520,41 @@
   .mobile-toggle .lni { font-size: 20px; }
 
   @media (max-width: 860px) {
-    .app-body { grid-template-columns: 1fr; }
-    .mobile-toggle { display: flex; }
+    /* Edge-to-edge on phones: drop the desktop black frame + rounded panels. */
+    .app-shell {
+      padding: 0;
+      gap: 0;
+    }
+    .app-body {
+      grid-template-columns: 1fr;
+    }
+    .content-panel {
+      border-radius: 0;
+    }
+    .player-bar {
+      border-radius: 0;
+      height: calc(110px + env(safe-area-inset-bottom));
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .mobile-toggle {
+      display: flex;
+      border-radius: 0;
+      /* Clear the status bar / notch with breathing room. */
+      padding: calc(env(safe-area-inset-top) + 18px) 18px 14px;
+    }
     .sidebar {
       display: none;
       position: fixed;
-      inset: 8px 8px 126px 8px;
+      inset: 0 0 calc(110px + env(safe-area-inset-bottom)) 0;
+      border-radius: 0;
       z-index: 150;
     }
-    .sidebar.mobile-open { display: flex; }
+    .sidebar.mobile-open {
+      display: flex;
+    }
+    /* Drawer's own title also clears the status bar. */
+    .brand-panel {
+      padding-top: calc(env(safe-area-inset-top) + 22px);
+    }
   }
 </style>
