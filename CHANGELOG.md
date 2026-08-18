@@ -73,6 +73,14 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Changed
 
+- **Validations page redesigned (flatter, fewer alerts).** The nested "card in a
+  card in a card" layout is gone: each track is a flat row with its candidates
+  listed directly beneath, and matches load automatically as you scroll instead
+  of behind a "Show matches" toggle. Approve / Reject / Select are now stateful
+  buttons that carry their own loading, success, and error states (spinner, then
+  a check or a shake), so a failure is shown on the button plus one concise inline
+  line rather than a page-level alert box. The three tinted tab callouts collapsed
+  into a single muted hint.
 - Web layout now uses the full viewport width (removed the centered `max-width`
   caps on the shell and the library views).
 - Rebranded from Soundome to **Soundgnome**: application name, the `SOUNDGNOME__`

@@ -2,6 +2,10 @@
   import { getPendingValidations, approveValidation, rejectValidation } from '../lib/api';
   import TrackCard from '../lib/TrackCard.svelte';
   import type { PendingValidationDto, PatchValidationBody } from '../lib/types';
+  import { flip } from 'svelte/animate';
+
+  const reduce =
+    typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   interface Props {
     onDownloaded?: () => void;
@@ -64,30 +68,18 @@
   });
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-  // Shown as a dismissible banner above the list; a failed approve/reject (e.g.
-  // the track's audio file is missing) must not silently do nothing.
-  let actionError: string | null = $state(null);
-
+  // These throw on failure; the per-card StatefulButton catches it to show its
+  // error state and inline reason, so there is no page-level alert box.
   async function handleApprove(id: number, patch: PatchValidationBody) {
-    actionError = null;
-    try {
-      await approveValidation(id, patch);
-      tracks = tracks.filter((t) => t.id !== id);
-      onDownloaded?.();
-    } catch (e: unknown) {
-      actionError = e instanceof Error ? e.message : String(e);
-    }
+    await approveValidation(id, patch);
+    tracks = tracks.filter((t) => t.id !== id);
+    onDownloaded?.();
   }
 
   async function handleReject(id: number) {
-    actionError = null;
-    try {
-      await rejectValidation(id);
-      tracks = tracks.filter((t) => t.id !== id);
-      onDownloaded?.();
-    } catch (e: unknown) {
-      actionError = e instanceof Error ? e.message : String(e);
-    }
+    await rejectValidation(id);
+    tracks = tracks.filter((t) => t.id !== id);
+    onDownloaded?.();
   }
 </script>
 
@@ -108,17 +100,6 @@
       {/if}
     </button>
   </header>
-
-  {#if actionError}
-    <div class="callout callout-error" role="alert">
-      <i class="lni lni-xmark-circle" aria-hidden="true"></i>
-      <div class="callout-body">
-        <strong>Couldn't apply that change.</strong>
-        <span>{actionError}</span>
-      </div>
-      <button class="btn-secondary btn-sm" onclick={() => (actionError = null)}>Dismiss</button>
-    </div>
-  {/if}
 
   {#if loading}
     <ul class="skeleton-list" aria-hidden="true">
@@ -187,35 +168,15 @@
       </button>
     </div>
 
-    <!-- Tab description as a tinted callout -->
-    {#if activeTab === 'partial'}
-      <div class="callout callout-warning" role="note">
-        <i class="lni lni-info-triangle" aria-hidden="true"></i>
-        <div class="callout-body">
-          <span>
-            A metadata provider found a likely match, but confidence was not high enough for automatic
-            approval. Review the candidates and confirm or correct.
-          </span>
-        </div>
-      </div>
-    {:else if activeTab === 'no_match'}
-      <div class="callout callout-info" role="note">
-        <i class="lni lni-info-circle" aria-hidden="true"></i>
-        <div class="callout-body">
-          <span>No metadata match was found automatically. Edit the metadata manually before approving.</span>
-        </div>
-      </div>
-    {:else}
-      <div class="callout callout-error" role="note">
-        <i class="lni lni-xmark-circle" aria-hidden="true"></i>
-        <div class="callout-body">
-          <span>
-            SoundCloud track is DRM-protected and could not be downloaded. Find the matching YouTube
-            video and select it as the audio source.
-          </span>
-        </div>
-      </div>
-    {/if}
+    <p class="tab-hint">
+      {#if activeTab === 'partial'}
+        Confidence was below the auto-approve threshold. Confirm the top match or pick a candidate.
+      {:else if activeTab === 'no_match'}
+        No match was found automatically. Edit the metadata, then approve.
+      {:else}
+        DRM-protected on SoundCloud. Pick the matching YouTube source to download.
+      {/if}
+    </p>
 
     <!-- Search -->
     {#if activeTracks.length > 0}
@@ -245,7 +206,7 @@
       </p>
       <ul class="track-list" role="list">
         {#each filteredTracks as track (track.id)}
-          <li>
+          <li animate:flip={{ duration: reduce ? 0 : 220 }}>
             <TrackCard {track} onApprove={handleApprove} onReject={handleReject} />
           </li>
         {/each}
@@ -432,19 +393,6 @@
     border-color: color-mix(in srgb, var(--error) 45%, transparent);
     color: var(--error);
   }
-  .callout-warning {
-    background: var(--warning-bg);
-    border-color: color-mix(in srgb, var(--warning) 45%, transparent);
-    color: var(--warning);
-  }
-  .callout-info {
-    background: var(--surface);
-    border-color: var(--border);
-    color: var(--muted);
-  }
-  .callout-info .lni {
-    color: var(--muted-2);
-  }
 
   /* ── Search ──────────────────────────────────────────────────────────── */
   .search-field {
@@ -494,6 +442,14 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .tab-hint {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.5;
+    max-width: 72ch;
+  }
+
   /* ── List ────────────────────────────────────────────────────────────── */
   .track-list {
     list-style: none;
@@ -501,7 +457,7 @@
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0;
   }
 
   /* ── Empty state ─────────────────────────────────────────────────────── */

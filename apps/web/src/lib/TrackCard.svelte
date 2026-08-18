@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { slide } from 'svelte/transition';
   import { getMatchCandidates, getYoutubeCandidates } from './api';
   import type { PendingValidationDto, PatchValidationBody, MatchCandidateDto } from './types';
-  import { lib } from './library/store.svelte';
   import ArtistMultiSelect from './library/ArtistMultiSelect.svelte';
+  import StatefulButton from './StatefulButton.svelte';
 
   interface Props {
     track: PendingValidationDto;
@@ -12,11 +13,14 @@
 
   let { track, onApprove, onReject }: Props = $props();
 
-  let editing = $state(false);
-  let busy = $state(false);
+  const reduce =
+    typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Match candidates state
-  let showMatches = $state(false);
+  let editing = $state(false);
+  let actionError: string | null = $state(null);
+
+  // Match candidates: loaded automatically when the row scrolls into view.
+  let matchesRequested = false;
   let matchesLoading = $state(false);
   let matchCandidates: MatchCandidateDto[] = $state([]);
   let matchesError: string | null = $state(null);
@@ -31,7 +35,16 @@
   let editDiscNumber = $state('');
   let editLabel = $state('');
 
-  // Initialize edit fields from track and react to track changes
+  let cardEl: HTMLElement | undefined = $state();
+
+  let sourceUrl = $derived(
+    track.references.find((r) => r.ref_type === 'Source' && r.external_url)?.external_url ?? null,
+  );
+  let isPartialMatch = $derived(track.validation_reason === 'metadata_partial_match');
+  let isDrmProtected = $derived(track.validation_reason === 'soundcloud_drm_protected');
+  let showsCandidates = $derived(isPartialMatch || isDrmProtected);
+
+  // Keep edit fields in sync with the track.
   $effect(() => {
     editTitle = track.title;
     editArtists = track.artists.map((a) => a.name);
@@ -43,104 +56,59 @@
     editLabel = track.label ?? '';
   });
 
-  let cardEl: HTMLElement | undefined = $state();
-  let hovered = $state(false);
+  // Auto-load candidates when the row nears the viewport (avoids firing a
+  // rate-limited MusicBrainz/YouTube lookup for every pending track at once).
+  $effect(() => {
+    if (!cardEl || !showsCandidates) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          io.disconnect();
+          loadMatches();
+        }
+      },
+      { rootMargin: '300px' },
+    );
+    io.observe(cardEl);
+    return () => io.disconnect();
+  });
 
-  // 'e' to open edit when hovered, Escape to close it
+  // 'e' to edit / Escape to close, only while hovered / editing.
+  let hovered = $state(false);
   $effect(() => {
     if (!hovered || editing) return;
     function onKeydown(e: KeyboardEvent) {
       const tgt = e.target as HTMLElement;
       if (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT') return;
-      if (e.key === 'e') { e.preventDefault(); startEdit(); }
+      if (e.key === 'e') {
+        e.preventDefault();
+        startEdit();
+      }
     }
     document.addEventListener('keydown', onKeydown);
     return () => document.removeEventListener('keydown', onKeydown);
   });
-
   $effect(() => {
     if (!editing) return;
     function onKeydown(e: KeyboardEvent) {
-      if (e.key === 'Escape') { e.preventDefault(); editing = false; }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        editing = false;
+      }
     }
     document.addEventListener('keydown', onKeydown);
     return () => document.removeEventListener('keydown', onKeydown);
   });
 
-  function startEdit() {
-    editTitle = track.title;
-    editArtists = track.artists.map((a) => a.name);
-    editAlbum = track.album?.title ?? '';
-    editGenre = track.genre ?? '';
-    editDate = track.date ?? '';
-    editTrackNumber = track.track_number?.toString() ?? '';
-    editDiscNumber = track.disc_number?.toString() ?? '';
-    editLabel = track.label ?? '';
-    editing = true;
-  }
-
-  async function handleApprove() {
-    if (!onApprove) return;
-    busy = true;
-    try {
-      const patch: PatchValidationBody = {};
-      if (editing) {
-        const t = editTitle.trim();
-        if (t && t !== track.title) patch.title = t;
-
-        const origArtists = track.artists.map((a) => a.name);
-        if (JSON.stringify(editArtists) !== JSON.stringify(origArtists) && editArtists.length > 0)
-          patch.artists = editArtists;
-
-        const al = editAlbum.trim();
-        if (al !== (track.album?.title ?? '')) patch.album_title = al || undefined;
-
-        const g = editGenre.trim();
-        if (g !== (track.genre ?? '')) patch.genre = g || undefined;
-
-        const d = editDate.trim();
-        if (d !== (track.date ?? '')) patch.date = d || undefined;
-
-        const tn = parseInt(editTrackNumber);
-        if (!isNaN(tn) && tn !== track.track_number) patch.track_number = tn;
-
-        const dn = parseInt(editDiscNumber);
-        if (!isNaN(dn) && dn !== track.disc_number) patch.disc_number = dn;
-
-        const lb = editLabel.trim();
-        if (lb !== (track.label ?? '')) patch.label = lb || undefined;
-      }
-      await onApprove(track.id, patch);
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function handleReject() {
-    if (!onReject) return;
-    busy = true;
-    try {
-      await onReject(track.id);
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function toggleMatches() {
-    if (showMatches) {
-      showMatches = false;
-      return;
-    }
-    showMatches = true;
-    if (matchCandidates.length > 0) return; // already loaded
+  async function loadMatches() {
+    if (matchesRequested) return;
+    matchesRequested = true;
     matchesLoading = true;
     matchesError = null;
     try {
-      if (isDrmProtected) {
-        matchCandidates = await getYoutubeCandidates(track.id);
-      } else {
-        matchCandidates = await getMatchCandidates(track.id);
-      }
+      matchCandidates = isDrmProtected
+        ? await getYoutubeCandidates(track.id)
+        : await getMatchCandidates(track.id);
     } catch (e: unknown) {
       matchesError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -148,619 +116,502 @@
     }
   }
 
-  async function selectCandidate(candidate: MatchCandidateDto) {
-    if (!onApprove) return;
-    busy = true;
-    try {
-      const patch: PatchValidationBody = {};
-
-      if (isDrmProtected) {
-        // DRM track: only supply the provider URL for download — keep existing SoundCloud metadata.
-        const providerRef = candidate.references.find(
-          (r) => r.ref_type === 'Provider' && r.external_url,
-        );
-        if (!providerRef?.external_url) return;
-        patch.provider_url = providerRef.external_url;
-      } else {
-        // Metadata candidate: apply full metadata from the match.
-        patch.title = candidate.title;
-        patch.artists = candidate.artists.map((a) => a.name);
-        patch.album_title = candidate.album?.title ?? undefined;
-        patch.genre = candidate.genre ?? undefined;
-        patch.date = candidate.date ?? undefined;
-        patch.track_number = candidate.track_number ?? undefined;
-        patch.disc_number = candidate.disc_number ?? undefined;
-        patch.label = candidate.label ?? undefined;
-      }
-
-      await onApprove(track.id, patch);
-    } finally {
-      busy = false;
-    }
+  function startEdit() {
+    editing = true;
   }
 
-  function formatDuration(seconds: number | null): string {
-    if (!seconds) return '—';
+  // These throw on failure; the StatefulButton catches it to show its error state
+  // and reports the reason via onError for the inline note.
+  async function approve() {
+    if (!onApprove) return;
+    const patch: PatchValidationBody = {};
+    if (editing) {
+      const t = editTitle.trim();
+      if (t && t !== track.title) patch.title = t;
+      const origArtists = track.artists.map((a) => a.name);
+      if (JSON.stringify(editArtists) !== JSON.stringify(origArtists) && editArtists.length > 0)
+        patch.artists = editArtists;
+      const al = editAlbum.trim();
+      if (al !== (track.album?.title ?? '')) patch.album_title = al || undefined;
+      const g = editGenre.trim();
+      if (g !== (track.genre ?? '')) patch.genre = g || undefined;
+      const d = editDate.trim();
+      if (d !== (track.date ?? '')) patch.date = d || undefined;
+      const tn = parseInt(editTrackNumber);
+      if (!isNaN(tn) && tn !== track.track_number) patch.track_number = tn;
+      const dn = parseInt(editDiscNumber);
+      if (!isNaN(dn) && dn !== track.disc_number) patch.disc_number = dn;
+      const lb = editLabel.trim();
+      if (lb !== (track.label ?? '')) patch.label = lb || undefined;
+    }
+    await onApprove(track.id, patch);
+  }
+
+  async function reject() {
+    if (!onReject) return;
+    await onReject(track.id);
+  }
+
+  async function selectCandidate(candidate: MatchCandidateDto) {
+    if (!onApprove) return;
+    const patch: PatchValidationBody = {};
+    if (isDrmProtected) {
+      const providerRef = candidate.references.find(
+        (r) => r.ref_type === 'Provider' && r.external_url,
+      );
+      if (!providerRef?.external_url) throw new Error('This result has no downloadable source.');
+      patch.provider_url = providerRef.external_url;
+    } else {
+      patch.title = candidate.title;
+      patch.artists = candidate.artists.map((a) => a.name);
+      patch.album_title = candidate.album?.title ?? undefined;
+      patch.genre = candidate.genre ?? undefined;
+      patch.date = candidate.date ?? undefined;
+      patch.track_number = candidate.track_number ?? undefined;
+      patch.disc_number = candidate.disc_number ?? undefined;
+      patch.label = candidate.label ?? undefined;
+    }
+    await onApprove(track.id, patch);
+  }
+
+  function dur(seconds: number | null | undefined): string | null {
+    if (!seconds) return null;
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
-
   function artistNames(): string {
     return track.artists.map((a) => a.name).join(', ') || '—';
   }
-
-  function formatScore(score: number): string {
-    return `${Math.round(score * 100)}%`;
+  function trackMeta(): string {
+    return [track.album?.title, track.date, dur(track.duration)].filter(Boolean).join('  ·  ');
   }
-
-  let sourceUrl = $derived(
-    track.references.find((r) => r.ref_type === 'Source' && r.external_url)?.external_url ?? null
-  );
-
-  let isPartialMatch = $derived(track.validation_reason === 'metadata_partial_match');
-  let isDrmProtected = $derived(track.validation_reason === 'soundcloud_drm_protected');
-
-  function reasonLabel(reason: string | null): string {
-    switch (reason) {
-      case 'metadata_partial_match':   return 'Partial metadata match — confirm or pick a candidate';
-      case 'metadata_no_match':        return 'No metadata match found — edit manually before approving';
-      case 'soundcloud_drm_protected': return 'SoundCloud DRM — select a YouTube source to download';
-      default:                         return reason ?? '';
-    }
+  function candMeta(c: MatchCandidateDto): string {
+    return [c.album?.title, c.date, dur(c.duration), c.provider].filter(Boolean).join('  ·  ');
+  }
+  function scoreLevel(score: number): 'high' | 'mid' | 'low' {
+    if (score >= 0.75) return 'high';
+    if (score >= 0.5) return 'mid';
+    return 'low';
+  }
+  function candProviderUrl(c: MatchCandidateDto): string | null {
+    return c.references?.find((r) => r.external_url)?.external_url ?? null;
   }
 </script>
 
-<article class="track-card" class:editing bind:this={cardEl}
-  onmouseenter={() => hovered = true}
-  onmouseleave={() => hovered = false}>
-  <div class="cover">
-    {#if track.cover}
-      <img src={track.cover} alt="cover" />
-    {:else}
-      <div class="cover-placeholder"><i class="lni lni-music-note" aria-hidden="true"></i></div>
-    {/if}
-  </div>
+<article
+  class="vrow"
+  class:editing
+  bind:this={cardEl}
+  onmouseenter={() => (hovered = true)}
+  onmouseleave={() => (hovered = false)}
+  out:slide={{ duration: reduce ? 0 : 240 }}
+>
+  <div class="vrow-head">
+    <div class="cover">
+      {#if track.cover}
+        <img src={track.cover} alt="" />
+      {:else}
+        <i class="lni lni-music-note" aria-hidden="true"></i>
+      {/if}
+    </div>
 
-  <div class="body">
-    {#if editing}
-       <div class="edit-form">
-         <div class="field">
-           <label for="edit-title">Title</label>
-           <input id="edit-title" bind:value={editTitle} placeholder="Title" />
-         </div>
+    <div class="main">
+      {#if editing}
+        <div class="edit-form">
           <div class="field">
-            <label for="edit-artists">Artists</label>
-            <ArtistMultiSelect
-              value={editArtists}
-              onChange={(names) => { editArtists = names; }}
-            />
+            <label for="edit-title-{track.id}">Title</label>
+            <input id="edit-title-{track.id}" bind:value={editTitle} placeholder="Title" />
           </div>
-         <div class="field">
-           <label for="edit-album">Album</label>
-           <input id="edit-album" bind:value={editAlbum} placeholder="Album title" />
-         </div>
-         <div class="field-row">
-           <div class="field">
-             <label for="edit-genre">Genre</label>
-             <input id="edit-genre" bind:value={editGenre} placeholder="Genre" />
-           </div>
-           <div class="field">
-             <label for="edit-date">Date</label>
-             <input id="edit-date" bind:value={editDate} placeholder="YYYY-MM-DD" />
-           </div>
-           <div class="field narrow">
-             <label for="edit-track-number">Track #</label>
-             <input id="edit-track-number" bind:value={editTrackNumber} placeholder="1" type="number" min="1" />
-           </div>
-           <div class="field narrow">
-             <label for="edit-disc-number">Disc #</label>
-             <input id="edit-disc-number" bind:value={editDiscNumber} placeholder="1" type="number" min="1" />
-           </div>
-         </div>
-         <div class="field">
-           <label for="edit-label">Label</label>
-           <input id="edit-label" bind:value={editLabel} placeholder="Label" />
-         </div>
-       </div>
-    {:else}
-      <div class="info">
-        <div class="row main">
+          <div class="field">
+            <label for="edit-artists-{track.id}">Artists</label>
+            <ArtistMultiSelect value={editArtists} onChange={(names) => (editArtists = names)} />
+          </div>
+          <div class="field">
+            <label for="edit-album-{track.id}">Album</label>
+            <input id="edit-album-{track.id}" bind:value={editAlbum} placeholder="Album" />
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="edit-genre-{track.id}">Genre</label>
+              <input id="edit-genre-{track.id}" bind:value={editGenre} placeholder="Genre" />
+            </div>
+            <div class="field">
+              <label for="edit-date-{track.id}">Date</label>
+              <input id="edit-date-{track.id}" bind:value={editDate} placeholder="YYYY-MM-DD" />
+            </div>
+            <div class="field narrow">
+              <label for="edit-tn-{track.id}">Track #</label>
+              <input id="edit-tn-{track.id}" bind:value={editTrackNumber} type="number" min="1" />
+            </div>
+            <div class="field narrow">
+              <label for="edit-dn-{track.id}">Disc #</label>
+              <input id="edit-dn-{track.id}" bind:value={editDiscNumber} type="number" min="1" />
+            </div>
+          </div>
+          <div class="field">
+            <label for="edit-label-{track.id}">Label</label>
+            <input id="edit-label-{track.id}" bind:value={editLabel} placeholder="Label" />
+          </div>
+        </div>
+      {:else}
+        <div class="title-line">
           {#if sourceUrl}
-            <a class="title" href={sourceUrl} target="_blank" rel="noopener noreferrer">{track.title}</a>
+            <a class="title" href={sourceUrl} target="_blank" rel="noopener noreferrer"
+              >{track.title}</a
+            >
           {:else}
             <span class="title">{track.title}</span>
           {/if}
-          <span class="artists">{artistNames()}</span>
+          <span class="artist">{artistNames()}</span>
         </div>
-
-        <div class="row meta">
-          {#if track.album}
-            <span class="chip">{track.album.title}</span>
-          {/if}
-          {#if track.date}
-            <span class="chip">{track.date}</span>
-          {/if}
-          {#if track.genre}
-            <span class="chip">{track.genre}</span>
-          {/if}
-          {#if track.duration}
-            <span class="chip chip-duration">{formatDuration(track.duration)}</span>
-          {/if}
-        </div>
-
-        {#if track.validation_reason}
-          <div class="reason">
-            <i class="lni lni-info-triangle" aria-hidden="true"></i>
-            <span>{reasonLabel(track.validation_reason)}</span>
-          </div>
+        {#if trackMeta()}
+          <div class="meta">{trackMeta()}</div>
         {/if}
+      {/if}
+    </div>
 
-        {#if track.file_path}
-          <div class="filepath">
-            <code>{track.file_path}</code>
-          </div>
+    <div class="actions">
+      {#if editing}
+        <button class="lbtn" onclick={() => (editing = false)}>Cancel</button>
+        {#if onApprove}
+          <StatefulButton
+            variant="primary"
+            label="Save & approve"
+            action={approve}
+            onError={(m) => (actionError = m)}
+          />
         {/if}
-      </div>
-    {/if}
-
-    {#if onApprove || onReject}
-      <div class="actions">
-        <div class="actions-left">
-          {#if editing}
-            <button class="btn-ghost" onclick={() => (editing = false)} disabled={busy}>
-              Cancel
-            </button>
-          {:else}
-            <button class="btn-ghost btn-edit" onclick={startEdit} disabled={busy}>
-              Edit
-            </button>
-            {#if isPartialMatch}
-              <button class="btn-ghost btn-matches" onclick={toggleMatches} disabled={busy}>
-                {showMatches ? 'Hide matches' : 'Show matches'}
-              </button>
-            {/if}
-            {#if isDrmProtected}
-              <button class="btn-ghost btn-youtube" onclick={toggleMatches} disabled={busy}>
-                {showMatches ? 'Hide YouTube results' : 'Find on YouTube'}
-              </button>
-            {/if}
-          {/if}
-        </div>
-        <div class="actions-right">
-          {#if onReject}
-            <button class="btn-reject" onclick={handleReject} disabled={busy}>
-              {busy ? '…' : 'Reject'}
-            </button>
-          {/if}
-          {#if onApprove}
-            <button class="btn-approve" onclick={handleApprove} disabled={busy}>
-              {busy ? '…' : 'Approve'}
-            </button>
-          {/if}
-        </div>
-      </div>
-    {/if}
-
-    {#if showMatches}
-      <div class="matches-panel">
-        {#if matchesLoading}
-          <p class="matches-status">{isDrmProtected ? 'Searching YouTube…' : 'Searching metadata providers…'}</p>
-        {:else if matchesError}
-          <p class="matches-status matches-error">{matchesError}</p>
-        {:else if matchCandidates.length === 0}
-          <p class="matches-status">No candidates found</p>
-        {:else}
-          <p class="matches-count">{matchCandidates.length} candidate{matchCandidates.length > 1 ? 's' : ''} found</p>
-           <ul class="matches-list">
-             {#each matchCandidates as candidate, i}
-               <li class="match-item">
-                 <div class="match-info">
-                   <div class="match-main">
-                     {#if candidate.references && candidate.references.some(r => r.external_url)}
-                       {@const providerUrl = candidate.references.find(r => r.external_url)?.external_url}
-                       <a class="match-title" href={providerUrl} target="_blank" rel="noopener noreferrer">{candidate.title}</a>
-                     {:else}
-                       <span class="match-title">{candidate.title}</span>
-                     {/if}
-                     <span class="match-artists">{candidate.artists.map(a => a.name).join(', ')}</span>
-                   </div>
-                   <div class="match-meta">
-                     {#if candidate.album}
-                       <span class="chip">{candidate.album.title}</span>
-                     {/if}
-                     {#if candidate.date}
-                       <span class="chip">{candidate.date}</span>
-                     {/if}
-                     {#if candidate.duration}
-                       <span class="chip chip-duration">{formatDuration(candidate.duration)}</span>
-                     {/if}
-                     <span class="chip match-score">{formatScore(candidate.score)}</span>
-                     <span class="chip match-provider">{candidate.provider}</span>
-                   </div>
-                 </div>
-                 <button class="btn-select" onclick={() => selectCandidate(candidate)} disabled={busy}>
-                   Select
-                 </button>
-               </li>
-             {/each}
-           </ul>
+      {:else}
+        <button class="lbtn" onclick={startEdit} title="Edit metadata (e)">Edit</button>
+        {#if onReject}
+          <StatefulButton
+            variant="danger"
+            label="Reject"
+            action={reject}
+            onError={(m) => (actionError = m)}
+          />
         {/if}
-      </div>
-    {/if}
+        {#if onApprove}
+          <StatefulButton
+            variant="primary"
+            label="Approve"
+            action={approve}
+            onError={(m) => (actionError = m)}
+          />
+        {/if}
+      {/if}
+    </div>
   </div>
+
+  {#if actionError}
+    <p class="row-error" role="alert">
+      <i class="lni lni-xmark-circle" aria-hidden="true"></i>{actionError}
+    </p>
+  {/if}
+
+  {#if showsCandidates && !editing}
+    <div class="cands">
+      {#if matchesLoading}
+        <p class="cand-status"><span class="mini-spin" aria-hidden="true"></span>Finding matches…</p>
+      {:else if matchesError}
+        <p class="cand-status is-err">{matchesError}</p>
+      {:else if matchCandidates.length === 0}
+        <p class="cand-status">No candidates found</p>
+      {:else}
+        {#each matchCandidates as candidate (candidate.title + candidate.provider + candidate.score)}
+          {@const purl = candProviderUrl(candidate)}
+          <div class="cand">
+            <div class="cand-main">
+              <div class="cand-title-line">
+                {#if purl}
+                  <a class="cand-title" href={purl} target="_blank" rel="noopener noreferrer"
+                    >{candidate.title}</a
+                  >
+                {:else}
+                  <span class="cand-title">{candidate.title}</span>
+                {/if}
+                <span class="cand-artist">{candidate.artists.map((a) => a.name).join(', ')}</span>
+                <span class="cand-score" data-lvl={scoreLevel(candidate.score)}
+                  >{Math.round(candidate.score * 100)}%</span
+                >
+              </div>
+              <div class="cand-meta">{candMeta(candidate)}</div>
+            </div>
+            <StatefulButton
+              variant="primary"
+              size="sm"
+              label="Select"
+              action={() => selectCandidate(candidate)}
+              onError={(m) => (actionError = m)}
+            />
+          </div>
+        {/each}
+      {/if}
+    </div>
+  {/if}
 </article>
 
 <style>
-  .track-card {
-    display: flex;
-    gap: 1rem;
-    padding: 1rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 10px;
-    box-shadow: var(--rim), var(--shadow-sm);
-    transition: border-color 0.15s;
+  /* Flat row: no nested cards, no surface stacking. Rows are separated by a
+     hairline and grouped by indentation, not by boxes. */
+  .vrow {
+    padding: 1rem 0.5rem 1.1rem;
+    border-bottom: 1px solid var(--border-soft);
+    transition: background 0.12s ease;
+  }
+  .vrow:hover {
+    background: color-mix(in srgb, var(--surface) 55%, transparent);
+  }
+  .vrow.editing {
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
   }
 
-  .track-card.editing {
-    border-color: var(--accent);
+  .vrow-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9rem;
   }
 
   .cover {
     flex-shrink: 0;
-    width: 72px;
-    height: 72px;
+    width: 48px;
+    height: 48px;
     border-radius: 6px;
     overflow: hidden;
     background: var(--surface-2);
     display: flex;
     align-items: center;
     justify-content: center;
+    color: var(--muted-2);
   }
-
   .cover img {
     width: 100%;
     height: 100%;
     object-fit: cover;
   }
-
-  .cover-placeholder {
-    font-size: 1.8rem;
-    color: var(--muted);
-    display: flex;
-    line-height: 1;
+  .cover .lni {
+    font-size: 20px;
   }
 
-  .body {
+  .main {
     flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
     min-width: 0;
+    padding-top: 0.1rem;
   }
-
-  /* ---- read-only info ---- */
-
-  .info {
+  .title-line {
     display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-
-  .row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
     align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
   }
-
   .title {
+    font-size: 0.95rem;
     font-weight: 600;
-    font-size: 1rem;
-  }
-
-  a.title {
-    color: inherit;
+    color: var(--text-bright);
     text-decoration: none;
   }
-
   a.title:hover {
     text-decoration: underline;
   }
-
-  .artists {
-    font-size: 0.875rem;
+  .artist {
+    font-size: 0.85rem;
     color: var(--muted);
-  }
-
-  .chip {
-    font-size: 0.75rem;
-    padding: 0.2rem 0.5rem;
-    background: var(--surface-2);
-    border-radius: 4px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  .chip-duration {
-    font-family: var(--font-mono);
+  .meta {
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: var(--muted-2);
+    font-variant-numeric: tabular-nums;
   }
 
-  .reason {
+  .actions {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  /* Plain (non-async) button for Edit / Cancel */
+  .lbtn {
+    height: 34px;
+    padding: 0 0.8rem;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
+  }
+  .lbtn:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  .row-error {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    font-size: 0.75rem;
-    padding: 0.3rem 0.5rem;
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--warning) 14%, transparent);
-    color: var(--warning);
+    margin: 0.5rem 0 0 3.9rem;
+    font-size: 0.82rem;
+    color: var(--error);
   }
-
-  .reason .lni {
-    font-size: 0.95rem;
+  .row-error .lni {
+    font-size: 15px;
     flex-shrink: 0;
   }
 
-  .filepath {
-    font-size: 0.7rem;
-    color: var(--muted);
-    word-break: break-all;
+  /* Candidates: indented under the title, flat rows split by hairlines. */
+  .cands {
+    margin: 0.6rem 0 0 3.9rem;
   }
-
-  /* ---- edit form ---- */
-
-  .edit-form {
+  .cand-status {
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: 0.5rem;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    flex: 1;
-  }
-
-  .field.narrow {
-    flex: 0 0 80px;
-  }
-
-  .field-row {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-
-  label {
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    margin: 0;
+    padding: 0.5rem 0;
+    font-size: 0.82rem;
     color: var(--muted);
   }
-
-  .hint {
-    font-weight: 400;
-    text-transform: none;
-    letter-spacing: 0;
-    opacity: 0.7;
+  .cand-status.is-err {
+    color: var(--error);
   }
-
-  input {
-    padding: 0.35rem 0.5rem;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: inherit;
-    font-size: 0.875rem;
-    width: 100%;
-    box-sizing: border-box;
-  }
-
-  input:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  /* ---- actions ---- */
-
-  .actions {
+  .cand {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.5rem;
-    padding-top: 0.25rem;
+    gap: 1rem;
+    padding: 0.55rem 0;
+    border-top: 1px solid var(--border-soft);
   }
-
-  .actions-left,
-  .actions-right {
+  .cand:first-child {
+    border-top: none;
+  }
+  .cand-main {
+    min-width: 0;
+  }
+  .cand-title-line {
     display: flex;
-    gap: 0.4rem;
+    align-items: baseline;
+    gap: 0.55rem;
+    flex-wrap: wrap;
   }
-
-  button {
-    padding: 0.3rem 0.8rem;
-    border-radius: 5px;
-    font-size: 0.8rem;
+  .cand-title {
+    font-size: 0.88rem;
     font-weight: 500;
-    cursor: pointer;
-    border: 1px solid transparent;
-    transition: opacity 0.1s;
+    color: var(--text);
+    text-decoration: none;
   }
-
-  button:disabled {
-    opacity: 0.45;
-    cursor: default;
+  a.cand-title:hover {
+    text-decoration: underline;
   }
-
-  .btn-ghost {
-    background: transparent;
-    border-color: var(--border);
-    color: var(--muted);
-  }
-
-  .btn-ghost:hover:not(:disabled) {
-    background: var(--surface-2);
-    color: inherit;
-  }
-
-  .btn-approve {
-    background: var(--accent);
-    color: #fff;
-  }
-
-  .btn-approve:hover:not(:disabled) {
-    opacity: 0.85;
-  }
-
-  .btn-reject {
-    background: transparent;
-    border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
-    color: var(--error);
-  }
-
-  .btn-reject:hover:not(:disabled) {
-    background: var(--error);
-    color: #fff;
-  }
-
-  .btn-matches {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-
-  .btn-matches:hover:not(:disabled) {
-    background: var(--accent);
-    color: #fff;
-  }
-
-  .btn-youtube {
-    border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
-    color: var(--error);
-  }
-
-  .btn-youtube:hover:not(:disabled) {
-    background: var(--error);
-    color: #fff;
-  }
-
-  /* ---- matches panel ---- */
-
-  .matches-panel {
-    margin-top: 0.75rem;
-    padding: 0.75rem;
-    background: var(--surface);
-    border-radius: 10px;
-    border: 1px solid var(--border-soft);
-    box-shadow: var(--rim), var(--shadow-sm);
-  }
-
-  .matches-status {
+  .cand-artist {
     font-size: 0.8rem;
     color: var(--muted);
-    text-align: center;
-    margin: 0;
-    padding: 0.5rem 0;
+  }
+  .cand-score {
+    font-size: 0.72rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
+  }
+  .cand-score[data-lvl='high'] {
+    color: var(--success);
+  }
+  .cand-score[data-lvl='mid'] {
+    color: var(--warning, #d9a441);
+  }
+  .cand-meta {
+    margin-top: 0.2rem;
+    font-size: 0.76rem;
+    color: var(--muted-2);
+    font-variant-numeric: tabular-nums;
   }
 
-  .matches-error {
-    color: var(--error);
+  .mini-spin {
+    width: 13px;
+    height: 13px;
+    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: mini-rot 0.7s linear infinite;
+  }
+  @keyframes mini-rot {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
-  .matches-count {
-    font-size: 0.75rem;
-    color: var(--muted);
-    margin: 0 0 0.5rem 0;
-  }
-
-  .matches-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
+  /* Edit form */
+  .edit-form {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 0.6rem;
+    max-width: 620px;
   }
-
-  .match-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 10px;
-    box-shadow: var(--rim), var(--shadow-sm);
-    transition: border-color 0.15s;
-  }
-
-  .match-item:hover {
-    border-color: var(--accent);
-  }
-
-  .match-info {
-    flex: 1;
-    min-width: 0;
+  .field {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    min-width: 0;
+    flex: 1;
   }
-
-  .match-main {
+  .field.narrow {
+    max-width: 90px;
+  }
+  .field label {
+    font-size: 0.72rem;
+    color: var(--muted-2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .field input {
+    height: 32px;
+    padding: 0 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--surface-2);
+    color: var(--text-bright);
+    font: inherit;
+    font-size: 0.85rem;
+  }
+  .field input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .field-row {
     display: flex;
-    gap: 0.5rem;
-    align-items: baseline;
+    gap: 0.6rem;
     flex-wrap: wrap;
   }
 
-  .match-title {
-    font-weight: 600;
-    font-size: 0.875rem;
+  @media (prefers-reduced-motion: reduce) {
+    .mini-spin {
+      animation-duration: 1.3s;
+    }
   }
 
-  a.match-title {
-    color: inherit;
-    text-decoration: none;
-  }
-
-  a.match-title:hover {
-    color: var(--accent);
-    text-decoration: underline;
-  }
-
-  .match-artists {
-    font-size: 0.8rem;
-    color: var(--muted);
-  }
-
-  .match-meta {
-    display: flex;
-    gap: 0.3rem;
-    flex-wrap: wrap;
-  }
-
-  .match-score {
-    background: color-mix(in srgb, var(--success) 16%, transparent);
-    color: var(--success);
-    font-weight: 600;
-  }
-
-  .match-provider {
-    background: var(--accent-muted);
-    color: var(--accent);
-  }
-
-  .btn-select {
-    flex-shrink: 0;
-    background: var(--accent);
-    color: #fff;
-    font-size: 0.75rem;
-    padding: 0.25rem 0.6rem;
-  }
-
-  .btn-select:hover:not(:disabled) {
-    opacity: 0.85;
+  @media (max-width: 640px) {
+    .vrow-head {
+      flex-wrap: wrap;
+    }
+    .actions {
+      width: 100%;
+      justify-content: flex-end;
+    }
+    .row-error,
+    .cands {
+      margin-left: 0;
+    }
   }
 </style>
