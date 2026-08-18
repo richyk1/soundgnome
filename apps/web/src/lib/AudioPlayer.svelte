@@ -1026,6 +1026,7 @@
     .player { grid-template-columns: auto 1fr; gap: 12px; padding: 0 14px; }
     .pl-center { width: auto; }
     .progress-row, .pl-right { display: none; }
+    .player .shuffle, .player .repeat { display: none; }
     .player-thumb { width: 48px; height: 48px; }
   }
 

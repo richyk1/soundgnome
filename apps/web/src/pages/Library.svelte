@@ -7,6 +7,7 @@
   import PlaylistsTab from '../lib/library/PlaylistsTab.svelte';
   import EditModal from '../lib/library/EditModal.svelte';
   import { GLOBAL_PLAYER, type GlobalPlayer } from '../lib/player';
+  let { onNavigateLiked }: { onNavigateLiked?: () => void } = $props();
 
   // ── Playback: driven by the single app-wide player mounted in the shell,
   // so it keeps playing as the user navigates away from the library. ─────────
@@ -81,6 +82,14 @@
         {/if}
       </button>
     </div>
+  </div>
+
+  <div class="lib-chips">
+    <button class="lib-chip" class:active={lib.tab === 'tracks'} onclick={() => lib.switchTab('tracks')}>Tracks</button>
+    <button class="lib-chip" class:active={lib.tab === 'playlists'} onclick={() => lib.switchTab('playlists')}>Playlists</button>
+    <button class="lib-chip" class:active={lib.tab === 'albums'} onclick={() => lib.switchTab('albums')}>Albums</button>
+    <button class="lib-chip" class:active={lib.tab === 'artists'} onclick={() => lib.switchTab('artists')}>Artists</button>
+    <button class="lib-chip liked" onclick={() => onNavigateLiked?.()}><i class="lni lni-heart"></i>Liked</button>
   </div>
 
 
@@ -350,4 +359,37 @@
   .crumb-sep { color: var(--muted); }
   .crumb-current { color: var(--text); font-weight: 500; }
   .muted { color: var(--muted); }
+  .lib-chips { display: none; }
+  .lib-chip {
+    flex: 0 0 auto;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .lib-chip.active {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    color: var(--text);
+  }
+  .lib-chip .lni { font-size: 15px; }
+  @media (max-width: 860px) {
+    .lib-chips {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+    .lib-chips::-webkit-scrollbar { display: none; }
+  }
 </style>

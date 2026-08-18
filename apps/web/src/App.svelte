@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, setContext } from 'svelte';
+  import { fly, fade } from 'svelte/transition';
   import { getPendingCount, getActiveTasksCount, getVersion, getSoundcloudStreamUrl } from './lib/api';
   import { lib } from './lib/library/store.svelte';
   import Home from './pages/Home.svelte';
@@ -9,6 +10,7 @@
   import Tools from './pages/Tools.svelte';
   import Ingest from './pages/Ingest.svelte';
   import Likes from './pages/Likes.svelte';
+  import Search from './pages/Search.svelte';
   import HelpModal from './lib/HelpModal.svelte';
   import PWAUpdatePrompt from './components/PWAUpdatePrompt.svelte';
   import InstallPrompt from './components/InstallPrompt.svelte';
@@ -19,7 +21,7 @@
     type PlayerTrack,
     type PlayerHandle,
   } from './lib/player';
-  type Page = 'download' | 'validations' | 'tasks' | 'library' | 'tools' | 'ingest' | 'likes';
+  type Page = 'download' | 'validations' | 'tasks' | 'library' | 'tools' | 'ingest' | 'likes' | 'search';
   type LibraryTab = 'artists' | 'albums' | 'tracks' | 'playlists';
 
   let page: Page = $state('library');
@@ -28,6 +30,7 @@
   let helpOpen = $state(false);
   let version = $state('');
   let mobileMenuOpen = $state(false);
+  let moreOpen = $state(false);
 
   // One audio player for the whole app, mounted in the shell (below) so playback
   // and the player bar persist across navigation. Pages drive it via context.
@@ -115,6 +118,11 @@
     { id: 'ingest', label: 'Ingest', icon: 'lni-folder-upload' },
     { id: 'validations', label: 'Validations', icon: 'lni-check-square-1' },
   ];
+  const mobileTabs: { id: Page; label: string; icon: string }[] = [
+    { id: 'download', label: 'Home', icon: 'lni-home-2' },
+    { id: 'search', label: 'Search', icon: 'lni-search-1' },
+    { id: 'library', label: 'Library', icon: 'lni-library' },
+  ];
   const libraryTabs: { id: LibraryTab; label: string; icon: string; count: () => number }[] = [
     { id: 'artists', label: 'Artists', icon: 'lni-microphone-1', count: () => lib.artists.length },
     { id: 'albums', label: 'Albums', icon: 'lni-layers-1', count: () => lib.albums.length },
@@ -124,15 +132,6 @@
 </script>
 
 <div class="app-shell">
-  <button
-    class="mobile-toggle"
-    onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
-    aria-label="Toggle menu"
-    aria-expanded={mobileMenuOpen}
-  >
-    <i class="lni lni-menu-hamburger-1"></i>
-    <span>Soundgnome</span>
-  </button>
 
   <div class="app-body">
     <aside class="sidebar" class:mobile-open={mobileMenuOpen}>
@@ -214,7 +213,7 @@
       {#if page === 'download'}
         <Home onNavigateTasks={() => navigate('tasks')} />
       {:else if page === 'library'}
-        <Library />
+        <Library onNavigateLiked={() => navigate('likes')} />
       {:else if page === 'tools'}
         <Tools />
       {:else if page === 'validations'}
@@ -223,6 +222,8 @@
         <Ingest />
       {:else if page === 'likes'}
         <Likes />
+      {:else if page === 'search'}
+        <Search />
       {:else}
         <Tasks onNavigateValidations={() => navigate('validations')} />
       {/if}
@@ -239,6 +240,19 @@
     />
   </div>
 
+    <nav class="tabbar">
+      {#each mobileTabs as t}
+        <button class="tab-btn" class:active={page === t.id} onclick={() => navigate(t.id)}>
+          <i class="lni {t.icon}"></i>
+          <span>{t.label}</span>
+        </button>
+      {/each}
+      <button class="tab-btn tab-more" onclick={() => (moreOpen = true)} aria-label="More">
+        <i class="lni lni-gear-1"></i>
+        <span>More</span>
+      </button>
+    </nav>
+
   {#if playError}
     <div class="play-error" role="alert">
       <span>{playError}</span>
@@ -249,6 +263,20 @@
 
 <HelpModal open={helpOpen} onClose={() => (helpOpen = false)} />
 <PWAUpdatePrompt />
+
+{#if moreOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <button class="more-backdrop" transition:fade={{ duration: 200 }} onclick={() => (moreOpen = false)} aria-label="Close more menu"></button>
+  <div class="more-sheet" transition:fly={{ y: 300, duration: 280 }} role="dialog" aria-label="More">
+    <div class="more-grabber"></div>
+    <div class="more-title">More</div>
+    <button class="more-item" onclick={() => { navigate('ingest'); moreOpen = false; }}><i class="lni lni-folder-upload"></i>Ingest local files</button>
+    <button class="more-item" onclick={() => { navigate('validations'); moreOpen = false; }}><i class="lni lni-check-square-1"></i>Validations{#if pendingCount > 0}<span class="badge badge-amber sm">{pendingCount}</span>{/if}</button>
+    <button class="more-item" onclick={() => { navigate('tasks'); moreOpen = false; }}><i class="lni lni-bell-1"></i>Activity{#if activeTasksCount > 0}<span class="badge badge-red sm">{activeTasksCount}</span>{/if}</button>
+    <button class="more-item" onclick={() => { navigate('tools'); moreOpen = false; }}><i class="lni lni-gear-1"></i>Tools</button>
+    <button class="more-item" onclick={() => { helpOpen = true; moreOpen = false; }}><i class="lni lni-question-mark-circle"></i>Help</button>
+  </div>
+{/if}
 
 <style>
   .app-shell {
@@ -501,6 +529,101 @@
   }
   .play-error-x:hover { color: var(--text); }
 
+  /* ── Mobile bottom tab bar + More sheet ──────────────────────────────── */
+  .tabbar {
+    display: none;
+    flex-shrink: 0;
+    align-items: stretch;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tab-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-family: var(--font-display);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    padding: 8px 0 6px;
+    cursor: pointer;
+  }
+  .tab-btn .lni { font-size: 20px; }
+  .tab-btn.active { color: var(--accent); }
+  .tab-more {
+    flex: 0 0 auto;
+    padding-left: 16px;
+    padding-right: 16px;
+    border-left: 1px solid var(--border);
+    color: var(--muted-2);
+  }
+
+  .more-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 320;
+    background: rgba(0, 0, 0, 0.5);
+    border: none;
+    cursor: pointer;
+  }
+  .more-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 321;
+    background: var(--surface);
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    padding: 10px 14px calc(env(safe-area-inset-bottom) + 14px);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+  }
+  .more-grabber {
+    width: 40px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    align-self: center;
+    margin: 2px 0 10px;
+  }
+  .more-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    padding: 0 4px 6px;
+  }
+  .more-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 500;
+    padding: 13px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .more-item:hover,
+  .more-item:active { background: var(--surface-2); }
+  .more-item .lni { font-size: 19px; color: var(--muted); width: 22px; text-align: center; }
+  .more-item .badge { margin-left: auto; }
+
   /* ── Mobile ──────────────────────────────────────────────────────────── */
   .mobile-toggle {
     display: none;
@@ -533,28 +656,9 @@
     }
     .player-bar {
       border-radius: 0;
-      height: calc(110px + env(safe-area-inset-bottom));
-      padding-bottom: env(safe-area-inset-bottom);
+      height: 64px;
     }
-    .mobile-toggle {
-      display: flex;
-      border-radius: 0;
-      /* Clear the status bar / notch with breathing room. */
-      padding: calc(env(safe-area-inset-top) + 18px) 18px 14px;
-    }
-    .sidebar {
-      display: none;
-      position: fixed;
-      inset: 0 0 calc(110px + env(safe-area-inset-bottom)) 0;
-      border-radius: 0;
-      z-index: 150;
-    }
-    .sidebar.mobile-open {
-      display: flex;
-    }
-    /* Drawer's own title also clears the status bar. */
-    .brand-panel {
-      padding-top: calc(env(safe-area-inset-top) + 22px);
-    }
+    .sidebar { display: none; }
+    .tabbar { display: flex; }
   }
 </style>
