@@ -89,6 +89,15 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Finalized library tracks no longer get dragged back into validation.**
+  Re-syncing a source already in the library re-derived a partial/no-match from
+  the raw source metadata and folded `needs_validation` onto the finalized row,
+  so a track you had already approved reappeared in the queue (and, if its file
+  had since been deleted, as a dead-end). A track with a `soundome_id` is a
+  finalized, user-reviewed entry: re-syncs now leave it alone (the freshly staged
+  copy is discarded), and a data migration clears the flag on already-affected
+  rows. Metadata lives in the database independently of the audio file, so a
+  deleted file leaves the library row intact until re-scanned or re-ingested.
 - **DRM-blocked SoundCloud tracks are no longer stranded under the wrong tab.**
   When a SoundCloud download was DRM-blocked *and* its metadata was a weak match,
   the track kept the metadata reason (`Partial match` / `No match`) instead of

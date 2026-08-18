@@ -1,0 +1,2 @@
+-- Irreversible data migration: the cleared validation reasons are not
+-- recoverable. No-op.

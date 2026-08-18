@@ -1752,18 +1752,43 @@ impl DownloadService {
         };
 
         if should_validate || file_path_opt.is_none() {
+            if let Some(existing) = self.existing_staged_track(conn, &track) {
+                // A source we already finalized must not be dragged back into the
+                // validation queue by a re-sync. `enrich_metada` re-derives a
+                // partial/no-match from the raw source metadata on every pass, but
+                // the user already reviewed this track: a finalized row (soundome_id
+                // set, needs_validation = false) is authoritative. Keep it as-is and
+                // discard the freshly staged copy so it never re-enters the queue.
+                if !existing.needs_validation {
+                    tracing::info!(
+                        "Source already finalized as {} — skipping re-validation",
+                        existing.display()
+                    );
+                    if let Some(staged) = &file_path_opt {
+                        if let Err(e) = std::fs::remove_file(staged) {
+                            tracing::warn!(
+                                "Could not remove staging file {}: {}",
+                                staged.display(),
+                                e
+                            );
+                        }
+                    }
+                    return Ok(existing);
+                }
+
+                // Still pending validation: reuse its row so the queue keeps one
+                // entry per track (a second row would orphan a staged file).
+                tracing::warn!(
+                    "Track saved for manual validation — reason={:?}",
+                    track.validation_reason
+                );
+                return self.replace_staged_track(conn, existing, track).await;
+            }
+
             tracing::warn!(
                 "Track saved for manual validation — reason={:?}",
                 track.validation_reason
             );
-
-            // A track that is still pending validation can be re-fetched as an
-            // upgrade. Reuse its row: a second row would split the validation
-            // queue and leave an orphaned staged file behind.
-            if let Some(existing) = self.existing_staged_track(conn, &track) {
-                return self.replace_staged_track(conn, existing, track).await;
-            }
-
             let saved_track = self.save_track(conn, &track).await?;
             return Ok(saved_track);
         }
