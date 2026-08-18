@@ -19,8 +19,11 @@
   let editing = $state(false);
   let actionError: string | null = $state(null);
 
-  // Match candidates: loaded automatically when the row scrolls into view.
-  let matchesRequested = false;
+  // Match candidates. MusicBrainz metadata matches are cheap and load
+  // automatically when the row scrolls in. The YouTube search (yt-dlp, several
+  // subprocesses per track) is expensive and would fire a burst for every
+  // visible DRM row, so those load on demand instead.
+  let matchesRequested = $state(false);
   let matchesLoading = $state(false);
   let matchCandidates: MatchCandidateDto[] = $state([]);
   let matchesError: string | null = $state(null);
@@ -56,10 +59,11 @@
     editLabel = track.label ?? '';
   });
 
-  // Auto-load candidates when the row nears the viewport (avoids firing a
-  // rate-limited MusicBrainz/YouTube lookup for every pending track at once).
+  // Auto-load metadata candidates when the row nears the viewport (avoids firing
+  // a rate-limited MusicBrainz lookup for every pending track at once). DRM rows
+  // are skipped here; their expensive YouTube search loads on demand.
   $effect(() => {
-    if (!cardEl || !showsCandidates) return;
+    if (!cardEl || !showsCandidates || isDrmProtected) return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
@@ -312,7 +316,11 @@
 
   {#if showsCandidates && !editing}
     <div class="cands">
-      {#if matchesLoading}
+      {#if isDrmProtected && !matchesRequested}
+        <button class="find-sources" onclick={loadMatches}>
+          <i class="lni lni-search-1" aria-hidden="true"></i>Find YouTube sources
+        </button>
+      {:else if matchesLoading}
         <p class="cand-status"><span class="mini-spin" aria-hidden="true"></span>Finding matches…</p>
       {:else if matchesError}
         <p class="cand-status is-err">{matchesError}</p>
@@ -485,6 +493,23 @@
   }
   .cand-status.is-err {
     color: var(--error);
+  }
+  .find-sources {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.82rem;
+    font-family: inherit;
+    color: var(--accent);
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .find-sources:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
   .cand {
     display: flex;

@@ -1,0 +1,3 @@
+-- Irreversible data migration: the original metadata_partial_match /
+-- metadata_no_match distinction is not recoverable once re-bucketed to
+-- soundcloud_drm_protected. No-op.

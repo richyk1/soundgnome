@@ -89,6 +89,20 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **DRM-blocked SoundCloud tracks are no longer stranded under the wrong tab.**
+  When a SoundCloud download was DRM-blocked *and* its metadata was a weak match,
+  the track kept the metadata reason (`Partial match` / `No match`) instead of
+  `soundcloud_drm_protected`, because the DRM reason was only set when the track
+  was not already flagged for validation. These tracks have no audio file, so
+  selecting a metadata candidate there failed with "no staged file and no
+  provider_url". DRM now takes precedence, routing them to the `Errors` tab where
+  a YouTube source can be picked to fetch the audio; a data migration re-buckets
+  the previously stranded rows.
+- **Validations `Errors` tab no longer fires a burst of YouTube searches.** Each
+  DRM row auto-loaded its YouTube candidates on scroll, and each lookup spawns
+  several `yt-dlp` subprocesses; on a tab with many DRM tracks this saturated the
+  server and rows spun indefinitely. YouTube candidates now load on demand via a
+  "Find YouTube sources" button (the cheap MusicBrainz auto-load is unchanged).
 - **Validation Select/Approve errors are surfaced.** A failed approve or candidate
   Select (e.g. the track's audio file is missing) was swallowed as an unhandled
   promise rejection, so the button appeared to do nothing. The Validations page

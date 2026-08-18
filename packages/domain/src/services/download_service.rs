@@ -1737,10 +1737,13 @@ impl DownloadService {
                         tracing::warn!(
                             "No usable Spotify match — marking for manual YouTube selection"
                         );
-                        if !track.needs_validation {
-                            track.needs_validation = true;
-                            track.validation_reason = Some("soundcloud_drm_protected".to_string());
-                        }
+                        // DRM means there is no downloadable audio at all, which the
+                        // metadata-match tabs cannot resolve (Select there only re-tags an
+                        // existing staged file). It must override any weak-metadata reason
+                        // `enrich_metada` set earlier, so the track lands in the DRM tab where
+                        // the user can pick a YouTube source to actually fetch the audio.
+                        track.needs_validation = true;
+                        track.validation_reason = Some("soundcloud_drm_protected".to_string());
                         None
                     }
                 }
