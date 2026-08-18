@@ -30,6 +30,7 @@
   import EqPanel from './EqPanel.svelte';
   import { Equalizer, loadEqState, saveEqState, type EqState } from './equalizer';
   import * as scrobbler from './scrobbler';
+  import { lib } from './library/store.svelte';
 
   let {
     resolveSrc,
@@ -542,6 +543,67 @@
     if (current) togglePlay();
   }
 
+  // ── Mobile "Now Playing": the bar expands to a full-screen sheet ───────────
+  let expanded = $state(false);
+  let sheetH = $state(0);
+  let dragging = $state(false);
+  let dragY = $state(0);
+  const reduceMotion =
+    typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function openNP() {
+    // Only a listening affordance on phones; the desktop bar is already complete.
+    if (typeof window !== 'undefined' && window.innerWidth > 860) return;
+    if (current) expanded = true;
+  }
+  function closeNP() {
+    expanded = false;
+    dragY = 0;
+  }
+
+  // Swipe-down-to-dismiss: track 1:1, project momentum on release (apple-design),
+  // then either fall closed or spring back. Springs/settle handled by CSS.
+  let dragStartY = 0;
+  let lastY = 0;
+  let lastT = 0;
+  let velY = 0;
+  function onSheetPointerDown(e: PointerEvent) {
+    dragging = true;
+    dragStartY = e.clientY;
+    lastY = e.clientY;
+    lastT = performance.now();
+    velY = 0;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function onSheetPointerMove(e: PointerEvent) {
+    if (!dragging) return;
+    const dy = e.clientY - dragStartY;
+    dragY = dy >= 0 ? dy : dy * 0.2; // rubber-band upward drags
+    const now = performance.now();
+    const dt = now - lastT;
+    if (dt > 0) velY = ((e.clientY - lastY) / dt) * 1000; // px/s
+    lastY = e.clientY;
+    lastT = now;
+  }
+  function onSheetPointerUp() {
+    if (!dragging) return;
+    dragging = false;
+    const projected = dragY + velY * 0.12;
+    if (projected > (sheetH || 500) * 0.3 || velY > 900) closeNP();
+    else dragY = 0;
+  }
+
+  // ── Like / dislike the current library track (Now Playing only) ────────────
+  let currentLibTrack = $derived.by(() => {
+    const c = current;
+    if (!c || c.source !== 'library') return null;
+    return lib.tracks.find((t) => t.id === c.id) ?? null;
+  });
+  function rateCurrent(rating: 'liked' | 'disliked') {
+    const t = currentLibTrack;
+    if (t) lib.setRating(t, t.rating === rating ? null : rating);
+  }
+
   onDestroy(() => audio?.pause());
 </script>
 
@@ -563,7 +625,13 @@
   ></audio>
 
   {#if current}
-    <div class="pl-left">
+    <div
+      class="pl-left"
+      role="button"
+      tabindex="0"
+      onclick={openNP}
+      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNP(); } }}
+    >
       <div class="player-thumb">
         {#if current.artwork || resolvedArt}
           <img src={current.artwork ?? resolvedArt} alt="" />
@@ -613,7 +681,7 @@
         >
           <i class="lni lni-sliders-triple-vertical-1"></i>
         </button>
-        {#if eqOpen}
+        {#if eqOpen && !expanded}
           <button
             class="eq-backdrop"
             aria-label="Close equalizer"
@@ -637,6 +705,93 @@
     </div>
   {/if}
 </div>
+
+{#if current}
+  <!-- Mobile Now Playing: full-screen sheet that slides up from the bar. -->
+  <div
+    class="np"
+    class:open={expanded}
+    class:dragging
+    bind:clientHeight={sheetH}
+    style="transform: translateY({dragging ? dragY + 'px' : expanded ? '0px' : '100%'}); opacity: {reduceMotion ? (expanded ? 1 : 0) : 1}; transition: {dragging ? 'none' : reduceMotion ? 'opacity .2s ease' : 'transform .34s cubic-bezier(.32,.72,0,1)'}; pointer-events: {expanded ? 'auto' : 'none'}"
+  >
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="np-head"
+      onpointerdown={onSheetPointerDown}
+      onpointermove={onSheetPointerMove}
+      onpointerup={onSheetPointerUp}
+      onpointercancel={onSheetPointerUp}
+    >
+      <button class="np-close" onclick={closeNP} aria-label="Close now playing"><i class="lni lni-chevron-down"></i></button>
+      <div class="np-grabber"></div>
+    </div>
+
+    <div class="np-art">
+      {#if current.artwork || resolvedArt}
+        <img src={current.artwork ?? resolvedArt} alt="" />
+      {:else}
+        <div class="cover-ph"><i class="lni lni-music-note"></i></div>
+      {/if}
+    </div>
+
+    <div class="np-meta">
+      <div class="np-title">{current.title}</div>
+      <div class="np-artist">{current.artist}</div>
+    </div>
+
+    <div class="np-scrub">
+      {#if waveUrl || srcUrl}
+        <div class="wave-slot" class:ready={waveReady}>
+          <Waveform waveformUrl={waveUrl} srcUrl={waveUrl ? null : srcUrl} currentTime={currentTime} duration={total} onSeek={seekTo} bind:available={waveReady} />
+        </div>
+      {/if}
+      {#if !waveReady}
+        <input class="range" type="range" min="0" max={total || 0} step="0.1" value={currentTime} oninput={(e) => seekTo(+e.currentTarget.value)} aria-label="Seek" />
+      {/if}
+      <div class="np-times"><span>{formatTime(currentTime)}</span><span>{formatTime(total)}</span></div>
+    </div>
+
+    <div class="np-transport">
+      <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} aria-label="Shuffle"><i class="lni lni-shuffle"></i></button>
+      <button class="tbtn" onclick={prev} disabled={!canStep} aria-label="Previous"><i class="lni lni-backward"></i></button>
+      <button class="np-play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="lni {paused ? 'lni-play' : 'lni-pause'}"></i></button>
+      <button class="tbtn" onclick={next} disabled={!canStep} aria-label="Next"><i class="lni lni-forward"></i></button>
+      <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} aria-label="Repeat"><i class="lni lni-repeat-1"></i>{#if repeat === 'one'}<span class="rep-one">1</span>{/if}</button>
+    </div>
+
+    <div class="np-secondary">
+      {#if currentLibTrack}
+        <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} aria-label="Like"><i class="lni lni-thumbs-up-1"></i></button>
+        <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} aria-label="Dislike"><i class="lni lni-thumbs-down-1"></i></button>
+      {/if}
+      <button class="eq-btn" class:on={eqState.enabled} onclick={() => (eqOpen = !eqOpen)} aria-label="Equalizer"><i class="lni lni-sliders-triple-vertical-1"></i></button>
+      <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}><i class="lni {muted || volume === 0 ? 'lni-volume-off' : volume < 0.5 ? 'lni-volume-low' : 'lni-volume-high'}"></i></button>
+    </div>
+    <input class="volume np-vol" type="range" min="0" max="1" step="0.01" bind:value={volume} aria-label="Volume" />
+
+    {#if eqOpen && expanded}
+      <div class="np-eq"><EqPanel bind:state={eqState} onUpdate={handleEqUpdate} /></div>
+    {/if}
+
+    {#if upNext.length > 0}
+      <div class="np-queue">
+        <div class="np-queue-head">Up next</div>
+        {#each upNext.slice(0, 20) as q}
+          <div class="np-q-row">
+            <div class="np-q-art" style={q.artwork ? `background-image:url(${q.artwork})` : ''}>
+              {#if !q.artwork}<i class="lni lni-music-note"></i>{/if}
+            </div>
+            <div class="np-q-meta">
+              <div class="np-q-title">{q.title}</div>
+              <div class="np-q-artist">{q.artist}</div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+{/if}
 
 <style>
   /* Fills the shell's bottom player bar (App.svelte owns the bar background). */
@@ -872,5 +1027,162 @@
     .pl-center { width: auto; }
     .progress-row, .pl-right { display: none; }
     .player-thumb { width: 48px; height: 48px; }
+  }
+
+  /* ── Mobile Now Playing (full-screen sheet) ────────────────────────────── */
+  .np {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    flex-direction: column;
+    align-items: center;
+    background: var(--bg);
+    padding: calc(env(safe-area-inset-top) + 6px) 22px calc(env(safe-area-inset-bottom) + 20px);
+    box-sizing: border-box;
+    overflow-y: auto;
+    will-change: transform;
+  }
+  .np-head {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 6px 0 2px;
+    flex-shrink: 0;
+    touch-action: none;
+    cursor: grab;
+  }
+  .np-grabber { width: 40px; height: 5px; border-radius: 999px; background: var(--surface-2); }
+  .np-close {
+    position: absolute;
+    left: -6px;
+    top: 0;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+  .np-art {
+    width: min(72vw, 340px);
+    aspect-ratio: 1;
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--surface-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    margin-top: 5vh;
+    flex-shrink: 0;
+  }
+  .np-art img { width: 100%; height: 100%; object-fit: cover; }
+  .np-art .cover-ph { font-size: 64px; color: var(--muted-2); }
+  .np-meta { width: 100%; text-align: center; margin-top: 20px; }
+  .np-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.35rem;
+    letter-spacing: -0.02em;
+    color: var(--text-bright);
+    line-height: 1.2;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .np-artist { color: var(--muted); font-size: 0.95rem; margin-top: 5px; }
+  .np-scrub { width: 100%; margin-top: 18px; }
+  .np-scrub .wave-slot { width: 100%; }
+  .np-times {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .np-transport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 16px;
+  }
+  .np-transport .tbtn {
+    position: relative;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 22px;
+    cursor: pointer;
+    padding: 6px;
+  }
+  .np-transport .tbtn:disabled { opacity: 0.35; cursor: default; }
+  .np-transport .tbtn.on { color: var(--accent); }
+  .np-play {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--text-bright);
+    color: var(--bg);
+    border: none;
+    font-size: 26px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .np-secondary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 16px;
+  }
+  .np-secondary .btn-rate { font-size: 20px; }
+  .np-secondary .eq-btn,
+  .np-secondary .mute {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 19px;
+    cursor: pointer;
+    padding: 4px;
+  }
+  .np-secondary .eq-btn.on { color: var(--accent); }
+  .np-vol { width: min(80%, 300px); margin-top: 10px; }
+  .np-eq { width: 100%; margin-top: 14px; }
+  .np-queue { width: 100%; margin-top: 22px; }
+  .np-queue-head {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .np-q-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .np-q-art {
+    width: 38px;
+    height: 38px;
+    border-radius: 6px;
+    background: var(--surface-2) center/cover no-repeat;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted-2);
+  }
+  .np-q-meta { min-width: 0; }
+  .np-q-title { font-size: 0.9rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .np-q-artist { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  @media (max-width: 860px) {
+    .np { display: flex; }
+    .pl-left { cursor: pointer; }
   }
 </style>
