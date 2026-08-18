@@ -108,6 +108,12 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **PWA update prompt was in French.** The "update available" banner had
+  hardcoded French strings; it's now English ("Update available" / "Update" /
+  "Later").
+- **Mobile album/artist grid was cramped.** The card grid forced 3 tiny columns
+  on phones (truncating titles); it now shows 2 roomy columns on phones and
+  scales up on larger screens.
 - **Shuffle now matches the shown queue.** In shuffle mode the Next button picked
   a fresh random track on every press, which never agreed with the "up next" list
   (and could replay tracks). Shuffle now builds a stable shuffled play order (the

@@ -308,12 +308,12 @@ code {
 
 .card-grid { 
   display: grid; 
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); 
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 0.6rem;
 }
 @media (min-width: 480px) {
   .card-grid {
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 0.75rem;
   }
 }
@@ -324,11 +324,11 @@ code {
   }
 }
 .card-grid.compact { 
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
 }
 @media (min-width: 480px) {
   .card-grid.compact {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
 }
 @media (min-width: 768px) {
