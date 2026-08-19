@@ -132,6 +132,10 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **"Update available" button did nothing.** The service worker ships with
+  `autoUpdate` (it skips waiting and claims the page itself), but the prompt's
+  handler only messaged a non-existent *waiting* worker and then bailed. It now
+  reloads to swap in the already-activated new build.
 - **Mobile is now edge-to-edge.** The desktop "rounded panels floating on black"
   look left black bars framing the content on phones, and the header/drawer sat
   under the status bar. On phones the shell padding and panel radii are dropped so
