@@ -209,6 +209,20 @@
   let fileInput: HTMLInputElement;
   let folderInput: HTMLInputElement;
   let dragOver = $state(false);
+  let pickNote: string | null = $state(null);
+
+  function summarizePick(r: { added: number; skippedNonAudio: number; skippedDuplicate: number }) {
+    if (r.added === 0 && r.skippedNonAudio === 0 && r.skippedDuplicate === 0) {
+      pickNote = null;
+      return;
+    }
+    const parts: string[] = [];
+    if (r.added > 0) parts.push(`Added ${r.added} song${r.added === 1 ? '' : 's'}`);
+    if (r.skippedNonAudio > 0)
+      parts.push(`skipped ${r.skippedNonAudio} non-audio file${r.skippedNonAudio === 1 ? '' : 's'}`);
+    if (r.skippedDuplicate > 0) parts.push(`${r.skippedDuplicate} already queued`);
+    pickNote = r.added === 0 ? `No songs added — ${parts.join(', ')}.` : `${parts.join(' · ')}.`;
+  }
 
   function pickedFiles(e: Event) {
     const input = e.currentTarget as HTMLInputElement;
@@ -216,7 +230,7 @@
       file,
       relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
     }));
-    uploadManager.addFiles(entries);
+    summarizePick(uploadManager.addFiles(entries));
     input.value = '';
   }
 
@@ -224,7 +238,7 @@
     e.preventDefault();
     dragOver = false;
     if (!e.dataTransfer) return;
-    uploadManager.addFiles(await readDataTransfer(e.dataTransfer));
+    summarizePick(uploadManager.addFiles(await readDataTransfer(e.dataTransfer)));
   }
 
   async function readDataTransfer(dt: DataTransfer): Promise<DropEntry[]> {
@@ -344,6 +358,9 @@
       class="hidden-input"
       onchange={pickedFiles}
     />
+    {#if pickNote}
+      <p class="pick-note">{pickNote}</p>
+    {/if}
 
     {#if up.total > 0}
       <div class="upload-panel">
@@ -1359,5 +1376,10 @@
     .result-msg {
       display: none;
     }
+  }
+  .pick-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.85rem;
+    color: var(--muted);
   }
 </style>

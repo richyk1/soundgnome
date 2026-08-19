@@ -86,14 +86,27 @@ class UploadManager {
     return this.items.filter((i) => i.state === 'error');
   }
 
-  /** Add selected/dropped files. Filters to audio and de-dups the selection. */
-  addFiles(entries: { file: File; relativePath: string }[]): number {
+  /** Add selected/dropped files. Filters to audio and de-dups the selection.
+   *  Returns counts so the caller can surface what was added vs skipped. */
+  addFiles(entries: { file: File; relativePath: string }[]): {
+    added: number;
+    skippedNonAudio: number;
+    skippedDuplicate: number;
+  } {
     const seen = new Set(this.items.map((i) => `${i.relativePath}:${i.size}`));
     let added = 0;
+    let skippedNonAudio = 0;
+    let skippedDuplicate = 0;
     for (const { file, relativePath } of entries) {
-      if (!isAudioFile(file.name)) continue;
+      if (!isAudioFile(file.name)) {
+        skippedNonAudio++;
+        continue;
+      }
       const key = `${relativePath}:${file.size}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key)) {
+        skippedDuplicate++;
+        continue;
+      }
       seen.add(key);
       this.items.push({
         id: uuid(),
@@ -106,7 +119,7 @@ class UploadManager {
       });
       added++;
     }
-    return added;
+    return { added, skippedNonAudio, skippedDuplicate };
   }
 
   reset() {
