@@ -105,6 +105,12 @@ pub struct GeneralConfig {
     /// ENV: SOUNDGNOME__GENERAL__INGEST_DIR
     #[serde(default = "GeneralConfig::default_ingest_dir")]
     pub ingest_dir: String,
+
+    /// Max parallel workers preparing files (tag-read + hash + fingerprint) during
+    /// batch ingest. 0 = auto (CPU count, clamped). The DB commit stays serial.
+    /// ENV: SOUNDGNOME__GENERAL__INGEST_CONCURRENCY
+    #[serde(default = "GeneralConfig::default_ingest_concurrency")]
+    pub ingest_concurrency: usize,
 }
 
 impl Default for GeneralConfig {
@@ -113,6 +119,7 @@ impl Default for GeneralConfig {
             base_library_dir: Self::default_base_library_dir(),
             temp_download_dir: Self::default_temp_download_dir(),
             ingest_dir: Self::default_ingest_dir(),
+            ingest_concurrency: Self::default_ingest_concurrency(),
         }
     }
 }
@@ -126,6 +133,9 @@ impl GeneralConfig {
     }
     fn default_ingest_dir() -> String {
         "./ingest".to_string()
+    }
+    fn default_ingest_concurrency() -> usize {
+        0
     }
 }
 

@@ -112,6 +112,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Changed
 
+- **Much faster library ingest.** Batch ingest now prepares files (tag read, hash,
+  acoustic fingerprint) across multiple CPU cores instead of one at a time, caps
+  fingerprint decoding to the first 120 s of each track, and skips the
+  rate-limited MusicBrainz/Spotify lookup for files whose tags are already
+  complete (title + artist + album), finalizing them straight from their own tags.
+  `general.ingest_concurrency` tunes the worker count (0 = auto). The database
+  commit stays serial, so dedup order and results are unchanged.
 - **Tracks page shows everything, with less chrome.** Dropped the
   All / Validated / Needs-review filter (the list now shows every track by
   default; the Validations page owns review) and removed the per-row Delete -

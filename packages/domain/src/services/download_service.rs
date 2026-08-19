@@ -1147,12 +1147,54 @@ impl DownloadService {
         let total = files.len() as i32;
         tracing::info!("Ingest dir {:?}: found {} audio files", ingest_dir, total);
 
+        let concurrency = ingest_concurrency();
+        tracing::info!("Ingest: preparing files with up to {} parallel workers", concurrency);
+
         let mut stats = shared::models::TaskStats::default();
 
-        for (i, file_path) in files.iter().enumerate() {
+        // Prepare (tag-read + hash + fingerprint) runs in parallel on blocking
+        // threads; the DB commit stays serial on the single connection. A sliding
+        // window keeps `concurrency` files decoding ahead of the commit so the
+        // expensive ffmpeg decode is overlapped instead of paid one-at-a-time.
+        let mut inflight: std::collections::VecDeque<(
+            usize,
+            PathBuf,
+            tokio::task::JoinHandle<SoundgnomeResult<PreparedIngest>>,
+        )> = std::collections::VecDeque::new();
+        let mut next_idx = 0usize;
+        while next_idx < files.len() && inflight.len() < concurrency {
+            let p = files[next_idx].clone();
+            inflight.push_back((
+                next_idx,
+                p.clone(),
+                tokio::task::spawn_blocking(move || prepare_ingest_file(&p)),
+            ));
+            next_idx += 1;
+        }
+
+        while let Some((i, file_path, handle)) = inflight.pop_front() {
+            // Keep the window full while we commit this file (DB work is serial).
+            if next_idx < files.len() {
+                let p = files[next_idx].clone();
+                inflight.push_back((
+                    next_idx,
+                    p.clone(),
+                    tokio::task::spawn_blocking(move || prepare_ingest_file(&p)),
+                ));
+                next_idx += 1;
+            }
+
             tracing::info!("Ingesting [{}/{}]: {:?}", i + 1, total, file_path);
 
-            match self.ingest_local_file(conn, file_path).await {
+            let commit_result = match handle.await {
+                Ok(Ok(prepared)) => self.commit_ingest(conn, prepared).await,
+                Ok(Err(e)) => Err(e),
+                Err(join_err) => {
+                    Err(Error::Custom(format!("ingest prepare task failed: {join_err}")))
+                }
+            };
+
+            match commit_result {
                 Ok((t, outcome)) => match outcome {
                     IngestOutcome::NeedsValidation => {
                         stats.to_validate += 1;
@@ -1220,50 +1262,44 @@ impl DownloadService {
     // == Local file ingest
     // ============================================================================================
 
-    /// Ingest a single local audio file into the library.
-    ///
-    /// Workflow (mirrors `docs/workflows/download.md` — "Import a local file"):
-    /// 1. Read tags from the file.
-    /// 2. Evaluate metadata quality; enrich via MusicBrainz when needed.
-    /// 3. If enrichment is partial or absent, persist as `needs_validation = true`.
-    /// 4. Deduplicate by title/artist against existing DB tracks.
-    /// 5. Tag, organise, and persist the winner.
+    /// Ingest a single local audio file into the library. Thin wrapper: prepare
+    /// (pure, off-DB) then commit (DB + network). Batch ingest parallelizes the
+    /// prepare step; see `ingest_local_dir`.
     pub async fn ingest_local_file(
         &self,
         conn: &mut SqliteConnection,
         file_path: &Path,
     ) -> SoundgnomeResult<(Track, IngestOutcome)> {
+        let prepared = prepare_ingest_file(file_path)?;
+        self.commit_ingest(conn, prepared).await
+    }
+
+    /// Commit a prepared file. All DB/network work lives here so `prepare` stays
+    /// pure and parallelizable.
+    ///
+    /// Workflow (mirrors `docs/workflows/download.md` — "Import a local file"):
+    /// 1. Exact-duplicate short-circuit (content hash).
+    /// 2. Acoustic-fingerprint short-circuit.
+    /// 3. Enrich via MusicBrainz — skipped when the file's tags are already complete.
+    /// 4. Deduplicate by title/artist; stage for validation when enrichment is weak.
+    /// 5. Tag, organise, and persist the winner.
+    async fn commit_ingest(
+        &self,
+        conn: &mut SqliteConnection,
+        prepared: PreparedIngest,
+    ) -> SoundgnomeResult<(Track, IngestOutcome)> {
+        let PreparedIngest {
+            mut track,
+            file_path,
+            content_hash,
+            fingerprint,
+        } = prepared;
+
         tracing::info!("===========\nIngesting local file: {:?}\n------", file_path);
-
-        // Step 1: Read tags from the file.
-        let mut track = tagger::file::get_track_from_file(&file_path.to_path_buf())
-            .map_err(|e| Error::Custom(format!("Failed to read audio tags: {e}")))?;
-
-        // Step 1b: If track_number is missing from the tags, try to infer it from
-        // the file name. Many DIY releases use patterns like "08 - Title.flac" or
-        // "08_Title.flac". Having the track number improves match scoring significantly.
-        if track.track_number.is_none() {
-            track.track_number = infer_track_number_from_filename(file_path);
-            if let Some(n) = track.track_number {
-                tracing::debug!("Inferred track_number {} from filename", n);
-            }
-        }
-
         tracing::info!("Read tags from file: {}", track.display());
 
-        // Adopt the source file as the track's path up front so quality comparison
-        // (`audio_quality`, which probes `file_path`) can weigh this upload against
-        // an existing copy. The needs-validation and finalize paths overwrite this
-        // with the staged/organized path as usual.
-        track.file_path = Some(file_path.to_path_buf());
-
-        // Step 1c: Exact-duplicate short-circuit. Hash the raw file and skip if a
-        // byte-identical file was already ingested. This catches re-uploads of the
-        // same file regardless of metadata quality — including files that would
-        // otherwise land in the review queue on every upload. The hash is stored as
-        // a Metadata reference and looked up via the existing `track_ref` URL index,
-        // so no schema change is needed.
-        let content_key = format!("soundome:sha256:{}", sha256_file(file_path)?);
+        // Step 1: Exact-duplicate short-circuit via the raw-bytes hash.
+        let content_key = format!("soundome:sha256:{content_hash}");
         if let Some(existing) = self.track_service.get_by_url(conn, &content_key) {
             tracing::info!(
                 "Ingest: exact duplicate (content hash) of {}, skipping",
@@ -1279,24 +1315,12 @@ impl DownloadService {
             external_url: Some(content_key),
         });
 
-        // Step 1d: Acoustic-fingerprint short-circuit (Tier 1). Catches the same
-        // recording re-encoded to a different bitrate or format, which the exact
-        // hash misses and which weakly-tagged files hide from the title/artist tier.
-        // Best-effort: a decode or fingerprint failure just falls through to the
-        // metadata pipeline. The fingerprint is stored as a Metadata reference so
-        // future re-encodes match against this file too.
-        let fingerprint = match compute_fingerprint(file_path) {
-            Ok(fp) => Some(fp),
-            Err(e) => {
-                tracing::warn!("Ingest: fingerprint unavailable for {file_path:?}: {e}");
-                None
-            }
-        };
+        // Step 2: Acoustic-fingerprint short-circuit (catches re-encodes/rebitrates).
         if let Some(fp) = &fingerprint {
             if let Some(existing) = self.dedupe_by_fingerprint(conn, &track, fp).await {
                 tracing::info!("Ingest: acoustic match with {}", existing.display());
                 return self
-                    .resolve_existing_match(conn, existing, &track, file_path)
+                    .resolve_existing_match(conn, existing, &track, &file_path)
                     .await;
             }
             track.references.push(Reference {
@@ -1308,24 +1332,30 @@ impl DownloadService {
             });
         }
 
-        // Step 2: Enrich metadata using the ingest-specific provider order (Spotify first).
-        // `enrich_metada` may set `needs_validation` on the track.
-        let (should_validate, existing_track_opt) =
-            self.enrich_metada(conn, &mut track, true).await?;
+        // Step 3: Enrich metadata — but trust already-complete tags and skip the
+        // (rate-limited) network lookup for them.
+        let (should_validate, existing_track_opt) = if tags_complete(&track) {
+            tracing::info!(
+                "Ingest: complete tags, skipping metadata enrichment for {}",
+                track.display()
+            );
+            (false, None)
+        } else {
+            self.enrich_metada(conn, &mut track, true).await?
+        };
 
         if should_validate {
             tracing::warn!(
                 "Ingest: saving for manual validation — reason={:?}",
                 track.validation_reason
             );
-            // Copy the file to the staging dir so it is not moved from its original location yet.
-            let staged_path = self.stage_local_file(file_path)?;
+            let staged_path = self.stage_local_file(&file_path)?;
             track.file_path = Some(staged_path);
             let saved = self.save_track(conn, &track).await?;
             return Ok((saved, IngestOutcome::NeedsValidation));
         }
 
-        // Step 3: Deduplication.
+        // Step 4: Deduplication by title/artist.
         let existing_track = if existing_track_opt.is_some() {
             existing_track_opt
         } else {
@@ -1334,12 +1364,12 @@ impl DownloadService {
 
         match existing_track {
             Some(existing_track) => {
-                self.resolve_existing_match(conn, existing_track, &track, file_path)
+                self.resolve_existing_match(conn, existing_track, &track, &file_path)
                     .await
             }
             None => {
                 tracing::info!("Ingest: no existing track, finalising");
-                self.process_track_file(&mut track, file_path).await?;
+                self.process_track_file(&mut track, &file_path).await?;
                 let inserted = self.save_track(conn, &track).await?;
                 Ok((inserted, IngestOutcome::New))
             }
@@ -2510,6 +2540,71 @@ fn sha256_file(path: &Path) -> SoundgnomeResult<String> {
 /// `DieselTrackRepository::fingerprint_candidates`.
 const CHROMAPRINT_PREFIX: &str = "soundome:chromaprint:";
 
+/// Cap acoustic-fingerprint decoding to the opening of each track. Chromaprint
+/// matches on the first couple of minutes, so decoding whole files is wasted work.
+const FINGERPRINT_MAX_SECS: &str = "120";
+
+/// Everything needed to commit one ingested file, computed off the DB/network so
+/// it can run on a blocking thread in parallel (see `ingest_local_dir`).
+struct PreparedIngest {
+    track: Track,
+    file_path: PathBuf,
+    /// Hex SHA-256 of the raw bytes (exact-duplicate key).
+    content_hash: String,
+    /// Acoustic fingerprint, or `None` when decoding failed (best-effort).
+    fingerprint: Option<Vec<u32>>,
+}
+
+/// Pure, blocking per-file work: read tags, infer the track number, hash the raw
+/// bytes, and compute the acoustic fingerprint. No DB, no network — safe to run
+/// on a blocking thread so many files decode at once.
+fn prepare_ingest_file(file_path: &Path) -> SoundgnomeResult<PreparedIngest> {
+    let mut track = tagger::file::get_track_from_file(&file_path.to_path_buf())
+        .map_err(|e| Error::Custom(format!("Failed to read audio tags: {e}")))?;
+    if track.track_number.is_none() {
+        track.track_number = infer_track_number_from_filename(file_path);
+    }
+    track.file_path = Some(file_path.to_path_buf());
+    let content_hash = sha256_file(file_path)?;
+    let fingerprint = match compute_fingerprint(file_path) {
+        Ok(fp) => Some(fp),
+        Err(e) => {
+            tracing::warn!("Ingest: fingerprint unavailable for {file_path:?}: {e}");
+            None
+        }
+    };
+    Ok(PreparedIngest {
+        track,
+        file_path: file_path.to_path_buf(),
+        content_hash,
+        fingerprint,
+    })
+}
+
+/// True when a file's own tags are complete enough to trust without a metadata
+/// provider lookup: a non-empty title, at least one named artist, and an album.
+fn tags_complete(track: &Track) -> bool {
+    !track.title.trim().is_empty()
+        && track.artists.iter().any(|a| !a.name.trim().is_empty())
+        && track
+            .album
+            .as_ref()
+            .is_some_and(|a| !a.title.trim().is_empty())
+}
+
+/// Parallel-prepare width for batch ingest. `general.ingest_concurrency` overrides;
+/// 0 = auto (CPU count, clamped to a sane range). The DB commit stays serial.
+fn ingest_concurrency() -> usize {
+    let configured = Config::get().general.ingest_concurrency;
+    if configured > 0 {
+        return configured;
+    }
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(2, 8)
+}
+
 /// Duration window (seconds) for narrowing acoustic dedup candidates: only tracks
 /// whose length is within this many seconds of the incoming file are compared.
 const FINGERPRINT_DURATION_TOLERANCE_SECS: i32 = 8;
@@ -2532,7 +2627,7 @@ const FINGERPRINT_MIN_ABS_MATCH_SECS: f32 = 45.0;
 /// downloads, so every ingestable format (opus, m4a, ...) is handled uniformly.
 fn compute_fingerprint(path: &Path) -> SoundgnomeResult<Vec<u32>> {
     let output = std::process::Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-i"])
+        .args(["-hide_banner", "-loglevel", "error", "-t", FINGERPRINT_MAX_SECS, "-i"])
         .arg(path)
         .args(["-f", "s16le", "-ac", "2", "-ar", "44100", "-"])
         .output()
