@@ -158,6 +158,17 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Tracks list was laggy with thousands of rows.** The whole list rendered at
+  once, so scrolling and every filter/sort re-laid-out all ~3000 rows (a forced
+  layout measured ~460 ms). Rows now use CSS `content-visibility`, so the browser
+  skips layout and paint for off-screen rows (~20 ms - a ~23x drop) without a
+  virtual-list library.
+- **Player waveform took ~1 s to appear, flashing a plain line first.** The
+  scrubber decoded the whole file at full sample rate (~890 ms) before it could
+  draw. It now decodes at 8 kHz - plenty for a bar overview and roughly 3x faster
+  (~340 ms) - and shows a skeleton waveform immediately instead of the bare line,
+  so peaks fill in rather than snapping from a line to bars.
+
 - **Enabling the equalizer mid-song silenced the current track.** Turning the EQ
   on builds the Web Audio graph, which creates the audio source on the
   already-playing element; Chrome leaves that resource on its old output path, so

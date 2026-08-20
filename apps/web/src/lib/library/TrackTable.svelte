@@ -97,6 +97,11 @@
     padding: 8px 10px;
     border-radius: 10px;
     min-width: 0;
+    /* Skip layout/paint for rows outside the viewport so a multi-thousand-row
+       list scrolls and re-renders cheaply without a virtual-list library.
+       `auto` lets the browser remember each row's real height once measured. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 60px;
   }
   .trow.playable { cursor: pointer; }
   .trow:hover { background: var(--surface); }
