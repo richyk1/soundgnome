@@ -101,6 +101,9 @@
   let loading = $state(false);
   let sizeTick = $state(0);
   let dragging = $state(false);
+  // Reveal progress 0->1 when peaks resolve from the skeleton; 1 = no animation.
+  let reveal = $state(1);
+  let revealRaf = 0;
 
   let progress = $derived(
     duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0,
@@ -144,6 +147,7 @@
       if (resolved) putCachedPeaks(key, resolved);
       peaks = resolved;
       loading = false;
+      if (resolved) startReveal();
     })();
     return () => {
       cancelled = true;
@@ -171,6 +175,47 @@
     void loading;
     draw();
   });
+
+  // Strong ease-out, matching the app's card curve (app.css cubic-bezier(0.22,1,0.36,1)).
+  // Newton-Raphson: solve x(s) = t, then return y(s).
+  function easeOut(t: number): number {
+    const x1 = 0.22, x2 = 0.36, y1 = 1, y2 = 1;
+    const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+    const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+    let s = t;
+    for (let i = 0; i < 5; i += 1) {
+      const err = ((ax * s + bx) * s + cx) * s - t;
+      const d = (3 * ax * s + 2 * bx) * s + cx;
+      if (Math.abs(err) < 1e-4 || d === 0) break;
+      s -= err / d;
+    }
+    s = Math.min(1, Math.max(0, s));
+    return ((ay * s + by) * s + cy) * s;
+  }
+
+  const reduceMotion = () =>
+    typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Morph the bars from the flat skeleton up to their real heights when peaks
+  // resolve, bridging the placeholder->waveform jump. A left-to-right stagger
+  // reads as a quick sweep. rAF (not CSS) because the bars live on a canvas.
+  const REVEAL_MS = 450;
+  function startReveal() {
+    cancelAnimationFrame(revealRaf);
+    if (reduceMotion()) {
+      reveal = 1;
+      return;
+    }
+    const t0 = performance.now();
+    reveal = 0;
+    const tick = (now: number) => {
+      reveal = Math.min(1, (now - t0) / REVEAL_MS);
+      if (reveal < 1) revealRaf = requestAnimationFrame(tick);
+    };
+    revealRaf = requestAnimationFrame(tick);
+  }
+
+  $effect(() => () => cancelAnimationFrame(revealRaf));
 
   function draw() {
     const cvs = canvas;
@@ -224,13 +269,20 @@
 
     const played = progress;
     const minH = barWidth; // quiet passages still show a dot rather than vanish
+    const r = reveal;
+    const skeletonH = Math.max(barWidth, cssH * 0.22);
+    const stagger = 0.35; // fraction of the timeline spread across bars (left->right)
     for (let i = 0; i < bars; i += 1) {
       const start = Math.floor((i / bars) * p.length);
       const end = Math.max(start + 1, Math.floor(((i + 1) / bars) * p.length));
       let sum = 0;
       for (let j = start; j < end && j < p.length; j += 1) sum += p[j];
       const value = sum / (end - start);
-      const height = Math.max(minH, value * cssH);
+      let height = Math.max(minH, value * cssH);
+      if (r < 1) {
+        const localT = Math.min(1, Math.max(0, (r - (i / bars) * stagger) / (1 - stagger)));
+        height = skeletonH + (height - skeletonH) * easeOut(localT);
+      }
       const centre = (i + 0.5) / bars;
       ctx.fillStyle = centre <= played ? playedColor : restColor;
       bar(i * step, mid - height / 2, height);

@@ -178,6 +178,11 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   peaks in IndexedDB, so replays after a reload draw from cache with zero network
   or decode (~30 ms). Falls back to client-side decoding if the endpoint is
   unavailable.
+- **The waveform now animates in from its skeleton.** When peaks resolve, the
+  flat placeholder bars grow up to their real heights in a quick left-to-right
+  sweep (~450 ms, strong ease-out) instead of snapping, so the placeholder reads
+  as the same waveform settling into focus. Respects `prefers-reduced-motion`
+  (renders resolved immediately).
 
 - **Enabling the equalizer mid-song silenced the current track.** Turning the EQ
   on builds the Web Audio graph, which creates the audio source on the
