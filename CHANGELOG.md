@@ -118,6 +118,10 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Changed
 
+- **Lower-fidelity player waveform.** The scrubber now draws chunky, rounded
+  "voice-memo" bars (wider bars with clear gaps, pill caps) instead of a dense
+  fine waveform - played bars in the accent, the rest in a muted grey.
+
 - **Redesigned the Tracks page ("Stage").** The library header now leads with a
   `LIBRARY` eyebrow, a large title, and a live subtitle (track count · tracks
   needing validation · last sync). The Tracks toolbar gains filter pills

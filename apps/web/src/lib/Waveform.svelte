@@ -169,14 +169,18 @@
 
     const styles = getComputedStyle(cvs);
     const playedColor = styles.getPropertyValue('--accent').trim() || '#7c6ef5';
-    const restColor = styles.getPropertyValue('--muted').trim() || '#7b7f9e';
+    const restColor = styles.getPropertyValue('--muted-2').trim() || '#6e6e78';
 
-    const barWidth = 2;
-    const gap = 1;
+    // Chunky, rounded "voice-memo" bars: fewer, wider bars with clear gaps read
+    // as lower-fidelity than a dense waveform.
+    const barWidth = 4;
+    const gap = 3;
     const step = barWidth + gap;
+    const radius = barWidth / 2;
     const bars = Math.max(1, Math.floor((cssW + gap) / step));
     const mid = cssH / 2;
     const played = progress;
+    const minH = barWidth; // quiet passages still show a dot rather than vanish
 
     for (let i = 0; i < bars; i += 1) {
       const start = Math.floor((i / bars) * p.length);
@@ -184,10 +188,18 @@
       let sum = 0;
       for (let j = start; j < end && j < p.length; j += 1) sum += p[j];
       const value = sum / (end - start);
-      const height = Math.max(2, value * cssH);
+      const height = Math.max(minH, value * cssH);
+      const x = i * step;
+      const y = mid - height / 2;
       const centre = (i + 0.5) / bars;
       ctx.fillStyle = centre <= played ? playedColor : restColor;
-      ctx.fillRect(i * step, mid - height / 2, barWidth, height);
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, barWidth, height, radius);
+        ctx.fill();
+      } else {
+        ctx.fillRect(x, y, barWidth, height);
+      }
     }
   }
 
