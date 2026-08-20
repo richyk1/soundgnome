@@ -625,24 +625,32 @@
   ></audio>
 
   {#if current}
-    <div
-      class="pl-left"
-      role="button"
-      tabindex="0"
-      onclick={openNP}
-      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNP(); } }}
-    >
-      <div class="player-thumb">
-        {#if current.artwork || resolvedArt}
-          <img src={current.artwork ?? resolvedArt} alt="" />
-        {:else}
-          <div class="cover-ph"><i class="lni lni-music-note"></i></div>
-        {/if}
+    <div class="pl-left">
+      <div
+        class="pl-identity"
+        role="button"
+        tabindex="0"
+        onclick={openNP}
+        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNP(); } }}
+      >
+        <div class="player-thumb">
+          {#if current.artwork || resolvedArt}
+            <img src={current.artwork ?? resolvedArt} alt="" />
+          {:else}
+            <div class="cover-ph"><i class="lni lni-music-note"></i></div>
+          {/if}
+        </div>
+        <div class="player-info">
+          <span class="title">{current.title}</span>
+          <span class="artist">{current.artist}</span>
+        </div>
       </div>
-      <div class="player-info">
-        <span class="title">{current.title}</span>
-        <span class="artist">{current.artist}</span>
-      </div>
+      {#if currentLibTrack}
+        <div class="pl-rate">
+          <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} title="Like" aria-label="Like"><i class="lni lni-thumbs-up-1"></i></button>
+          <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} title="Dislike" aria-label="Dislike"><i class="lni lni-thumbs-down-1"></i></button>
+        </div>
+      {/if}
     </div>
 
     <div class="pl-center">
@@ -821,8 +829,24 @@
   .pl-left {
     display: flex;
     align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+  .pl-identity {
+    display: flex;
+    align-items: center;
     gap: 14px;
     min-width: 0;
+  }
+  .pl-rate {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .pl-rate .btn-rate {
+    font-size: 16px;
+    padding: 4px 6px;
   }
   .player-thumb {
     width: 60px;
@@ -1184,6 +1208,7 @@
 
   @media (max-width: 860px) {
     .np { display: flex; }
-    .pl-left { cursor: pointer; }
+    .pl-identity { cursor: pointer; }
+    .pl-rate { display: none; }
   }
 </style>

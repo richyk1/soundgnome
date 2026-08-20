@@ -285,6 +285,28 @@ pub async fn scrobble(items: &[ScrobbleItem]) -> SoundgnomeResult<()> {
     post_signed(params).await.map(|_| ())
 }
 
+/// `track.love` — mark a track as loved on the connected account.
+pub async fn love(artist: &str, track: &str) -> SoundgnomeResult<()> {
+    love_call("track.love", artist, track).await
+}
+
+/// `track.unlove` — remove a previously loved track (idempotent on Last.fm).
+pub async fn unlove(artist: &str, track: &str) -> SoundgnomeResult<()> {
+    love_call("track.unlove", artist, track).await
+}
+
+async fn love_call(method: &str, artist: &str, track: &str) -> SoundgnomeResult<()> {
+    let session = session_or_err()?;
+    let creds = creds_or_err()?;
+    let mut params = BTreeMap::new();
+    params.insert("method".to_string(), method.to_string());
+    params.insert("api_key".to_string(), creds.api_key);
+    params.insert("sk".to_string(), session.session_key);
+    params.insert("artist".to_string(), artist.to_string());
+    params.insert("track".to_string(), track.to_string());
+    post_signed(params).await.map(|_| ())
+}
+
 // ── File helpers (owner-only, like the other stored credentials) ──────────────
 
 fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {

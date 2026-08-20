@@ -461,25 +461,68 @@ pub async fn set_rating(
 ) -> Result<Json<TrackDto>, crate::utils::error::Error> {
     let services = Arc::clone(services);
     let rating = body.into_inner().rating;
-    db.run(move |conn| -> shared::types::SoundgnomeResult<Track> {
-        services.track_service.set_rating(conn, id, rating)?;
-        services.track_service.get_by_id(conn, id)
-    })
-    .await
-    .and_then(|track| {
-        let mut dto = TrackDto::from_track(track)
-            .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))?;
-        dto.rating = rating;
-        Ok(dto)
-    })
-    .map(Json)
-    .map_err(|err| {
-        crate::utils::error::Error::Custom(CustomError {
-            status: Status::InternalServerError,
-            code: "Internal".to_string(),
-            message: err.to_string(),
+    let result = db
+        .run(move |conn| -> shared::types::SoundgnomeResult<Track> {
+            services.track_service.set_rating(conn, id, rating)?;
+            services.track_service.get_by_id(conn, id)
         })
-    })
+        .await;
+
+    // Best-effort: mirror the like to Last.fm loved tracks when a session is
+    // connected. Detached so it never delays or fails the rating write.
+    if let Ok(track) = &result {
+        sync_lastfm_love(track, rating);
+    }
+
+    result
+        .and_then(|track| {
+            let mut dto = TrackDto::from_track(track)
+                .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))?;
+            dto.rating = rating;
+            Ok(dto)
+        })
+        .map(Json)
+        .map_err(|err| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: Status::InternalServerError,
+                code: "Internal".to_string(),
+                message: err.to_string(),
+            })
+        })
+}
+
+/// Reflect a rating change onto the connected Last.fm account's loved tracks.
+/// `liked` loves the track; a dislike or a cleared rating unloves it. No-op
+/// unless a Last.fm session is connected; runs detached and never fails the
+/// request. Artists are joined the same way the scrobbler formats them so the
+/// love attaches to the same track Last.fm already knows from scrobbles.
+fn sync_lastfm_love(track: &Track, rating: Option<Rating>) {
+    use crate::utils::lastfm;
+
+    if lastfm::stored_session().is_none() {
+        return;
+    }
+    let artist = track
+        .artists
+        .iter()
+        .map(|a| a.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if artist.is_empty() {
+        return;
+    }
+    let title = track.title.clone();
+    let liked = matches!(rating, Some(Rating::Liked));
+    rocket::tokio::spawn(async move {
+        let result = if liked {
+            lastfm::love(&artist, &title).await
+        } else {
+            lastfm::unlove(&artist, &title).await
+        };
+        if let Err(e) = result {
+            tracing::warn!("Last.fm love update for '{artist} - {title}' failed: {e}");
+        }
+    });
 }
 
 #[openapi]

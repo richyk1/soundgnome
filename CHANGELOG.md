@@ -13,6 +13,12 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Added
 
+- **Like / dislike from the desktop player bar.** The now-playing track can be
+  rated straight from the bar, beside the title, instead of only from track rows
+  or the mobile Now Playing sheet. When a Last.fm account is connected, liking a
+  track also loves it on Last.fm (`track.love`); clearing the like or disliking
+  removes the love. Best-effort and server-side, so it never blocks the rating.
+
 - **Mobile is now a listening app.** On phones the desktop cockpit gives way to a
   listening-first shell: a bottom tab bar (Home / Search / Library) with the
   curation tools (Ingest, Validations, Activity, Tools) tucked behind a **More**
