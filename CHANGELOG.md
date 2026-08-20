@@ -145,6 +145,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Like / dislike were pushed off-screen in the Tracks list.** The track table
+  sized itself to its content and overflowed its panel on typical laptop widths,
+  so the rightmost Actions column (like, dislike, edit) sat past the right edge
+  and needed horizontal scrolling to reach. The table now uses a fixed layout
+  that always fits, truncating long titles/albums instead of growing wider, so
+  the rating buttons are always visible.
+
 - **Cover art was low resolution.** Embedded artwork used each source's default
   thumbnail: SoundCloud's 100x100 `-large`, YouTube's 480x360 `hqdefault`, and
   Spotify's 300x300 image. Cover fetching now requests the largest variant per

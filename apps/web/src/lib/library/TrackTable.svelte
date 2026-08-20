@@ -15,6 +15,16 @@
 
 <div class="table-wrap">
   <table>
+    <colgroup>
+      <col class="c-idx" />
+      <col class="c-title" />
+      <col class="c-artist" />
+      {#if showAlbumCol}<col class="c-album" />{/if}
+      <col class="c-genre" />
+      <col class="c-dur" />
+      <col class="c-quality" />
+      <col class="c-actions" />
+    </colgroup>
     <thead>
       <tr>
         <th>#</th><th>Title</th><th>Artists</th>
@@ -110,6 +120,27 @@
   .table-wrap tbody tr.playable:hover .idx-play { display: flex; }
   .table-wrap tbody tr.playing .idx-num { visibility: hidden; }
   .table-wrap tbody tr.playing .idx-play { display: flex; color: var(--accent); }
+
+  /* Fixed layout so the table always fits its panel and the rightmost Actions
+     column (like / dislike / edit) never overflows off-screen on narrower
+     desktops. Long text truncates instead of widening the table. */
+  table { width: 100%; table-layout: fixed; }
+  .c-idx { width: 3em; }
+  .c-artist { width: 13%; }
+  .c-album { width: 15%; }
+  .c-genre { width: 9%; }
+  .c-dur { width: 4.5em; }
+  .c-quality { width: 5.5em; }
+  .c-actions { width: 9em; }
+  .title-cell,
+  td.col-artist,
+  td.col-album,
+  td.col-genre {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  td.actions { white-space: nowrap; }
 
   /* ── Mobile: collapse the table into a tap-to-play list ────────────────── */
   .row-sub { display: none; }
