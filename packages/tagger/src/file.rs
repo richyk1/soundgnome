@@ -4,7 +4,7 @@ use shared::{
     models::{Album, Artist, Track},
     types::SoundgnomeResult,
 };
-use std::{path::PathBuf, str::FromStr};
+use std::path::{Path, PathBuf};
 
 // ================================================================================================
 // SOUNDOME_ID custom-tag constants
@@ -47,6 +47,29 @@ pub fn get_track_from_file(file_path: &PathBuf) -> SoundgnomeResult<Track> {
     track.soundome_id = read_soundome_id_from_file(file_path);
 
     Ok(track)
+}
+
+/// Extract the embedded cover picture from an audio file, if any. Returns the
+/// raw image bytes and its MIME type (e.g. `"image/png"`). Prefers the front
+/// cover, falling back to the first embedded picture. Reads via lofty, which
+/// covers every container we ingest. Best-effort: unreadable files yield `None`.
+pub fn read_cover_from_path(file_path: &Path) -> Option<(Vec<u8>, String)> {
+    use lofty::file::TaggedFileExt;
+    use lofty::picture::PictureType;
+    use lofty::probe::Probe;
+
+    let tagged = Probe::open(file_path).ok()?.read().ok()?;
+    let tag = tagged.primary_tag().or_else(|| tagged.first_tag())?;
+    let pics = tag.pictures();
+    let pic = pics
+        .iter()
+        .find(|p| p.pic_type() == PictureType::CoverFront)
+        .or_else(|| pics.first())?;
+    let mime = pic
+        .mime_type()
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_else(|| "image/jpeg".to_string());
+    Some((pic.data().to_vec(), mime))
 }
 
 /**

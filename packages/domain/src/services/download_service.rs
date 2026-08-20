@@ -74,6 +74,14 @@ fn youtube_video_id(url: &str) -> Option<String> {
     None
 }
 
+/// The API endpoint that serves a track's embedded cover art (see the
+/// `GET /tracks/<id>/cover` route). Used as the `cover` URL for locally-ingested
+/// files whose artwork is stored inside the audio container rather than at an
+/// external URL.
+fn embedded_cover_url(id: i32) -> String {
+    format!("/api/tracks/{id}/cover")
+}
+
 /// Best-effort cover-art URL for a track whose source metadata carried none,
 /// derived from its references. YouTube -> thumbnail built from the video id;
 /// Spotify -> album art via the public, auth-free oEmbed endpoint. Used so
@@ -300,6 +308,26 @@ impl DownloadService {
                 None => resolve_cover_url(&track).await,
             };
             let Some(url) = cover_url else {
+                // No external artwork URL, but the file itself may carry embedded
+                // art (common for locally-ingested files). Point `cover` at the
+                // on-demand endpoint instead of re-embedding what is already there.
+                if tagger::file::read_cover_from_path(&path).is_some() {
+                    if let Some(id) = track.id {
+                        track.cover = Some(embedded_cover_url(id));
+                        match self.track_service.update(conn, id, &track) {
+                            Ok(_) => s.embedded += 1,
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Backfill: could not persist embedded cover for {}: {}",
+                                    id,
+                                    e
+                                );
+                                s.errors += 1;
+                            }
+                        }
+                        continue;
+                    }
+                }
                 s.no_art += 1;
                 continue;
             };
@@ -1370,6 +1398,7 @@ impl DownloadService {
             file_path,
             content_hash,
             fingerprint,
+            has_cover,
         } = prepared;
 
         tracing::info!("===========\nIngesting local file: {:?}\n------", file_path);
@@ -1428,7 +1457,8 @@ impl DownloadService {
             );
             let staged_path = self.stage_local_file(&file_path)?;
             track.file_path = Some(staged_path);
-            let saved = self.save_track(conn, &track).await?;
+            let mut saved = self.save_track(conn, &track).await?;
+            self.set_embedded_cover_if_missing(conn, &mut saved, has_cover);
             return Ok((saved, IngestOutcome::NeedsValidation));
         }
 
@@ -1447,9 +1477,32 @@ impl DownloadService {
             None => {
                 tracing::info!("Ingest: no existing track, finalising");
                 self.process_track_file(&mut track, &file_path).await?;
-                let inserted = self.save_track(conn, &track).await?;
+                let mut inserted = self.save_track(conn, &track).await?;
+                self.set_embedded_cover_if_missing(conn, &mut inserted, has_cover);
                 Ok((inserted, IngestOutcome::New))
             }
+        }
+    }
+
+    /// When a freshly-ingested file carries embedded cover art but has no `cover`
+    /// URL (local files rarely reference external artwork), point `cover` at the
+    /// on-demand endpoint that serves the file's embedded picture. The art already
+    /// lives in the file, so nothing is copied. Best-effort: a failed DB update
+    /// leaves the track without artwork rather than failing the ingest.
+    fn set_embedded_cover_if_missing(
+        &self,
+        conn: &mut SqliteConnection,
+        track: &mut Track,
+        has_embedded_cover: bool,
+    ) {
+        if !has_embedded_cover || track.cover.is_some() {
+            return;
+        }
+        let Some(id) = track.id else { return };
+        track.cover = Some(embedded_cover_url(id));
+        if let Err(e) = self.track_service.update(conn, id, track) {
+            tracing::warn!("Ingest: could not persist embedded cover for {}: {}", id, e);
+            track.cover = None;
         }
     }
 
@@ -2618,6 +2671,8 @@ struct PreparedIngest {
     content_hash: String,
     /// Acoustic fingerprint, or `None` when decoding failed (best-effort).
     fingerprint: Option<Vec<u32>>,
+    /// Whether the source file carries embedded cover art.
+    has_cover: bool,
 }
 
 /// Pure, blocking per-file work: read tags, infer the track number, hash the raw
@@ -2638,11 +2693,13 @@ fn prepare_ingest_file(file_path: &Path) -> SoundgnomeResult<PreparedIngest> {
             None
         }
     };
+    let has_cover = tagger::file::read_cover_from_path(file_path).is_some();
     Ok(PreparedIngest {
         track,
         file_path: file_path.to_path_buf(),
         content_hash,
         fingerprint,
+        has_cover,
     })
 }
 

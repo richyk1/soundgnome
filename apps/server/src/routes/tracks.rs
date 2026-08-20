@@ -5,7 +5,7 @@ use std::time::UNIX_EPOCH;
 
 use domain::services::ServiceLayer;
 use rocket::fs::NamedFile;
-use rocket::{delete, get, http::{Header, Status}, patch, post, put, serde::json::Json, Responder};
+use rocket::{delete, get, http::{ContentType, Header, Status}, patch, post, put, serde::json::Json, Responder};
 use rocket_okapi::openapi;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -596,6 +596,49 @@ pub async fn delete(
                 message: err.to_string(),
             })
         })
+}
+
+/// Serve the embedded cover art from a track's audio file. Used as the `cover`
+/// URL for locally-ingested files, whose artwork lives inside the audio
+/// container rather than at an external URL. Responds 404 when the file is
+/// missing or carries no embedded picture. Not part of the OpenAPI surface
+/// (returns a raw image, mounted as a plain route).
+#[get("/tracks/<id>/cover")]
+pub async fn cover(
+    id: i32,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<(ContentType, Vec<u8>), crate::utils::error::Error> {
+    let services = Arc::clone(services);
+    let track = db
+        .run(move |conn| services.track_service.get_by_id(conn, id))
+        .await
+        .map_err(|e| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: Status::NotFound,
+                code: "NotFound".to_string(),
+                message: e.to_string(),
+            })
+        })?;
+
+    let path = track.file_path.ok_or_else(|| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::NotFound,
+            code: "NoCover".to_string(),
+            message: "Track has no local file".to_string(),
+        })
+    })?;
+
+    let (bytes, mime) = tagger::file::read_cover_from_path(&path).ok_or_else(|| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::NotFound,
+            code: "NoCover".to_string(),
+            message: "No embedded cover art".to_string(),
+        })
+    })?;
+
+    let content_type = ContentType::parse_flexible(&mime).unwrap_or(ContentType::JPEG);
+    Ok((content_type, bytes))
 }
 
 /// Download the audio file for a track.
