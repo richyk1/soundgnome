@@ -168,6 +168,15 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Initial page load no longer stalls fetching data twice.** On startup the app
+  loaded the whole library (tracks, albums, artists, playlists) twice - once from
+  the app shell and once from the Library page - so it downloaded and parsed
+  several extra megabytes and briefly blanked the lists before refilling. It now
+  loads once. Separately, the sidebar's "needs validation" badge was polling the
+  full ~1.2 MB validations list every 5 seconds just to read its length; it now
+  reuses the count already computed from the loaded tracks, so nothing is
+  refetched on a timer.
+
 - **Locally-ingested files now show their embedded cover art.** Ingest read the
   title/artist/genre tags but ignored the artwork embedded in the file, so a
   local import (e.g. a SoundCloud flip downloaded elsewhere) showed a blank

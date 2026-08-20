@@ -411,7 +411,17 @@ function createLibraryStore() {
     loadAll();
   }
 
+  // Plain (non-reactive) in-flight flag. It must NOT be `$state`: `loadAll` runs
+  // inside Library's mount `$effect`, so reading a reactive flag here would make
+  // that effect depend on it and re-run every time it toggles - an infinite
+  // reload loop. A plain variable is invisible to the reactive graph.
+  let loadingAll = false;
   async function loadAll() {
+    // Dedupe the double initial load: App.onMount and Library's mount effect
+    // both call this, and a second concurrent run would blank every list and
+    // refetch several MB of JSON for nothing.
+    if (loadingAll) return;
+    loadingAll = true;
     refreshing = true;
     tracksLoaded = false; albumsLoaded = false; artistsLoaded = false; playlistsLoaded = false;
     tracks = []; albums = []; artists = []; playlists = [];
@@ -420,6 +430,7 @@ function createLibraryStore() {
       lastRefreshed = new Date();
     } finally {
       refreshing = false;
+      loadingAll = false;
     }
   }
 

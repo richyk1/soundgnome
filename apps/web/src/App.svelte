@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, setContext } from 'svelte';
   import { fly, fade } from 'svelte/transition';
-  import { getPendingCount, getActiveTasksCount, getVersion, getSoundcloudStreamUrl } from './lib/api';
+  import { getActiveTasksCount, getVersion, getSoundcloudStreamUrl } from './lib/api';
   import { lib } from './lib/library/store.svelte';
   import Home from './pages/Home.svelte';
   import Validations from './pages/Validations.svelte';
@@ -25,7 +25,6 @@
   type LibraryTab = 'artists' | 'albums' | 'tracks' | 'playlists';
 
   let page: Page = $state('library');
-  let pendingCount = $state(0);
   let activeTasksCount = $state(0);
   let helpOpen = $state(false);
   let version = $state('');
@@ -56,11 +55,6 @@
   });
 
   async function refreshCounts() {
-    try {
-      pendingCount = await getPendingCount();
-    } catch {
-      // API might not be up yet in dev
-    }
     try {
       activeTasksCount = await getActiveTasksCount();
     } catch {
@@ -144,8 +138,8 @@
           {#each primaryNav as item}
             <button class="nav-item" class:active={page === item.id} onclick={() => navigate(item.id)}>
               <span class="nav-label"><i class="lni {item.icon}"></i>{item.label}</span>
-              {#if item.id === 'validations' && pendingCount > 0}
-                <span class="badge badge-amber">{pendingCount}</span>
+              {#if item.id === 'validations' && lib.needsReviewCount > 0}
+                <span class="badge badge-amber">{lib.needsReviewCount}</span>
               {/if}
             </button>
           {/each}
@@ -167,8 +161,8 @@
               <span class="nav-label"><i class="lni {t.icon}"></i>{t.label}</span>
               <span class="counts">
                 <span class="mono dim">{t.count()}</span>
-                {#if t.id === 'tracks' && pendingCount > 0}
-                  <span class="badge badge-amber sm">{pendingCount}</span>
+                {#if t.id === 'tracks' && lib.needsReviewCount > 0}
+                  <span class="badge badge-amber sm">{lib.needsReviewCount}</span>
                 {/if}
               </span>
             </button>
@@ -271,7 +265,7 @@
     <div class="more-grabber"></div>
     <div class="more-title">More</div>
     <button class="more-item" onclick={() => { navigate('ingest'); moreOpen = false; }}><i class="lni lni-folder-upload"></i>Ingest local files</button>
-    <button class="more-item" onclick={() => { navigate('validations'); moreOpen = false; }}><i class="lni lni-check-square-1"></i>Validations{#if pendingCount > 0}<span class="badge badge-amber sm">{pendingCount}</span>{/if}</button>
+    <button class="more-item" onclick={() => { navigate('validations'); moreOpen = false; }}><i class="lni lni-check-square-1"></i>Validations{#if lib.needsReviewCount > 0}<span class="badge badge-amber sm">{lib.needsReviewCount}</span>{/if}</button>
     <button class="more-item" onclick={() => { navigate('tasks'); moreOpen = false; }}><i class="lni lni-bell-1"></i>Activity{#if activeTasksCount > 0}<span class="badge badge-red sm">{activeTasksCount}</span>{/if}</button>
     <button class="more-item" onclick={() => { navigate('tools'); moreOpen = false; }}><i class="lni lni-gear-1"></i>Tools</button>
     <button class="more-item" onclick={() => { helpOpen = true; moreOpen = false; }}><i class="lni lni-question-mark-circle"></i>Help</button>

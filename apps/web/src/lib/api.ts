@@ -23,11 +23,6 @@ export async function getPendingValidations(): Promise<PendingValidationDto[]> {
   return res.json();
 }
 
-export async function getPendingCount(): Promise<number> {
-  const tracks = await getPendingValidations();
-  return tracks.length;
-}
-
 export async function approveValidation(
   id: number,
   patch: PatchValidationBody,
