@@ -126,12 +126,12 @@
      desktops. Long text truncates instead of widening the table. */
   table { width: 100%; table-layout: fixed; }
   .c-idx { width: 3em; }
-  .c-artist { width: 13%; }
-  .c-album { width: 15%; }
-  .c-genre { width: 9%; }
+  .c-artist { width: 11%; }
+  .c-album { width: 11%; }
+  .c-genre { width: 6%; }
   .c-dur { width: 4.5em; }
-  .c-quality { width: 5.5em; }
-  .c-actions { width: 9em; }
+  .c-quality { width: 6.5em; }
+  .c-actions { width: 11em; }
   .title-cell,
   td.col-artist,
   td.col-album,
@@ -140,7 +140,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  td.actions { white-space: nowrap; }
+  td.actions { white-space: nowrap; text-align: right; }
+  /* Bigger, clearer like/dislike than the default row icon. */
+  td.actions .btn-rate { font-size: 18px; }
+  td.actions .btn-rate .lni { display: block; }
 
   /* ── Mobile: collapse the table into a tap-to-play list ────────────────── */
   .row-sub { display: none; }
