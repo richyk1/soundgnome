@@ -1,4 +1,3 @@
-use audiotags::{AudioTag, Tag};
 use id3::TagLike;
 use shared::{
     errors::Error,
@@ -70,23 +69,43 @@ pub fn tag_file_with_track_and_cover(
         return crate::ogg::tag_file(file_path, track, cover_bytes, track.soundome_id.as_deref());
     }
 
-    let mut tag = Tag::new()
-        .read_from_path(file_path)
-        .map_err(|e| Error::Custom(format!("Error reading audio tags: {:?}", e)))?;
-    convert_track_to_tag(&mut tag, track);
+    use lofty::config::WriteOptions;
+    use lofty::file::TaggedFileExt;
+    use lofty::prelude::TagExt;
+
+    let mut tagged = lofty::probe::Probe::open(file_path)
+        .map_err(|e| Error::Custom(format!("Cannot open audio file: {e}")))?
+        .read()
+        .map_err(|e| Error::Custom(format!("Error reading audio file: {e:?}")))?;
+
+    // Create a tag of the file's native type when it has none yet (a freshly
+    // downloaded WAV or an untagged MP3), then fill it in. lofty writes every
+    // container we ingest, including WAV, which audiotags could not.
+    if tagged.primary_tag().is_none() {
+        let tag_type = tagged.primary_tag_type();
+        tagged.insert_tag(lofty::tag::Tag::new(tag_type));
+    }
+    let tag = tagged
+        .primary_tag_mut()
+        .expect("a primary tag exists or was just inserted");
+
+    apply_track_to_tag(tag, track);
 
     if let Some(bytes) = cover_bytes {
-        tag.set_album_cover(audiotags::Picture {
-            mime_type: audiotags::MimeType::Jpeg,
-            data: bytes,
-        });
+        let picture = lofty::picture::Picture::new_unchecked(
+            lofty::picture::PictureType::CoverFront,
+            Some(lofty::picture::MimeType::Jpeg),
+            None,
+            bytes.to_vec(),
+        );
+        tag.set_picture(0, picture);
     }
 
-    tag.write_to_path(file_path.display().to_string().as_str())
-        .map_err(|e| Error::Custom(format!("Error writing audio tags: {:?}", e)))?;
+    tag.save_to_path(file_path, WriteOptions::default())
+        .map_err(|e| Error::Custom(format!("Error writing audio tags: {e:?}")))?;
 
     // Write the SOUNDOME_ID custom tag if present
-    if let Some(ref sid) = track.soundome_id {
+    if let Some(sid) = &track.soundome_id {
         write_soundome_id_tag(file_path, sid)?;
     }
 
@@ -220,57 +239,54 @@ fn read_soundome_id_mp4(file_path: &PathBuf) -> Option<String> {
 // Mappers
 // ================================================================================================
 
-fn convert_track_to_tag(tag: &mut Box<dyn AudioTag + Send + Sync>, track: &Track) {
-    tag.set_title(&track.title);
-    tag.set_artist(
-        track
+fn apply_track_to_tag(tag: &mut lofty::tag::Tag, track: &Track) {
+    use lofty::prelude::Accessor;
+    use lofty::tag::ItemKey;
+
+    tag.set_title(track.title.clone());
+
+    let artist = track
+        .artists
+        .iter()
+        .map(|a| a.name.as_str())
+        .collect::<Vec<_>>()
+        .join(";");
+    if !artist.is_empty() {
+        tag.set_artist(artist);
+    }
+
+    if let Some(album) = track.album.as_ref() {
+        tag.set_album(album.title.clone());
+        let album_artist = album
             .artists
             .iter()
-            .map(|artist| artist.name.as_str())
-            .collect::<Vec<&str>>()
-            .join(";")
-            .as_str(),
-    );
-    if let Some(album) = track.album.as_ref() {
-        tag.set_album_title(album.title.as_str());
-        tag.set_album_artist(
-            album
-                .artists
-                .iter()
-                .map(|artist| artist.name.as_str())
-                .collect::<Vec<&str>>()
-                .join(", ")
-                .as_str(),
-        );
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !album_artist.is_empty() {
+            tag.insert_text(ItemKey::AlbumArtist, album_artist);
+        }
     }
-    if let Some(genre) = track.genre.as_ref() {
-        tag.set_genre(genre);
-    }
-    if let Some(date) = track.date.as_ref() {
-        tag.set_date(id3::Timestamp::from_str(date).unwrap_or(id3::Timestamp::default()))
-    }
-    if let Some(track_number) = track.track_number.as_ref() {
-        tag.set_track_number(*track_number as u16);
-    }
-    if let Some(disc_number) = track.disc_number.as_ref() {
-        tag.set_disc_number(*disc_number as u16);
-    }
-    // tag.album_cover()
 
-    tag.set_comment(
-        "Downloaded by Soundgnome\n---".to_string(), // + "\nSource: "
-                                                     // + track
-                                                     //     .source
-                                                     //     .as_ref()
-                                                     //     .unwrap_or(&TrackSource::Unknown)
-                                                     //     .as_ref()
-                                                     // + "\nProvider: "
-                                                     // + track
-                                                     //     .provider
-                                                     //     .as_ref()
-                                                     //     .unwrap_or(&TrackProvider::Unknown)
-                                                     //     .as_ref(),
-    );
+    if let Some(genre) = track.genre.as_ref() {
+        tag.set_genre(genre.clone());
+    }
+
+    if let Some(date) = track.date.as_ref() {
+        if let Some(year) = date.get(0..4).and_then(|y| y.parse::<u32>().ok()) {
+            tag.set_year(year);
+        }
+        tag.insert_text(ItemKey::RecordingDate, date.clone());
+    }
+
+    if let Some(track_number) = track.track_number {
+        tag.set_track(track_number as u32);
+    }
+    if let Some(disc_number) = track.disc_number {
+        tag.set_disk(disc_number as u32);
+    }
+
+    tag.set_comment("Downloaded by Soundgnome\n---".to_string());
 }
 
 /// Split a raw artist string on the standard multi-artist tag delimiters (`/` for

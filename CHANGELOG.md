@@ -139,14 +139,19 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
-- **Opus, Ogg, and WAV files failed to ingest.** Tag reading went through a
-  crate that only understands MP3, FLAC, and M4A, so every other container
-  errored out during ingest, even though those formats were on the accepted
-  list. Opus is yt-dlp's default audio format, so a large share of a
-  YouTube-sourced library was affected. The reader now uses `lofty`, which
-  reads tags uniformly across all ingested formats; untagged files fall back to
-  a filename-derived title and go to review instead of erroring, and
-  partial-download artifacts (`*.temp.*`) are skipped up front.
+- **Opus, Ogg, and WAV files failed to ingest.** Tag reading and writing went
+  through a crate that only understands MP3, FLAC, and M4A, so every other
+  container errored out during ingest, even though those formats were on the
+  accepted list. Opus is yt-dlp's default audio format, so a large share of a
+  YouTube-sourced library was affected. Tagging now uses `lofty`, which reads
+  and writes tags uniformly across all ingested formats (including WAV);
+  untagged files fall back to a filename-derived title and go to review instead
+  of erroring, and partial-download artifacts (`*.temp.*`) are skipped up front.
+- **Control characters in metadata could abort ingest.** A track, artist, or
+  album name carrying a NUL or other control character (from noisy tags or a
+  provider match) produced an illegal library path and failed the whole file at
+  the folder-creation step. Path components are now stripped of control
+  characters.
 - **Upload sessions were deleted even when some files errored.** After a
   browser-upload ingest finished, the whole staging session was removed,
   including files that had errored and were never actually ingested. A run that
