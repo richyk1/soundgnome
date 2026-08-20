@@ -173,8 +173,9 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   draw the bars. A new `GET /api/tracks/<id>/waveform` endpoint decodes the file
   once with ffmpeg (8 kHz mono) into a ~4 KB peaks JSON, caches it on disk keyed
   by file mtime, and serves it with a long cache header (cold ~700 ms once, warm
-  ~4 ms). A background backfill precomputes the whole library on startup (bounded
-  worker pool) so even first play is instant. The client also persists resolved
+  ~4 ms). A gentle background backfill precomputes the whole library after launch
+  (one decode at a time, throttled) so even first play is instant without ever
+  starving playback. The client also persists resolved
   peaks in IndexedDB, so replays after a reload draw from cache with zero network
   or decode (~30 ms). Falls back to client-side decoding if the endpoint is
   unavailable.

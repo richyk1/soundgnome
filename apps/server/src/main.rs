@@ -26,9 +26,18 @@ fn get_docs() -> SwaggerUIConfig {
 }
 
 /// Precompute and cache waveform peaks for every finalized track not already
-/// cached, so the scrubber is instant on first play. Runs once in the background
-/// on liftoff; cache hits make later runs cheap (a stat per track).
+/// cached, so the scrubber is instant on first play. Deliberately gentle: starts
+/// after a delay and decodes one track at a time with a breather between each, so
+/// ffmpeg never contends with foreground audio/waveform requests on a busy or
+/// shared box. Anything played before the backfill reaches it is computed on
+/// demand instead, so a slow warm-up costs nothing.
 fn backfill_waveforms(services: &ServiceLayer, db_url: &str) {
+    use std::time::Duration;
+
+    // Let the server settle: a reload + play right after launch must not compete
+    // with the initial decode work.
+    std::thread::sleep(Duration::from_secs(20));
+
     let mut conn = database::init_connection(db_url);
     let tracks = match services.track_service.get_all_finalized(&mut conn) {
         Ok(tracks) => tracks,
@@ -50,38 +59,19 @@ fn backfill_waveforms(services: &ServiceLayer, db_url: &str) {
         return;
     }
 
-    // Decode across a few worker threads (ffmpeg per track is single-threaded);
-    // capped so it warms the library fast without starving the running server.
-    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
     let total = pending.len();
-    let workers = std::thread::available_parallelism()
-        .map(|n| n.get().min(4))
-        .unwrap_or(2);
-    let next = AtomicUsize::new(0);
-    let ok = AtomicUsize::new(0);
-
-    std::thread::scope(|scope| {
-        for _ in 0..workers {
-            scope.spawn(|| loop {
-                let i = next.fetch_add(1, Relaxed);
-                let Some((id, path)) = pending.get(i) else {
-                    break;
-                };
-                match routes::tracks::waveform_peaks_cached(*id, path) {
-                    Ok(_) => {
-                        ok.fetch_add(1, Relaxed);
-                    }
-                    Err(e) => tracing::debug!("Waveform backfill: track {id} failed: {e}"),
-                }
-            });
+    let mut ok = 0usize;
+    for (id, path) in &pending {
+        match routes::tracks::waveform_peaks_cached(*id, path) {
+            Ok(_) => ok += 1,
+            Err(e) => tracing::debug!("Waveform backfill: track {id} failed: {e}"),
         }
-    });
+        // One decode at a time, with a breather, keeps a single ffmpeg well below
+        // saturation and yields the CPU to playback between tracks.
+        std::thread::sleep(Duration::from_millis(150));
+    }
 
-    tracing::info!(
-        "Waveform backfill complete: {}/{} newly cached ({workers} workers)",
-        ok.load(Relaxed),
-        total
-    );
+    tracing::info!("Waveform backfill complete: {ok}/{total} newly cached");
 }
 
 #[dotenvy::load(path = "./.env", required = false)]
