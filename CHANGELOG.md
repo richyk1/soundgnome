@@ -168,6 +168,17 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Editing the playing track now updates the now-playing bar.** The bar showed a
+  snapshot taken at play time, so an edit (e.g. AI cleanup) to the current track's
+  title/artist did not appear until the next play. It now reads the live library
+  track, so edits reflect immediately.
+- **Shuffle reorders the tracks list instead of scroll-jumping.** Turning on
+  shuffle now reshuffles the library list itself (with the current song pinned to
+  the top), so the next track is simply the next row - the playing row advances
+  one line at a time and the list gently keeps it in view. Turning shuffle off
+  restores the normal sort. Previously the play order was hidden, so each shuffle
+  advance flung the list to a random far-off song.
+
 - **Initial page load no longer stalls fetching data twice.** On startup the app
   loaded the whole library (tracks, albums, artists, playlists) twice - once from
   the app shell and once from the Library page - so it downloaded and parsed

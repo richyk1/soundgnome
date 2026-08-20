@@ -423,6 +423,20 @@
       orderPos = Math.max(0, idxs.indexOf(qIndex));
     }
     order = idxs;
+    // Mirror the play order into the visible library list so the "next" track is
+    // the next row (no long scroll to a random song). Only when shuffled and the
+    // queue is library-sourced; otherwise clear so the list keeps its own sort.
+    const playingSource = queue[qIndex]?.source;
+    if (shuffle && playingSource === 'library') {
+      lib.setPlayOrder(
+        idxs
+          .map((i) => queue[i])
+          .filter((t): t is PlayerTrack => t?.source === 'library')
+          .map((t) => t.id),
+      );
+    } else {
+      lib.setPlayOrder(null);
+    }
   }
 
   /** Play the track at position `pos` within the current play order. */
@@ -619,6 +633,15 @@
     if (!c || c.source !== 'library') return null;
     return lib.tracks.find((t) => t.id === c.id) ?? null;
   });
+  // Prefer the live library track's metadata so edits (e.g. AI cleanup) show up
+  // in the now-playing widget immediately; the snapshot `current` is only a
+  // fallback for non-library sources.
+  let displayTitle = $derived(currentLibTrack?.title ?? current?.title ?? '');
+  let displayArtist = $derived(
+    currentLibTrack
+      ? currentLibTrack.artists.map((a) => a.name).join(', ') || (current?.artist ?? '')
+      : (current?.artist ?? ''),
+  );
   function rateCurrent(rating: 'liked' | 'disliked') {
     const t = currentLibTrack;
     if (t) lib.setRating(t, t.rating === rating ? null : rating);
@@ -661,8 +684,8 @@
           {/if}
         </div>
         <div class="player-info">
-          <span class="title">{current.title}</span>
-          <span class="artist">{current.artist}</span>
+          <span class="title">{displayTitle}</span>
+          <span class="artist">{displayArtist}</span>
         </div>
       </div>
       {#if currentLibTrack}
@@ -764,8 +787,8 @@
     </div>
 
     <div class="np-meta">
-      <div class="np-title">{current.title}</div>
-      <div class="np-artist">{current.artist}</div>
+      <div class="np-title">{displayTitle}</div>
+      <div class="np-artist">{displayArtist}</div>
     </div>
 
     <div class="np-scrub">

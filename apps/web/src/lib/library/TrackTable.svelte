@@ -11,6 +11,75 @@
 
   const player = getContext<LibraryPlayer | undefined>(LIBRARY_PLAYER);
 
+  let listEl: HTMLElement | undefined = $state();
+
+  // Index of the row currently playing. Reactive: `isCurrent` reads the player's
+  // current-track signal, and `tracks` re-orders when shuffle reshuffles the
+  // list — so this changes on both advance and reorder, re-focusing either way.
+  let playingIndex = $derived(player ? tracks.findIndex((t) => player.isCurrent(t.id)) : -1);
+
+  let scrollRaf = 0;
+  function scrollParent(el: HTMLElement): HTMLElement | null {
+    let p = el.parentElement;
+    while (p) {
+      const oy = getComputedStyle(p).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+      p = p.parentElement;
+    }
+    return null;
+  }
+  function centerOffset(row: HTMLElement, panel: HTMLElement): number {
+    const rr = row.getBoundingClientRect();
+    const pr = panel.getBoundingClientRect();
+    return rr.top + rr.height / 2 - (pr.top + pr.height / 2);
+  }
+  // Keep the playing row in view. Since shuffle now reorders the list, the next
+  // track is the adjacent row — a short smooth glide. A far jump (a fresh shuffle
+  // pins the song to the top, or first entry) settles instantly instead, so there
+  // is no long, heavy scroll. Reduced-motion always jumps.
+  function focusPlaying() {
+    const el = listEl;
+    const row = el?.querySelector('.trow.playing');
+    if (!el || !(row instanceof HTMLElement)) return;
+    const panel = scrollParent(el);
+    if (!panel) {
+      row.scrollIntoView({ block: 'center' });
+      return;
+    }
+    cancelAnimationFrame(scrollRaf);
+    const reduce =
+      typeof matchMedia !== 'undefined' &&
+      matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce || Math.abs(centerOffset(row, panel)) > panel.clientHeight * 2) {
+      // Instant, but converge: content-visibility rows shift as they render.
+      let hops = 0;
+      const jump = () => {
+        const off = centerOffset(row, panel);
+        panel.scrollBy({ top: off });
+        if (Math.abs(off) > 2 && hops++ < 8) scrollRaf = requestAnimationFrame(jump);
+      };
+      jump();
+      return;
+    }
+    let frames = 0;
+    const tick = () => {
+      const off = centerOffset(row, panel);
+      if (Math.abs(off) < 1.5 || frames++ >= 120) {
+        panel.scrollBy({ top: off });
+        return;
+      }
+      panel.scrollBy({ top: off * 0.22 }); // ease toward the re-measured centre
+      scrollRaf = requestAnimationFrame(tick);
+    };
+    scrollRaf = requestAnimationFrame(tick);
+  }
+  $effect(() => {
+    const idx = playingIndex;
+    if (idx < 0 || !listEl) return;
+    requestAnimationFrame(focusPlaying);
+    return () => cancelAnimationFrame(scrollRaf);
+  });
+
   function coverUrl(t: LibraryTrackDto): string | null {
     return t.cover && /^(https?:\/\/|\/)/.test(t.cover) ? t.cover : null;
   }
@@ -27,7 +96,7 @@
   }
 </script>
 
-<div class="track-list">
+<div class="track-list" bind:this={listEl}>
   {#each tracks as t, i (t.id)}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div
