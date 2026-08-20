@@ -139,6 +139,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Cover art was low resolution.** Embedded artwork used each source's default
+  thumbnail: SoundCloud's 100x100 `-large`, YouTube's 480x360 `hqdefault`, and
+  Spotify's 300x300 image. Cover fetching now requests the largest variant per
+  host (SoundCloud 1080x1080, YouTube `maxresdefault`, YouTube Music 1200,
+  Spotify 640) and falls back gracefully when it is unavailable. Run
+  **Tools -> Artwork** to re-embed higher-resolution art into existing files.
+
 - **Opus, Ogg, and WAV files failed to ingest.** Tag reading and writing went
   through a crate that only understands MP3, FLAC, and M4A, so every other
   container errored out during ingest, even though those formats were on the

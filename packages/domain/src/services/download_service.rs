@@ -130,17 +130,89 @@ pub struct FingerprintBackfillSummary {
     pub errors: usize,
 }
 
-/// Fetch raw image bytes for a cover URL (blocking request off the async runtime).
+/// Fetch cover-art bytes for a URL, preferring a higher-resolution variant of
+/// known image hosts and falling back to the original when the upgrade is not
+/// available. Runs the blocking request off the async runtime.
 async fn fetch_cover_bytes(url: String) -> Option<Vec<u8>> {
-    tokio::task::spawn_blocking(move || {
-        reqwest::blocking::get(&url)
-            .and_then(|r| r.error_for_status())
-            .and_then(|r| r.bytes().map(|b| b.to_vec()))
-            .ok()
-    })
-    .await
-    .ok()
-    .flatten()
+    for candidate in higher_res_cover_candidates(&url) {
+        let bytes = tokio::task::spawn_blocking(move || {
+            reqwest::blocking::get(&candidate)
+                .and_then(|r| r.error_for_status())
+                .and_then(|r| r.bytes().map(|b| b.to_vec()))
+                .ok()
+        })
+        .await
+        .ok()
+        .flatten();
+        if bytes.is_some() {
+            return bytes;
+        }
+    }
+    None
+}
+
+/// Higher-resolution cover variants to try, in order, ending with the original.
+///
+/// - SoundCloud artwork (`i1.sndcdn.com/artworks-...-large.jpg`) defaults to
+///   `-large` at only 100x100; the `-t<N>x<N>` tokens go far higher, so
+///   `t1080x1080` then `t500x500` are tried before the original.
+/// - YouTube thumbnails ship at fixed sizes; `hqdefault` is only 480x360.
+///   `maxresdefault` (1280x720) exists for most music uploads but 404s on some,
+///   so `sddefault` (640x480) then the original follow it.
+/// - Google-hosted images (YouTube Music covers) encode size in a `=w<W>-h<H>`
+///   suffix that can be requested larger; Google clamps to the source
+///   resolution, so asking for 1200 is safe.
+/// - Spotify images encode size in the id prefix (`00001e02` = 300,
+///   `0000b273` = 640, its maximum); the 300 variant is rewritten to 640.
+fn higher_res_cover_candidates(url: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+
+    if url.contains("ytimg.com/vi/") || url.contains("img.youtube.com/vi/") {
+        for name in ["maxresdefault", "sddefault", "hqdefault"] {
+            if let Some(upgraded) = replace_youtube_thumb_name(url, name) {
+                candidates.push(upgraded);
+            }
+        }
+    } else if url.contains("googleusercontent.com") || url.contains("ggpht.com") {
+        if let Some(upgraded) = bump_google_image_size(url, 1200) {
+            candidates.push(upgraded);
+        }
+    } else if url.contains("sndcdn.com/artworks-") {
+        for size in ["t1080x1080", "t500x500"] {
+            if let Some(upgraded) = replace_soundcloud_size(url, size) {
+                candidates.push(upgraded);
+            }
+        }
+    } else if url.contains("scdn.co/image/") || url.contains("spotifycdn.com/image/") {
+        if url.contains("ab67616d00001e02") {
+            candidates.push(url.replace("ab67616d00001e02", "ab67616d0000b273"));
+        }
+    }
+
+    if !candidates.iter().any(|c| c == url) {
+        candidates.push(url.to_string());
+    }
+    candidates
+}
+
+/// Rewrite the size token in a YouTube thumbnail URL (`.../vi/<id>/<name>.jpg`).
+fn replace_youtube_thumb_name(url: &str, name: &str) -> Option<String> {
+    let (prefix, rest) = url.split_once("/vi/")?;
+    let (id, _file) = rest.split_once('/')?;
+    Some(format!("{prefix}/vi/{id}/{name}.jpg"))
+}
+
+/// Replace or append the `=w<W>-h<H>` size suffix on a Google-hosted image URL.
+fn bump_google_image_size(url: &str, size: u32) -> Option<String> {
+    let base = url.split_once('=').map(|(b, _)| b).unwrap_or(url);
+    Some(format!("{base}=w{size}-h{size}-l90-rj"))
+}
+
+/// Rewrite the trailing `-<size>.<ext>` token on a SoundCloud artwork URL.
+fn replace_soundcloud_size(url: &str, size: &str) -> Option<String> {
+    let (path, ext) = url.rsplit_once('.')?;
+    let (base, _token) = path.rsplit_once('-')?;
+    Some(format!("{base}-{size}.{ext}"))
 }
 
 pub struct DownloadService {
@@ -2287,23 +2359,11 @@ impl DownloadService {
             }
         }
 
-        // Best-effort: download cover art from its URL and embed it in the file.
-        let cover_url_opt = track.cover.clone();
-        let cover_bytes: Option<Vec<u8>> = if let Some(url) = cover_url_opt {
-            tokio::task::spawn_blocking(move || {
-                reqwest::blocking::get(&url)
-                    .and_then(|resp| resp.error_for_status())
-                    .and_then(|resp| resp.bytes().map(|b| b.to_vec()))
-                    .map_err(|e| {
-                        tracing::warn!("Could not download cover art from {}: {}", url, e);
-                        e
-                    })
-                    .ok()
-            })
-            .await
-            .unwrap_or(None)
-        } else {
-            None
+        // Best-effort: download cover art (highest available resolution) and
+        // embed it in the file.
+        let cover_bytes: Option<Vec<u8>> = match track.cover.clone() {
+            Some(url) => fetch_cover_bytes(url).await,
+            None => None,
         };
 
         tagger::file::tag_file_with_track_and_cover(
