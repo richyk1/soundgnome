@@ -145,6 +145,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Browsers kept serving a stale build.** The static web app was served with no
+  cache headers, so a browser could hold an old `index.html` that pointed at a
+  superseded asset bundle and never pick up new builds (for example, missing the
+  like/dislike buttons) without a manual hard refresh. The HTML shell is now sent
+  `no-cache` so it revalidates every load, while the content-hashed `/assets/`
+  are `immutable` - updates now land on their own.
+
 - **Like / dislike were pushed off-screen in the Tracks list.** The track table
   sized itself to its content and overflowed its panel on typical laptop widths,
   so the rightmost Actions column (like, dislike, edit) sat past the right edge

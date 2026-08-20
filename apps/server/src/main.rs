@@ -14,7 +14,7 @@ use soundgnome_server::utils::{
     cancellation::CancellationRegistry, database::Db, task_executor::TaskExecutor,
 };
 use soundgnome_server::{
-    middlewares::cors::Cors,
+    middlewares::{cache_control::CacheControl, cors::Cors},
     routes::{self, errors},
 };
 
@@ -278,6 +278,7 @@ fn rocket() -> _ {
 
     rocket::custom(figment)
         .attach(Cors)
+        .attach(CacheControl)
         .attach(Db::fairing())
         .manage(services)
         .manage(cancellation_registry)
