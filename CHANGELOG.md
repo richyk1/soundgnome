@@ -145,6 +145,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Enabling the equalizer mid-song silenced the current track.** Turning the EQ
+  on builds the Web Audio graph, which creates the audio source on the
+  already-playing element; Chrome leaves that resource on its old output path, so
+  it went silent until you switched songs. Enabling the EQ now reloads the current
+  track through the new graph, keeping its position and play state, so sound
+  continues.
+
 - **Reloaded track played silently with the equalizer on.** After a page reload,
   pressing play on the restored track produced no sound until you switched songs.
   The EQ's Web Audio graph was built lazily on first play; created that late on an

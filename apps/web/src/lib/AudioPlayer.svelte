@@ -83,8 +83,23 @@
   function handleEqUpdate(s: EqState) {
     if (audio) {
       if (s.enabled && !eq.isBuilt) {
-        eq.attach(audio, s);
+        const el = audio;
+        const at = el.currentTime;
+        const wasPlaying = !el.paused;
+        eq.attach(el, s);
         eq.resume();
+        // attach() creates the MediaElementSource on an element already playing
+        // its current resource; Chrome leaves that resource on the old direct
+        // output, so it goes silent once routed through the new graph - the same
+        // reason a reloaded track stayed silent until you switched songs. Reload
+        // the current resource so it flows through the graph, keeping position and
+        // play state. Cross-origin streams can't be routed, so leave them be.
+        const abs = el.currentSrc || el.src;
+        if (abs && new URL(abs, location.href).origin === location.origin) {
+          pendingSeek = at > 0 ? at : null;
+          resumeOnLoad = wasPlaying;
+          el.load();
+        }
       } else {
         eq.apply(s);
         if (s.enabled) eq.resume();
