@@ -118,6 +118,15 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Changed
 
+- **Redesigned the Tracks page ("Stage").** The library header now leads with a
+  `LIBRARY` eyebrow, a large title, and a live subtitle (track count · tracks
+  needing validation · last sync). The Tracks toolbar gains filter pills
+  (All / Needs review / Lossless / Liked) and inline sort tabs. Track rows are
+  artwork-led: cover thumbnail, index, title with an amber validation dot,
+  artist · album/genre, mono format + duration, and always-visible like/dislike
+  with Edit/Delete revealed on hover. On phones it is an artwork list with the
+  mini-player and bottom tabs. Palette and fonts are unchanged.
+
 - **Much faster library ingest.** Batch ingest now prepares files (tag read, hash,
   acoustic fingerprint) across multiple CPU cores instead of one at a time, caps
   fingerprint decoding to the first 120 s of each track, and skips the

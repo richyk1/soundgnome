@@ -65,20 +65,34 @@
     if (!d) return '';
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   }
+
+  function formatSynced(d: Date | null): string {
+    if (!d) return '';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function headerSub(): string {
+    const synced = lib.lastRefreshed ? ` · synced ${formatSynced(lib.lastRefreshed)}` : '';
+    if (lib.tab === 'tracks') return `${lib.tracks.length} tracks · ${lib.needsReviewCount} need validation${synced}`;
+    if (lib.tab === 'artists') return `${lib.artists.length} artists${synced}`;
+    if (lib.tab === 'albums') return `${lib.albums.length} albums${synced}`;
+    return `${lib.playlists.length} playlists${synced}`;
+  }
 </script>
 
 <div class="library-page">
   <div class="page-header">
-    <h1>{lib.tab === 'artists' ? 'Artists' : lib.tab === 'albums' ? 'Albums' : lib.tab === 'tracks' ? 'Tracks' : 'Playlists'}</h1>
+    <div class="header-titles">
+      <span class="eyebrow">Library</span>
+      <h1>{lib.tab === 'artists' ? 'Artists' : lib.tab === 'albums' ? 'Albums' : lib.tab === 'tracks' ? 'Tracks' : 'Playlists'}</h1>
+      <p class="header-sub">{headerSub()}</p>
+    </div>
     <div class="header-right">
-      {#if lib.lastRefreshed}
-        <span class="last-refreshed">Updated {formatLastRefreshed(lib.lastRefreshed)}</span>
-      {/if}
       <button class="btn-header" onclick={lib.handleRefresh} disabled={lib.refreshing}>
         {#if lib.refreshing}
           <span class="spinner"></span> Refreshing…
         {:else}
-          Refresh
+          <span class="reload" aria-hidden="true">↻</span> Refresh
         {/if}
       </button>
     </div>
@@ -195,60 +209,45 @@
     }
   }
 
-  .page-header { 
-    display: flex; 
+  .page-header {
+    display: flex;
     flex-direction: column;
     gap: 1rem;
     align-items: flex-start;
-    justify-content: space-between; 
+    justify-content: space-between;
     margin-bottom: 1.5rem;
   }
-
   @media (min-width: 640px) {
-    .page-header {
-      flex-direction: row;
-      align-items: center;
-    }
+    .page-header { flex-direction: row; align-items: flex-start; }
   }
-
-  h1 { 
-    font-size: 1.25rem; 
-    font-weight: 700; 
+  .header-titles { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-size: 2.4rem;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1.02;
+    color: var(--text-bright);
     margin: 0;
   }
-
-  @media (min-width: 768px) {
-    h1 {
-      font-size: 1.5rem;
-    }
+  .header-sub {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: #8b8b96;
+    margin: 0;
   }
-
   .header-right {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    flex-wrap: wrap;
-    width: 100%;
-  }
-
-  @media (min-width: 640px) {
-    .header-right {
-      width: auto;
-      gap: 0.75rem;
-    }
-  }
-
-  .last-refreshed {
-    font-size: 0.7rem;
-    color: var(--muted);
-    display: none;
-  }
-
-  @media (min-width: 640px) {
-    .last-refreshed {
-      display: block;
-      font-size: 0.78rem;
-    }
+    flex-shrink: 0;
   }
 
   .btn-header {
@@ -257,7 +256,7 @@
     gap: 0.3rem;
     padding: 0.3rem 0.7rem;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 999px;
     background: var(--surface);
     cursor: pointer;
     font-size: 0.75rem;

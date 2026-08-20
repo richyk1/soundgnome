@@ -23,6 +23,7 @@ export type SortDirection = 'asc' | 'desc';
 export type ArtistSortBy = 'name' | 'track_count' | 'album_count';
 export type AlbumSortBy = 'title' | 'date' | 'artist' | 'track_count';
 export type TrackSortBy = 'title' | 'artist' | 'album' | 'date' | 'duration';
+export type TrackFilter = 'all' | 'review' | 'lossless' | 'liked';
 export type EditState =
   | { type: 'track'; item: LibraryTrackDto }
   | { type: 'album'; item: LibraryAlbumDto }
@@ -235,6 +236,7 @@ function createLibraryStore() {
   let lastRefreshed: Date | null = $state(null);
 
   let trackSearch = $state('');
+  let trackFilter = $state<TrackFilter>('all');
   let albumSearch = $state('');
   let artistSearch = $state('');
   let playlistSearch = $state('');
@@ -318,8 +320,12 @@ function createLibraryStore() {
     let list = tracks;
     const q = trackSearch.trim().toLowerCase();
     if (q) list = list.filter(t => t.title.toLowerCase().includes(q) || t.artists.some(a => a.name.toLowerCase().includes(q)));
+    if (trackFilter === 'review') list = list.filter(t => t.needs_validation);
+    else if (trackFilter === 'lossless') list = list.filter(t => t.quality?.lossless === true);
+    else if (trackFilter === 'liked') list = list.filter(t => t.rating === 'liked');
     return sortTracks(list, tracksSortBy, tracksSortDir);
   });
+  let needsReviewCount = $derived(tracks.filter(t => t.needs_validation).length);
   let likedTracks = $derived(tracks.filter(t => t.rating === 'liked'));
   let dislikedTracks = $derived(tracks.filter(t => t.rating === 'disliked'));
   let filteredAlbums = $derived.by(() => {
@@ -851,6 +857,7 @@ function createLibraryStore() {
     get drillPlaylistTracksError() { return drillPlaylistTracksError; },
 
     get trackSearch() { return trackSearch; }, set trackSearch(v: string) { trackSearch = v; },
+    get trackFilter() { return trackFilter; }, set trackFilter(v: TrackFilter) { trackFilter = v; },
     get albumSearch() { return albumSearch; }, set albumSearch(v: string) { albumSearch = v; },
     get artistSearch() { return artistSearch; }, set artistSearch(v: string) { artistSearch = v; },
     get playlistSearch() { return playlistSearch; }, set playlistSearch(v: string) { playlistSearch = v; },
@@ -864,6 +871,7 @@ function createLibraryStore() {
     get albumTracks() { return albumTracks; },
     get artistTracksByAlbum() { return artistTracksByAlbum; },
     get filteredTracks() { return filteredTracks; },
+    get needsReviewCount() { return needsReviewCount; },
     get likedTracks() { return likedTracks; },
     get dislikedTracks() { return dislikedTracks; },
     setRating,

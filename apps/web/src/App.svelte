@@ -177,7 +177,7 @@
 
         <div class="divider"></div>
 
-        <div class="eyebrow">Queue</div>
+        <div class="eyebrow">Up next{#if upNext.length} · {upNext.length}{/if}</div>
         <div class="queue">
           {#if upNext.length === 0}
             <p class="queue-empty">Nothing queued.</p>
