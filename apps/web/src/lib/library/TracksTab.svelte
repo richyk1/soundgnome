@@ -132,7 +132,7 @@
   }
   .search-wrap .lni { color: var(--muted-2); font-size: 15px; flex: 0 0 auto; }
   .search-wrap .search {
-    flex: 1; min-width: 0; height: 100%;
+    flex: 1; min-width: 0; max-width: none; height: 100%;
     background: none; border: none; outline: none; padding: 0;
     color: var(--text); font: inherit;
   }

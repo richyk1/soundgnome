@@ -64,6 +64,10 @@
       <span class="trow-dur">{lib.fmtDuration(t.duration)}</span>
 
       <div class="trow-actions">
+        <button class="btn-edit trow-hover" onclick={(e) => { e.stopPropagation(); lib.startEditTrack(t); }}>Edit</button>
+        {#if showDelete}
+          <button class="btn-delete trow-hover" onclick={(e) => { e.stopPropagation(); lib.handleDeleteTrack(t.id); }}>Delete</button>
+        {/if}
         <button
           class="btn-rate"
           class:active-like={t.rating === 'liked'}
@@ -78,10 +82,6 @@
           aria-label="Dislike"
           onclick={(e) => { e.stopPropagation(); lib.setRating(t, t.rating === 'disliked' ? null : 'disliked'); }}
         ><i class="lni lni-thumbs-down-1"></i></button>
-        <button class="btn-edit trow-hover" onclick={(e) => { e.stopPropagation(); lib.startEditTrack(t); }}>Edit</button>
-        {#if showDelete}
-          <button class="btn-delete trow-hover" onclick={(e) => { e.stopPropagation(); lib.handleDeleteTrack(t.id); }}>Delete</button>
-        {/if}
       </div>
     </div>
   {/each}
@@ -210,11 +210,13 @@
   }
   .trow-actions .btn-rate { font-size: 17px; }
   .trow-actions .btn-rate .lni { display: block; }
-  /* Curation actions surface on row hover (or while this row plays), keeping the
-     resting row clean but leaving Edit/Delete one hover away. */
-  .trow-hover { opacity: 0; pointer-events: none; transition: opacity 0.12s; }
-  .trow:hover .trow-hover,
-  .trow.playing .trow-hover { opacity: 1; pointer-events: auto; }
+  /* Curation actions replace format/duration on row hover: the resting row keeps
+     like/dislike pinned to the right edge (no reserved gap), and Edit/Delete swap
+     in without shoving the thumbs around. */
+  .trow-hover { display: none; }
+  .trow:hover .trow-hover { display: inline-flex; }
+  .trow:hover .trow-fmt,
+  .trow:hover .trow-dur { display: none; }
 
   /* ── Mobile: artwork-led list, tap to play ─────────────────────────────── */
   @media (max-width: 860px) {
