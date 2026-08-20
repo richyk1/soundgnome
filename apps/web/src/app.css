@@ -698,6 +698,20 @@ select:focus {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
+/* App-like, not web-like: interactive controls show no focus ring on click or
+   Tab. Keyboard use goes through the documented shortcuts (press ? for the list),
+   not Tab traversal, so the ring was only accidental noise. Text inputs keep the
+   accent focus style above, and modals still trap focus. */
+button:focus,
+a:focus,
+[role="button"]:focus,
+[tabindex]:focus,
+summary:focus,
+canvas:focus,
+dialog:focus {
+  outline: none;
+}
+
 /* Modals: lift off the canvas with real depth + a subtle backdrop blur. */
 .modal {
   background: rgba(6, 7, 7, 0.6);

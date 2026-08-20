@@ -674,7 +674,7 @@
         role="button"
         tabindex="0"
         onclick={openNP}
-        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNP(); } }}
+        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); openNP(); } }}
       >
         <div class="player-thumb">
           {#if current.artwork || resolvedArt}

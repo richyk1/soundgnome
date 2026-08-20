@@ -321,7 +321,7 @@
       role="button"
       tabindex="0"
       onclick={() => fileInput.click()}
-      onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), fileInput.click())}
+      onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), fileInput.click())}
       ondragover={(e) => {
         e.preventDefault();
         dragOver = true;

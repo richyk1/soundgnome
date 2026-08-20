@@ -128,6 +128,15 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Changed
 
+- **Feels like an app, not a web page: no stray focus rings, Space always plays.**
+  Interactive controls (buttons, cards, the waveform) no longer show a focus
+  outline on click or Tab - keyboard use goes through the documented shortcuts
+  (press `?`), not Tab traversal, so the ring was only accidental noise; text
+  inputs keep their accent focus style. `Space` is now a true global play/pause
+  media key: it never scrolls the page and never activates a stray focused control
+  (previously it scrolled the library list when nothing was playing, and could
+  trigger an accidentally-focused button). `Enter` still activates buttons.
+
 - **Lower-fidelity player waveform.** The scrubber now draws chunky, rounded
   "voice-memo" bars (wider bars with clear gaps, pill caps) instead of a dense
   fine waveform - played bars in the accent, the rest in a muted grey.

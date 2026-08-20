@@ -77,13 +77,13 @@
         helpOpen = !helpOpen;
         return;
       }
-      // Space toggles play/pause (media convention). Let real controls (buttons,
-      // links, role=button cards) keep their native Space activation; otherwise
-      // stop the page from scrolling and toggle the current track.
-      if ((e.key === ' ' || e.code === 'Space') && playing) {
-        if (tgt.closest('button, a, [role="button"]')) return;
+      // Space is the global play/pause media key: always toggle, and never let
+      // the page scroll or a focused control activate on it. Text inputs are
+      // excluded above; Enter still activates buttons for keyboard use.
+      if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
         player?.playPause();
+        return;
       }
     }
     document.addEventListener('keydown', onKeydown);
