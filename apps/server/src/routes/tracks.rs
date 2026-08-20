@@ -1,8 +1,11 @@
 use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::UNIX_EPOCH;
 
 use domain::services::ServiceLayer;
 use rocket::fs::NamedFile;
-use rocket::{delete, get, http::Status, patch, post, put, serde::json::Json};
+use rocket::{delete, get, http::{Header, Status}, patch, post, put, serde::json::Json, Responder};
 use rocket_okapi::openapi;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -584,6 +587,214 @@ pub async fn download_file(
             message: format!("Audio file not found on disk: {}", file_path.display()),
         })
     })
+}
+
+// ================================================================================================
+// Waveform peaks (server-precomputed, cached)
+// ================================================================================================
+
+/// Downsampled amplitude peaks for the scrubber, matching the client's
+/// `PeaksPayload`: `samples` run 0..=`height` and the client normalises by
+/// `height`. Precomputing these server-side (and caching them) means the browser
+/// never fetches and decodes the whole audio file just to draw the scrubber.
+#[derive(Serialize)]
+pub struct WaveformDto {
+    pub width: usize,
+    pub height: u16,
+    pub samples: Vec<u16>,
+}
+
+/// `WaveformDto` plus a long cache header. Peaks are immutable for a given audio
+/// file (the on-disk cache is keyed by file mtime), so the browser may hold onto
+/// them; the `/api` scope is exempt from the app-wide no-cache fairing.
+#[derive(Responder)]
+pub struct CachedWaveform {
+    inner: Json<WaveformDto>,
+    cache_control: Header<'static>,
+}
+
+/// Number of amplitude bars and the fixed vertical scale of the peaks.
+const WAVEFORM_BARS: usize = 900;
+const WAVEFORM_HEIGHT: u16 = 1000;
+
+/// Precomputed waveform peaks for a track's audio file. Cheap for the client:
+/// a ~2 KB JSON instead of fetching and decoding megabytes of audio.
+#[get("/tracks/<id>/waveform")]
+pub async fn waveform(
+    id: i32,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<CachedWaveform, crate::utils::error::Error> {
+    let services = Arc::clone(services);
+
+    let track = db
+        .run(move |conn| services.track_service.get_by_id(conn, id))
+        .await
+        .map_err(|err| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: match err {
+                    shared::errors::Error::NotFound(_) => Status::NotFound,
+                    _ => Status::InternalServerError,
+                },
+                code: "NotFound".to_string(),
+                message: err.to_string(),
+            })
+        })?;
+
+    let file_path = track.file_path.ok_or_else(|| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::NotFound,
+            code: "NoFile".to_string(),
+            message: "Track has no local file".to_string(),
+        })
+    })?;
+
+    // ffmpeg decode is blocking; keep it off the async workers.
+    let samples = rocket::tokio::task::spawn_blocking(move || waveform_peaks_cached(id, &file_path))
+        .await
+        .map_err(|e| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: Status::InternalServerError,
+                code: "WaveformJoin".to_string(),
+                message: e.to_string(),
+            })
+        })?
+        .map_err(|e| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: Status::InternalServerError,
+                code: "WaveformFailed".to_string(),
+                message: e,
+            })
+        })?;
+
+    Ok(CachedWaveform {
+        inner: Json(WaveformDto {
+            width: samples.len(),
+            height: WAVEFORM_HEIGHT,
+            samples,
+        }),
+        cache_control: Header::new("Cache-Control", "public, max-age=86400"),
+    })
+}
+
+/// Directory holding precomputed waveform peaks, beside the database and web
+/// assets so it lands on the same mounted volume in Docker.
+fn waveform_cache_dir() -> PathBuf {
+    PathBuf::from("data/waveforms")
+}
+
+/// Cache file for `id` at audio-file mtime `mtime`. The mtime is in the name so a
+/// re-tagged/replaced file misses the cache without any parsing.
+fn waveform_cache_path(id: i32, mtime: u64) -> PathBuf {
+    waveform_cache_dir().join(format!("{id}-{mtime}.json"))
+}
+
+/// Whether fresh peaks for `id`/`path` are already on disk (no decode needed).
+/// Used by the startup backfill to skip already-cached tracks cheaply.
+pub fn waveform_is_cached(id: i32, path: &Path) -> bool {
+    file_mtime_secs(path)
+        .map(|mtime| waveform_cache_path(id, mtime).exists())
+        .unwrap_or(false)
+}
+
+/// Return cached peaks for `id`/`path`, computing and persisting them on a miss.
+pub fn waveform_peaks_cached(id: i32, path: &Path) -> Result<Vec<u16>, String> {
+    let mtime = file_mtime_secs(path)?;
+    let cache_path = waveform_cache_path(id, mtime);
+
+    if let Ok(bytes) = std::fs::read(&cache_path) {
+        if let Ok(samples) = serde_json::from_slice::<Vec<u16>>(&bytes) {
+            if !samples.is_empty() {
+                return Ok(samples);
+            }
+        }
+    }
+
+    let samples = compute_waveform_peaks(path)?;
+
+    let _ = std::fs::create_dir_all(waveform_cache_dir());
+    if let Ok(bytes) = serde_json::to_vec(&samples) {
+        if std::fs::write(&cache_path, bytes).is_ok() {
+            remove_stale_waveforms(id, mtime);
+        }
+    }
+
+    Ok(samples)
+}
+
+/// Drop any older cache files for this track (previous mtimes) after a fresh
+/// write, so re-tagging does not leak stale peaks files indefinitely.
+fn remove_stale_waveforms(id: i32, keep_mtime: u64) {
+    let prefix = format!("{id}-");
+    let keep = format!("{id}-{keep_mtime}.json");
+    if let Ok(entries) = std::fs::read_dir(waveform_cache_dir()) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(&prefix) && name != keep {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+/// Audio file modification time as whole seconds since the Unix epoch.
+fn file_mtime_secs(path: &Path) -> Result<u64, String> {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .map_err(|e| format!("stat failed for {path:?}: {e}"))?
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .map_err(|e| format!("bad mtime for {path:?}: {e}"))
+}
+
+/// Decode `path` to mono 8 kHz PCM via ffmpeg and reduce it to [`WAVEFORM_BARS`]
+/// amplitude peaks (max abs per bucket), normalised to 0..=[`WAVEFORM_HEIGHT`].
+/// 8 kHz is ample for a bar overview and far cheaper than a full-rate decode.
+pub fn compute_waveform_peaks(path: &Path) -> Result<Vec<u16>, String> {
+    let output = Command::new("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error", "-i"])
+        .arg(path)
+        .args(["-ac", "1", "-ar", "8000", "-f", "f32le", "-"])
+        .output()
+        .map_err(|e| format!("ffmpeg spawn failed for {path:?}: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "ffmpeg decode failed for {path:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let samples: Vec<f32> = output
+        .stdout
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect();
+    if samples.is_empty() {
+        return Err(format!("no audio samples decoded for {path:?}"));
+    }
+
+    let len = samples.len();
+    let mut peaks = vec![0f32; WAVEFORM_BARS];
+    for (i, peak) in peaks.iter_mut().enumerate() {
+        let start = i * len / WAVEFORM_BARS;
+        let end = ((i + 1) * len / WAVEFORM_BARS).max(start + 1).min(len);
+        let mut max = 0f32;
+        for &s in &samples[start..end] {
+            let a = s.abs();
+            if a > max {
+                max = a;
+            }
+        }
+        *peak = max;
+    }
+
+    let scale = peaks.iter().copied().fold(0f32, f32::max).max(f32::EPSILON);
+    Ok(peaks
+        .iter()
+        .map(|&p| ((p / scale) * f32::from(WAVEFORM_HEIGHT)).round().clamp(0.0, f32::from(WAVEFORM_HEIGHT)) as u16)
+        .collect())
 }
 
 // ================================================================================================

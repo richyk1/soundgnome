@@ -168,6 +168,16 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   draw. It now decodes at 8 kHz - plenty for a bar overview and roughly 3x faster
   (~340 ms) - and shows a skeleton waveform immediately instead of the bare line,
   so peaks fill in rather than snapping from a line to bars.
+- **Waveform peaks are now precomputed server-side and cached, so the scrubber is
+  instant.** The browser no longer fetches and decodes megabytes of audio just to
+  draw the bars. A new `GET /api/tracks/<id>/waveform` endpoint decodes the file
+  once with ffmpeg (8 kHz mono) into a ~4 KB peaks JSON, caches it on disk keyed
+  by file mtime, and serves it with a long cache header (cold ~700 ms once, warm
+  ~4 ms). A background backfill precomputes the whole library on startup (bounded
+  worker pool) so even first play is instant. The client also persists resolved
+  peaks in IndexedDB, so replays after a reload draw from cache with zero network
+  or decode (~30 ms). Falls back to client-side decoding if the endpoint is
+  unavailable.
 
 - **Enabling the equalizer mid-song silenced the current track.** Turning the EQ
   on builds the Web Audio graph, which creates the audio source on the

@@ -63,6 +63,7 @@ export function toPlayerTrack(t: LibraryTrackDto): PlayerTrack {
     title: t.title,
     artist: t.artists.map((a) => a.name).join(', '),
     artwork: t.cover ?? ytThumb(t.references),
+    waveformUrl: `/api/tracks/${t.id}/waveform`,
     spotifyUrl: spotifyTrackUrl(t.references),
     durationSecs: t.duration,
     source: 'library',

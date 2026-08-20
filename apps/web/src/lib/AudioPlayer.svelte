@@ -686,7 +686,7 @@
         <span class="time">{formatTime(currentTime)}</span>
         {#if waveUrl || srcUrl}
           <div class="wave-slot" class:ready={waveReady}>
-            <Waveform waveformUrl={waveUrl} srcUrl={waveUrl ? null : srcUrl} currentTime={currentTime} duration={total} onSeek={seekTo} bind:available={waveReady} />
+            <Waveform waveformUrl={waveUrl} srcUrl={srcUrl} currentTime={currentTime} duration={total} onSeek={seekTo} bind:available={waveReady} />
           </div>
         {/if}
         {#if !waveReady}
@@ -771,7 +771,7 @@
     <div class="np-scrub">
       {#if waveUrl || srcUrl}
         <div class="wave-slot" class:ready={waveReady}>
-          <Waveform waveformUrl={waveUrl} srcUrl={waveUrl ? null : srcUrl} currentTime={currentTime} duration={total} onSeek={seekTo} bind:available={waveReady} />
+          <Waveform waveformUrl={waveUrl} srcUrl={srcUrl} currentTime={currentTime} duration={total} onSeek={seekTo} bind:available={waveReady} />
         </div>
       {/if}
       {#if !waveReady}

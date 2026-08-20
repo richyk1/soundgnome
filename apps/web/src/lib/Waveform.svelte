@@ -1,4 +1,6 @@
 <script module lang="ts">
+  import { getCachedPeaks, putCachedPeaks } from './peaksCache';
+
   /**
    * Precomputed peaks payload as served by SoundCloud's waveform CDN, for
    * example https://wave.sndcdn.com/NoTs1dxKHSIR_m.json
@@ -104,32 +106,45 @@
     duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0,
   );
 
-  // Load precomputed peaks when a waveform url is given; otherwise compute peaks
-  // from the audio itself. Depends only on the urls, not on time updates.
+  // Resolve peaks for the current track, cheapest source first:
+  //   1. in-memory session cache
+  //   2. IndexedDB (survives reloads)
+  //   3. server-precomputed peaks (waveformUrl) - a tiny JSON, no audio decode
+  //   4. fall back to decoding the audio in the browser (computePeaks)
+  // Whatever resolves is written back to both caches. `loading` keeps the slot
+  // showing a skeleton instead of flashing the plain range line.
   $effect(() => {
     const url = waveformUrl;
     const src = srcUrl;
-    const source = url ?? src;
-    if (!source) {
+    if (!url && !src) {
       peaks = null;
       loading = false;
       return;
     }
-    const cache = url ? peaksCache : computedCache;
-    if (cache.has(source)) {
-      peaks = cache.get(source) ?? null;
+    // Key by the precomputed-peaks url when present, else the audio url; whatever
+    // we end up with (fetched or computed) is cached under this one key.
+    const key = url ?? src ?? '';
+    const memCache = url ? peaksCache : computedCache;
+    if (memCache.has(key)) {
+      peaks = memCache.get(key) ?? null;
       loading = false;
       return;
     }
     let cancelled = false;
     peaks = null;
     loading = true;
-    (url ? loadPeaks(source) : computePeaks(source)).then((p) => {
-      if (!cancelled) {
-        peaks = p;
-        loading = false;
-      }
-    });
+    (async () => {
+      let resolved = await getCachedPeaks(key);
+      if (cancelled) return;
+      if (!resolved && url) resolved = await loadPeaks(url);
+      if (cancelled) return;
+      if (!resolved && src) resolved = await computePeaks(src);
+      if (cancelled) return;
+      memCache.set(key, resolved);
+      if (resolved) putCachedPeaks(key, resolved);
+      peaks = resolved;
+      loading = false;
+    })();
     return () => {
       cancelled = true;
     };

@@ -25,6 +25,65 @@ fn get_docs() -> SwaggerUIConfig {
     }
 }
 
+/// Precompute and cache waveform peaks for every finalized track not already
+/// cached, so the scrubber is instant on first play. Runs once in the background
+/// on liftoff; cache hits make later runs cheap (a stat per track).
+fn backfill_waveforms(services: &ServiceLayer, db_url: &str) {
+    let mut conn = database::init_connection(db_url);
+    let tracks = match services.track_service.get_all_finalized(&mut conn) {
+        Ok(tracks) => tracks,
+        Err(e) => {
+            tracing::warn!("Waveform backfill: could not list tracks: {e}");
+            return;
+        }
+    };
+    drop(conn);
+
+    // Only decode what is missing; a stat per track is cheap on later runs.
+    let pending: Vec<(i32, std::path::PathBuf)> = tracks
+        .into_iter()
+        .filter_map(|t| Some((t.id?, t.file_path?)))
+        .filter(|(id, path)| !routes::tracks::waveform_is_cached(*id, path))
+        .collect();
+    if pending.is_empty() {
+        tracing::info!("Waveform backfill: all tracks already cached");
+        return;
+    }
+
+    // Decode across a few worker threads (ffmpeg per track is single-threaded);
+    // capped so it warms the library fast without starving the running server.
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+    let total = pending.len();
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get().min(4))
+        .unwrap_or(2);
+    let next = AtomicUsize::new(0);
+    let ok = AtomicUsize::new(0);
+
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Relaxed);
+                let Some((id, path)) = pending.get(i) else {
+                    break;
+                };
+                match routes::tracks::waveform_peaks_cached(*id, path) {
+                    Ok(_) => {
+                        ok.fetch_add(1, Relaxed);
+                    }
+                    Err(e) => tracing::debug!("Waveform backfill: track {id} failed: {e}"),
+                }
+            });
+        }
+    });
+
+    tracing::info!(
+        "Waveform backfill complete: {}/{} newly cached ({workers} workers)",
+        ok.load(Relaxed),
+        total
+    );
+}
+
 #[dotenvy::load(path = "./.env", required = false)]
 #[launch]
 fn rocket() -> _ {
@@ -276,6 +335,9 @@ fn rocket() -> _ {
         f
     };
 
+    let waveform_services = services.clone();
+    let waveform_db_url = db_url.clone();
+
     rocket::custom(figment)
         .attach(Cors)
         .attach(CacheControl)
@@ -283,6 +345,16 @@ fn rocket() -> _ {
         .manage(services)
         .manage(cancellation_registry)
         .manage(task_executor)
+        .attach(rocket::fairing::AdHoc::on_liftoff(
+            "waveform-backfill",
+            move |_rocket| {
+                Box::pin(async move {
+                    rocket::tokio::task::spawn_blocking(move || {
+                        backfill_waveforms(&waveform_services, &waveform_db_url);
+                    });
+                })
+            },
+        ))
         .register("/", catchers![errors::default])
         .mount(
             "/api",
@@ -377,6 +449,7 @@ fn rocket() -> _ {
                 routes::images::upload_track_image,
                 routes::images::batch_fetch_artist_icons,
                 routes::images::batch_fetch_album_covers,
+                routes::tracks::waveform,
             ],
         )
         .mount("/", routes![routes::metrics::metrics])
