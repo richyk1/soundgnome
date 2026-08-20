@@ -337,6 +337,11 @@
       pendingSeek = position > 0 ? position : null;
       resumeOnLoad = !wasPaused;
       el.src = src;
+      // Build the EQ graph now, at src-set time (as playTrack does). If it is
+      // instead built later, on the first play of an already-loaded element,
+      // Chrome routes that element's audio into a dead MediaElementSource and
+      // the restored track plays silently until the next src swap. See #eq.
+      ensureEq();
     } catch {
       /* track no longer resolvable (deleted/moved): leave it shown, paused */
     }

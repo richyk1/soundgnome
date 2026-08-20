@@ -145,6 +145,14 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Reloaded track played silently with the equalizer on.** After a page reload,
+  pressing play on the restored track produced no sound until you switched songs.
+  The EQ's Web Audio graph was built lazily on first play; created that late on an
+  already-loaded audio element, Chrome routes it into a dead `MediaElementSource`
+  and the track is silent. The graph is now built when the restored track's `src`
+  is set (as it already was for fresh plays), so the restored track resumes with
+  full volume.
+
 - **Browsers kept serving a stale build.** The static web app was served with no
   cache headers, so a browser could hold an old `index.html` that pointed at a
   superseded asset bundle and never pick up new builds (for example, missing the
