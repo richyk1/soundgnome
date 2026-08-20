@@ -332,6 +332,28 @@ impl DownloadService {
                 continue;
             };
 
+            // If the file already carries embedded art (downloads embed it, and
+            // many local imports have it too), there is nothing to fetch or
+            // rewrite - just ensure `cover` points at something displayable. This
+            // keeps the backfill cheap and idempotent instead of re-encoding
+            // every file in the library on every run.
+            if tagger::file::read_cover_from_path(&path).is_some() {
+                if track.cover.is_none() {
+                    if let Some(id) = track.id {
+                        track.cover = Some(url);
+                        if let Err(e) = self.track_service.update(conn, id, &track) {
+                            tracing::warn!(
+                                "Backfill: could not persist cover for {}: {}",
+                                id,
+                                e
+                            );
+                        }
+                    }
+                }
+                s.embedded += 1;
+                continue;
+            }
+
             let Some(bytes) = fetch_cover_bytes(url.clone()).await else {
                 s.errors += 1;
                 continue;
