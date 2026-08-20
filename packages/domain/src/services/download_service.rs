@@ -1116,7 +1116,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         ingest_dir: &Path,
         task_id: i32,
-    ) -> SoundgnomeResult<()> {
+    ) -> SoundgnomeResult<usize> {
         let audio_extensions = ["mp3", "flac", "m4a", "mp4", "aac", "ogg", "opus", "wav"];
 
         // When ingesting the shared server dir, skip the `_uploads` staging subtree:
@@ -1140,6 +1140,11 @@ impl DownloadService {
                     .and_then(|x| x.to_str())
                     .map(|x| audio_extensions.contains(&x.to_lowercase().as_str()))
                     .unwrap_or(false)
+            })
+            .filter(|e| {
+                // Skip partial-download artifacts (e.g. "Song.temp.m4a"): incomplete
+                // files with no decodable audio.
+                !e.file_name().to_string_lossy().to_lowercase().contains(".temp.")
             })
             .map(|e| e.path().to_path_buf())
             .collect();
@@ -1255,7 +1260,7 @@ impl DownloadService {
             stats.errors.len()
         );
 
-        Ok(())
+        Ok(stats.errors.len())
     }
 
     // ============================================================================================

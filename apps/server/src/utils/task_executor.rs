@@ -246,15 +246,22 @@ async fn run_job(
             // Once ingested they are redundant copies, so remove the session dir on
             // success. The shared server ingest dir (never under `_uploads`) is left
             // untouched so manual ingest stays non-destructive.
+            let had_errors = matches!(&result, Ok(n) if *n > 0);
             if result.is_ok()
+                && !had_errors
                 && ingest_dir.components().any(|c| c.as_os_str() == "_uploads")
                 && ingest_dir.file_name().is_some_and(|n| n != "_uploads")
             {
                 if let Err(e) = std::fs::remove_dir_all(&ingest_dir) {
                     tracing::warn!("Failed to clean upload session dir {:?}: {}", ingest_dir, e);
                 }
+            } else if had_errors {
+                tracing::warn!(
+                    "Ingest of {:?} finished with errors; keeping the upload session so the failed files can be retried",
+                    ingest_dir
+                );
             }
-            finalize_task(services, registry, conn, task_id, result);
+            finalize_task(services, registry, conn, task_id, result.map(|_| ()));
         }
         QueuedJob::SingleTrack { url, responder } => {
             let result = services

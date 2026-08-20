@@ -139,6 +139,20 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Opus, Ogg, and WAV files failed to ingest.** Tag reading went through a
+  crate that only understands MP3, FLAC, and M4A, so every other container
+  errored out during ingest, even though those formats were on the accepted
+  list. Opus is yt-dlp's default audio format, so a large share of a
+  YouTube-sourced library was affected. The reader now uses `lofty`, which
+  reads tags uniformly across all ingested formats; untagged files fall back to
+  a filename-derived title and go to review instead of erroring, and
+  partial-download artifacts (`*.temp.*`) are skipped up front.
+- **Upload sessions were deleted even when some files errored.** After a
+  browser-upload ingest finished, the whole staging session was removed,
+  including files that had errored and were never actually ingested. A run that
+  ends with per-file errors now keeps its session so the failed files can be
+  retried.
+
 - **"Update available" button did nothing.** The service worker ships with
   `autoUpdate` (it skips waiting and claims the page itself), but the prompt's
   handler only messaged a non-existent *waiting* worker and then bailed. It now

@@ -23,12 +23,26 @@ const MP4_NAME: &str = "ID";
  * Reads the tag from a file and returns a converted Track object.
  */
 pub fn get_track_from_file(file_path: &PathBuf) -> SoundgnomeResult<Track> {
+    use lofty::file::{AudioFile, TaggedFileExt};
+    use lofty::probe::Probe;
+
     tracing::info!("Reading tag from file: {:?}", file_path);
 
-    let mut track = Tag::new()
-        .read_from_path(file_path)
-        .map(|tag| convert_tag_to_track(&*tag))
-        .map_err(|e| Error::Custom(format!("Error reading audio tags: {:?}", e)))?;
+    // lofty reads every container we ingest (opus/ogg/wav included), unlike
+    // audiotags which only handles mp3/flac/m4a. Readable-but-untagged files come
+    // back with no tag and fall back to a filename-derived title.
+    let tagged = Probe::open(file_path)
+        .map_err(|e| Error::Custom(format!("Cannot open audio file: {e}")))?
+        .read()
+        .map_err(|e| Error::Custom(format!("Error reading audio file: {e:?}")))?;
+
+    let duration = {
+        let secs = tagged.properties().duration().as_secs();
+        (secs > 0).then_some(secs as i32)
+    };
+    let tag = tagged.primary_tag().or_else(|| tagged.first_tag());
+
+    let mut track = lofty_tag_to_track(tag, duration, file_path);
 
     // Best-effort: read the SOUNDOME_ID custom tag
     track.soundome_id = read_soundome_id_from_file(file_path);
@@ -259,68 +273,108 @@ fn convert_track_to_tag(tag: &mut Box<dyn AudioTag + Send + Sync>, track: &Track
     );
 }
 
-fn convert_tag_to_track(tag: &(dyn AudioTag + Send + Sync)) -> Track {
-    let date = tag.date().map(|date| {
-        let mut date_str = format!("{:04}", date.year);
-        if let Some(month) = date.month {
-            date_str += &format!("-{:02}", month);
-            if let Some(day) = date.day {
-                date_str += &format!("-{:02}", day);
+/// Split a raw artist string on the standard multi-artist tag delimiters (`/` for
+/// ID3, `;` for others). Deliberately not `,`/`&` to avoid mangling real names.
+fn split_artist_names(raw: &str) -> Vec<String> {
+    raw.split(['/', ';'])
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn lofty_tag_to_track(
+    tag: Option<&lofty::tag::Tag>,
+    duration: Option<i32>,
+    file_path: &PathBuf,
+) -> Track {
+    use lofty::prelude::{Accessor, ItemKey};
+
+    // Title falls back to the file name so untagged files still get a usable name
+    // (they land in the review queue for the user to fix).
+    let title = tag
+        .and_then(|t| t.title())
+        .map(|c| c.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            file_path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "Unknown".to_string())
+        });
+
+    // Opus/Vorbis repeat the ARTIST key; ID3/MP4 join with `/` or `;`. Handle both.
+    let artists: Vec<Artist> = tag
+        .map(|t| {
+            let mut names: Vec<String> = t
+                .get_strings(&ItemKey::TrackArtist)
+                .flat_map(split_artist_names)
+                .collect();
+            if names.is_empty() {
+                if let Some(a) = t.artist() {
+                    names = split_artist_names(&a);
+                }
             }
-        }
-        date_str
+            names
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .map(|name| Artist {
+            id: None,
+            name,
+            icon: None,
+            references: Vec::new(),
+        })
+        .collect();
+
+    let date = tag.and_then(|t| {
+        t.get_string(&ItemKey::RecordingDate)
+            .map(|s| s.to_string())
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| t.year().map(|y| format!("{y:04}")))
     });
+
+    let album = tag
+        .and_then(|t| t.album())
+        .map(|a| a.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(|album_title| Album {
+            id: None,
+            title: album_title,
+            artists: tag
+                .and_then(|t| t.get_string(&ItemKey::AlbumArtist))
+                .map(split_artist_names)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|name| Artist {
+                    id: None,
+                    name,
+                    icon: None,
+                    references: Vec::new(),
+                })
+                .collect(),
+            album_type: shared::models::AlbumType::Unknown,
+            date: date.clone(),
+            cover: None,
+            references: Vec::new(),
+        });
 
     Track {
         id: None,
         needs_validation: false,
         validation_reason: None,
         soundome_id: None,
-        title: tag
-            .title()
-            .map_or("Unknown".to_string(), |title| title.to_string()),
-        artists: tag
-            .artists()
-            .map(|artists| {
-                artists
-                    .iter()
-                    .map(|artist| Artist {
-                        id: None,
-                        name: artist.to_string(),
-                        icon: None,
-                        references: Vec::new(),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-        album: tag.album_title().map(|album_title| Album {
-            id: None,
-            title: album_title.to_string(),
-            artists: tag
-                .album_artist()
-                .map(|artist| {
-                    artist
-                        .split(";")
-                        .map(|artist| Artist {
-                            id: None,
-                            name: artist.to_string(),
-                            icon: None,
-                            references: Vec::new(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-            album_type: shared::models::AlbumType::Unknown,
-            date: date.clone(),
-            cover: None,
-            references: Vec::new(),
-        }),
-        genre: tag.genre().map(|genre| genre.to_string()),
+        title,
+        artists,
+        album,
+        genre: tag
+            .and_then(|t| t.genre())
+            .map(|g| g.trim().to_string())
+            .filter(|s| !s.is_empty()),
         date,
-        cover: None, // TODO
-        disc_number: tag.disc_number().map(|disc_number| disc_number as i32),
-        track_number: tag.track_number().map(|track_number| track_number as i32),
-        duration: tag.duration().map(|duration| duration as i32),
+        cover: None,
+        disc_number: tag.and_then(|t| t.disk()).map(|d| d as i32),
+        track_number: tag.and_then(|t| t.track()).map(|n| n as i32),
+        duration,
         label: None,
         file_path: None,
         references: Vec::new(),
