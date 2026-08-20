@@ -21,7 +21,9 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   extracts featured artists, disambiguates `Artist - Title`, and preserves remix
   credits, all with strict no-hallucination rules. Backed by a new
   `POST /api/tracks/<id>/ai-clean` endpoint; nothing is persisted until you save,
-  and it reports clearly when AI is not configured.
+  and it reports clearly when AI is not configured. The same button is on each
+  Validations card, so messy no-match imports (e.g. SoundCloud flips with no
+  MusicBrainz match) can be cleaned and approved without hand-editing.
 
 - **Like / dislike from the desktop player bar.** The now-playing track can be
   rated straight from the bar, beside the title, instead of only from track rows

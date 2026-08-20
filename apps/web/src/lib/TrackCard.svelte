@@ -1,6 +1,6 @@
 <script lang="ts">
   import { slide } from 'svelte/transition';
-  import { getMatchCandidates, getYoutubeCandidates } from './api';
+  import { getMatchCandidates, getYoutubeCandidates, cleanTrackWithAI } from './api';
   import type { PendingValidationDto, PatchValidationBody, MatchCandidateDto } from './types';
   import ArtistMultiSelect from './library/ArtistMultiSelect.svelte';
   import StatefulButton from './StatefulButton.svelte';
@@ -37,6 +37,8 @@
   let editTrackNumber = $state('');
   let editDiscNumber = $state('');
   let editLabel = $state('');
+  let aiCleaning = $state(false);
+  let aiError: string | null = $state(null);
 
   let cardEl: HTMLElement | undefined = $state();
 
@@ -156,6 +158,24 @@
     await onReject(track.id);
   }
 
+  // Ask the AI backend to clean the messy title/artists into a review-ready
+  // suggestion, then fill the edit form with it. Non-destructive: the user still
+  // reviews and clicks Save & approve. Errors surface inline (e.g. AI not
+  // configured) without touching the fields.
+  async function aiClean() {
+    aiCleaning = true;
+    aiError = null;
+    try {
+      const res = await cleanTrackWithAI(track.id, { title: editTitle, artists: editArtists });
+      editTitle = res.title;
+      editArtists = res.artists;
+    } catch (e: unknown) {
+      aiError = e instanceof Error ? e.message : String(e);
+    } finally {
+      aiCleaning = false;
+    }
+  }
+
   async function selectCandidate(candidate: MatchCandidateDto) {
     if (!onApprove) return;
     const patch: PatchValidationBody = {};
@@ -231,6 +251,14 @@
             <label for="edit-artists-{track.id}">Artists</label>
             <ArtistMultiSelect value={editArtists} onChange={(names) => (editArtists = names)} />
           </div>
+          <button type="button" class="ai-clean" onclick={aiClean} disabled={aiCleaning}>
+            {#if aiCleaning}
+              <span class="mini-spin" aria-hidden="true"></span>Cleaning…
+            {:else}
+              Clean title &amp; artists with AI
+            {/if}
+          </button>
+          {#if aiError}<p class="ai-err" role="alert">{aiError}</p>{/if}
           <div class="field">
             <label for="edit-album-{track.id}">Album</label>
             <input id="edit-album-{track.id}" bind:value={editAlbum} placeholder="Album" />
@@ -639,4 +667,21 @@
       margin-left: 0;
     }
   }
+  .ai-clean {
+    align-self: flex-start;
+    margin: 2px 0 4px;
+    padding: 5px 10px;
+    font-size: 12px;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--text);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ai-clean:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  .ai-clean:disabled { opacity: 0.6; cursor: default; }
+  .ai-err { margin: 2px 0 0; font-size: 12px; color: #e5684d; }
 </style>
