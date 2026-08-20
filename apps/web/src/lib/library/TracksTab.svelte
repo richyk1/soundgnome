@@ -15,7 +15,7 @@
 
 {#snippet coverWrap(src: string | null | undefined, alt: string)}
   <div class="cover-wrap">
-    {#if src && (src.startsWith('http://') || src.startsWith('https://'))}
+    {#if src && (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/'))}
       <img {src} {alt} class="cover-img" loading="lazy" />
     {:else}
       <div class="cover-ph">

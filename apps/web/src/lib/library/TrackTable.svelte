@@ -12,7 +12,7 @@
   const player = getContext<LibraryPlayer | undefined>(LIBRARY_PLAYER);
 
   function coverUrl(t: LibraryTrackDto): string | null {
-    return t.cover && /^https?:\/\//.test(t.cover) ? t.cover : null;
+    return t.cover && /^(https?:\/\/|\/)/.test(t.cover) ? t.cover : null;
   }
   function qualityLabel(t: LibraryTrackDto): string {
     const q = t.quality;

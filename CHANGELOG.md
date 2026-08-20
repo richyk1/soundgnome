@@ -168,6 +168,16 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Locally-ingested files now show their embedded cover art.** Ingest read the
+  title/artist/genre tags but ignored the artwork embedded in the file, so a
+  local import (e.g. a SoundCloud flip downloaded elsewhere) showed a blank
+  note placeholder even when the audio carried a cover. Ingest now detects
+  embedded artwork and serves it via a new `GET /api/tracks/<id>/cover`
+  endpoint (no copy - the art is read straight from the file). The artwork
+  backfill (`Tools -> Embed artwork`) picks up already-imported files the same
+  way. The library also renders same-origin cover URLs, so uploaded and
+  embedded covers display, not just remote `http(s)` artwork.
+
 - **Tracks list was laggy with thousands of rows.** The whole list rendered at
   once, so scrolling and every filter/sort re-laid-out all ~3000 rows (a forced
   layout measured ~460 ms). Rows now use CSS `content-visibility`, so the browser
