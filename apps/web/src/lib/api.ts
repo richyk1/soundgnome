@@ -173,6 +173,29 @@ export async function updateTrack(id: number, body: UpdateTrackBody): Promise<Li
   return res.json();
 }
 
+export interface AiCleanResult {
+  title: string;
+  artists: string[];
+}
+
+/** Ask the AI backend to clean/standardize a track's title and artists. Returns
+ * a suggestion for review; does not persist. Throws if AI is not configured. */
+export async function cleanTrackWithAI(
+  id: number,
+  input: { title: string; artists: string[] },
+): Promise<AiCleanResult> {
+  const res = await fetch(`${BASE}/tracks/${id}/ai-clean`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
 export async function deleteTrack(id: number): Promise<void> {
   const res = await fetch(`${BASE}/tracks/${id}`, { method: 'DELETE' });
   if (!res.ok) {

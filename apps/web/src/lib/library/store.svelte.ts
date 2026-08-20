@@ -1,5 +1,5 @@
 import {
-  getTracks, updateTrack, deleteTrack, setTrackRating,
+  getTracks, updateTrack, cleanTrackWithAI, deleteTrack, setTrackRating,
   getAlbums, updateAlbum, deleteAlbum, mergeAlbums,
   getArtists, updateArtist, deleteArtist, mergeArtists,
   uploadArtistImage, uploadAlbumImage, uploadTrackImage,
@@ -247,6 +247,7 @@ function createLibraryStore() {
 
   let editState: EditState = $state(null);
   let editSaving = $state(false);
+  let aiCleaning = $state(false);
   let imageUploading = $state(false);
   let thumbnailFetching = $state(false);
   let trackDraft: UpdateTrackBody = $state({});
@@ -511,6 +512,25 @@ function createLibraryStore() {
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     } finally { editSaving = false; }
+  }
+
+  // Ask the AI backend to clean the current draft's title/artists, then fill the
+  // form with the suggestion for the user to review and save. Non-destructive.
+  async function aiCleanTrack() {
+    if (!editState || editState.type !== 'track') return;
+    aiCleaning = true;
+    try {
+      const cleaned = await cleanTrackWithAI(editState.item.id, {
+        title: trackDraft.title ?? editState.item.title,
+        artists: trackDraft.artists ?? editState.item.artists.map((a) => a.name),
+      });
+      trackDraft.title = cleaned.title;
+      trackDraft.artists = cleaned.artists;
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      aiCleaning = false;
+    }
   }
 
   // ── Image upload ──────────────────────────────────────────────────────────
@@ -882,6 +902,7 @@ function createLibraryStore() {
 
     get editState() { return editState; }, set editState(v: EditState) { editState = v; },
     get editSaving() { return editSaving; },
+    get aiCleaning() { return aiCleaning; },
     get imageUploading() { return imageUploading; },
     get thumbnailFetching() { return thumbnailFetching; },
     get trackDraft() { return trackDraft; },
@@ -912,6 +933,7 @@ function createLibraryStore() {
     loadTracks, loadAlbums, loadArtists, loadPlaylists,
     startEditTrack, startEditAlbum, startEditArtist,
     openEditForHovered, saveEdit, uploadImage, fetchThumbnailFromReferences,
+    aiCleanTrack,
     batchFetchArtistIconsAction, batchFetchAlbumCoversAction,
     handleDeleteTrack, handleDeleteAlbum, handleDeleteArtist, handleDeletePlaylist,
     toggleArtistSelection, clearArtistSelection, startMergePicking, cancelMergePicking, pickMergeTarget,

@@ -93,6 +93,19 @@
             onChange={(names) => { lib.trackDraft.artists = names; }}
           />
         </label>
+        <button
+          type="button"
+          class="ai-clean-btn"
+          onclick={() => lib.aiCleanTrack()}
+          disabled={lib.aiCleaning}
+          title="Use AI to clean up the title and extract the real artists"
+        >
+          {#if lib.aiCleaning}
+            <span class="upload-spinner" aria-hidden="true"></span> Cleaning…
+          {:else}
+            Clean title & artists with AI
+          {/if}
+        </button>
         <label class="field-label">Album
           <input value={lib.trackDraft.album_title ?? ''}
             oninput={(e) => { lib.trackDraft.album_title = (e.currentTarget as HTMLInputElement).value || undefined; }}
@@ -410,4 +423,25 @@
     border-top-color: var(--accent); border-radius: 50%;
     animation: spin 0.7s linear infinite;
   }
+  .ai-clean-btn {
+    align-self: flex-start;
+    width: fit-content;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: -4px 0 2px;
+    padding: 5px 10px;
+    font-size: 0.8rem;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .ai-clean-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .ai-clean-btn:disabled { opacity: 0.6; cursor: default; }
 </style>

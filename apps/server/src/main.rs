@@ -375,6 +375,7 @@ fn rocket() -> _ {
                 routes::tracks::update,
                 routes::tracks::delete,
                 routes::tracks::set_rating,
+                routes::tracks::ai_clean,
                 routes::tracks::download_file,
                 routes::tracks::get_references,
                 routes::tracks::add_reference,

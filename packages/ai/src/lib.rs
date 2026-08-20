@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use backends::{ollama::OllamaAI, openrouter::OpenRouterAI};
 use config::Config;
 use serde::{Deserialize, Serialize};
-use shared::{errors::Error, types::SoundgnomeResult};
+use shared::{errors::Error, models::SimplifiedTrack, types::SoundgnomeResult};
 
 #[async_trait]
 pub trait AIBackend {
@@ -166,4 +166,15 @@ impl AIClient {
 
         Ok(AIBackendInstance::Fallback(backends))
     }
+}
+
+/// Clean and standardize one track's title and artist names via the configured
+/// AI backend, returning the result as a suggestion for review (nothing is
+/// persisted). Errors if AI is disabled or no backend is configured, so callers
+/// can surface that to the user. Same prompt/rules as the batch SoundCloud
+/// cleanup, in single-object mode.
+pub async fn clean_track_metadata(track: SimplifiedTrack) -> SoundgnomeResult<SimplifiedTrack> {
+    let client = AIClient::new()?;
+    let prompt = prompts::clean_track_title_and_artist_name(true)?;
+    client.generate_with_data(&prompt, track).await
 }

@@ -24,6 +24,7 @@ shared = { path = "../../packages/shared" }
 config = { path = "../../packages/config" }
 database = { path = "../../packages/database" }
 tagger = { path = "../../packages/tagger" }
+ai = { path = "../../packages/ai" }
 walkdir = "2"
 
 tracing-subscriber = { workspace = true }

@@ -454,6 +454,56 @@ pub async fn update(
     })
 }
 
+/// Request body for AI metadata cleanup: the current (possibly edited) title and
+/// artist names to clean.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AiCleanBody {
+    pub title: String,
+    #[serde(default)]
+    pub artists: Vec<String>,
+}
+
+/// Cleaned metadata suggestion. Not persisted; the client reviews it and then
+/// saves via the normal update route.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct AiCleanDto {
+    pub title: String,
+    pub artists: Vec<String>,
+}
+
+/// Clean and standardize a track's title and artists via the configured AI
+/// backend. Returns a suggestion for review; nothing is persisted.
+#[openapi]
+#[post("/tracks/<id>/ai-clean", format = "application/json", data = "<body>")]
+pub async fn ai_clean(
+    id: i32,
+    body: Json<AiCleanBody>,
+) -> Result<Json<AiCleanDto>, crate::utils::error::Error> {
+    let body = body.into_inner();
+    let input = shared::models::SimplifiedTrack {
+        id: id.to_string(),
+        title: body.title,
+        artists: body.artists,
+    };
+    let cleaned = ai::clean_track_metadata(input).await.map_err(|err| {
+        let status = match &err {
+            shared::errors::Error::Config(_) | shared::errors::Error::NoAIBackend => {
+                Status::ServiceUnavailable
+            }
+            _ => Status::InternalServerError,
+        };
+        crate::utils::error::Error::Custom(CustomError {
+            status,
+            code: "AiCleanFailed".to_string(),
+            message: err.to_string(),
+        })
+    })?;
+    Ok(Json(AiCleanDto {
+        title: cleaned.title,
+        artists: cleaned.artists,
+    }))
+}
+
 #[openapi]
 #[put("/tracks/<id>/rating", format = "application/json", data = "<body>")]
 pub async fn set_rating(

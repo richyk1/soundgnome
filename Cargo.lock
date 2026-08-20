@@ -4839,6 +4839,7 @@ dependencies = [
 name = "soundgnome-server"
 version = "0.3.0"
 dependencies = [
+ "ai",
  "config 0.1.0",
  "database",
  "diesel",
@@ -5268,7 +5269,6 @@ dependencies = [
 name = "tagger"
 version = "0.1.0"
 dependencies = [
- "audiotags",
  "bandcamp",
  "chrono",
  "config 0.1.0",

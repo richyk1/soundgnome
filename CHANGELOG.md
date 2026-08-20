@@ -13,6 +13,16 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Added
 
+- **Clean track metadata with AI from the edit panel.** A "Clean title & artists
+  with AI" button in the track editor sends the current title and artists to the
+  configured AI backend (the same OpenRouter/LiteLLM-compatible cleanup used for
+  SoundCloud imports) and fills the form with the suggestion for you to review
+  before saving. It strips noise (`[FREE DL]`, `[Original Mix]`, bitrate tags),
+  extracts featured artists, disambiguates `Artist - Title`, and preserves remix
+  credits, all with strict no-hallucination rules. Backed by a new
+  `POST /api/tracks/<id>/ai-clean` endpoint; nothing is persisted until you save,
+  and it reports clearly when AI is not configured.
+
 - **Like / dislike from the desktop player bar.** The now-playing track can be
   rated straight from the bar, beside the title, instead of only from track rows
   or the mobile Now Playing sheet. When a Last.fm account is connected, liking a
