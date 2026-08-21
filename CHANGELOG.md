@@ -13,6 +13,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Added
 
+- **Disliked tracks are skipped automatically.** Disliking the track you're
+  playing (from the player bar, the Now Playing sheet, or its row) jumps to the
+  next one, and next/previous/auto-advance now step over disliked tracks entirely
+  - so a thumbs-down means you won't hear it again while it stays disliked.
+  Explicitly clicking a disliked track still plays it, and if every remaining
+  track is disliked the current one keeps playing.
+
 - **Clean track metadata with AI from the edit panel.** A "Clean title & artists
   with AI" button in the track editor sends the current title and artists to the
   configured AI backend (the same OpenRouter/LiteLLM-compatible cleanup used for

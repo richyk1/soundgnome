@@ -210,6 +210,9 @@ function createLibraryStore() {
   // (a list of track ids); the tracks list then renders in that order so the
   // next track is the adjacent row. Null = use the normal sort.
   let playOrder: number[] | null = $state(null);
+  // The player registers this so the store can tell it when a track is disliked
+  // (from anywhere); the player skips it if it is the one currently playing.
+  let onTrackDisliked: ((id: number) => void) | null = null;
 
   let tracks: LibraryTrackDto[] = $state([]);
   let tracksLoaded = $state(false);
@@ -663,6 +666,7 @@ function createLibraryStore() {
   async function setRating(track: LibraryTrackDto, rating: TrackRating | null) {
     const prev = track.rating;
     track.rating = rating; // optimistic; reactive on whichever list is showing
+    if (rating === 'disliked') onTrackDisliked?.(track.id);
     try {
       await setTrackRating(track.id, rating);
       // A drilldown list holds a different object instance than the master list,
@@ -914,6 +918,7 @@ function createLibraryStore() {
     get filteredTracks() { return filteredTracks; },
     get shuffled() { return playOrder != null; },
     setPlayOrder(ids: number[] | null) { playOrder = ids; },
+    set onTrackDisliked(fn: ((id: number) => void) | null) { onTrackDisliked = fn; },
     get needsReviewCount() { return needsReviewCount; },
     get likedTracks() { return likedTracks; },
     get dislikedTracks() { return dislikedTracks; },

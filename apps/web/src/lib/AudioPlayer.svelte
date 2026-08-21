@@ -475,19 +475,37 @@
     await playTrack(track);
   }
 
-  /** Step within the play order. Shuffle is baked into `order`, so this is a
-     simple positional move in both modes — and it matches the shown queue. */
-  function stepTo(delta: number) {
+  function isDisliked(t: PlayerTrack | null | undefined): boolean {
+    if (!t || t.source !== 'library') return false;
+    return lib.tracks.find((x) => x.id === t.id)?.rating === 'disliked';
+  }
+
+  /** Move `dir` steps through the play order, skipping disliked tracks, and start
+     the result. Wraps only when repeat is 'all'. Returns false when nothing
+     playable remains that way (e.g. only disliked tracks are left). */
+  function advance(dir: number): boolean {
     const n = order.length;
-    if (!n) return;
-    let p = orderPos + delta;
-    if (p < 0) p = repeat === 'all' ? n - 1 : 0;
-    else if (p >= n) p = repeat === 'all' ? 0 : n - 1;
-    playAt(p);
+    if (!n) return false;
+    let p = orderPos;
+    for (let tries = 0; tries < n; tries++) {
+      p += dir;
+      if (p < 0) {
+        if (repeat === 'all') p = n - 1;
+        else return false;
+      } else if (p >= n) {
+        if (repeat === 'all') p = 0;
+        else return false;
+      }
+      if (!isDisliked(queue[order[p]])) {
+        playAt(p);
+        return true;
+      }
+    }
+    return false;
   }
 
   function next() {
-    stepTo(1);
+    advance(1);
   }
   function prev() {
     // Restart the track first if we're past the intro, like every real player.
@@ -495,7 +513,7 @@
       if (audio) audio.currentTime = 0;
       return;
     }
-    stepTo(-1);
+    advance(-1);
   }
   function toggleShuffle() {
     shuffle = !shuffle;
@@ -505,9 +523,8 @@
     repeat = repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off';
   }
 
-  /** Auto-advance when a track finishes, honoring repeat and the play order. */
+  /** Auto-advance when a track finishes, honoring repeat and skipping disliked. */
   function onEndedInternal() {
-    const n = order.length;
     if (repeat === 'one') {
       if (audio) {
         audio.currentTime = 0;
@@ -515,16 +532,17 @@
       }
       return;
     }
-    if (orderPos + 1 < n) {
-      playAt(orderPos + 1);
-      return;
-    }
-    if (repeat === 'all' && n > 0) {
-      playAt(0);
-      return;
-    }
-    onEnded?.();
+    if (!advance(1)) onEnded?.();
   }
+
+  // Auto-skip disliked tracks. `advance` already skips them on normal
+  // next/prev/auto-advance; this covers the live case: the store calls this
+  // whenever a track is disliked (player bar, now-playing, or a row), and if it
+  // is the one currently playing we move on. Imperative (not a reactive effect)
+  // to avoid a feedback loop with the playback state it changes.
+  lib.onTrackDisliked = (id: number) => {
+    if (!paused && current?.source === 'library' && current.id === id) advance(1);
+  };
 
   export function isCurrent(id: number, source?: TrackSource): boolean {
     return current?.id === id && (source === undefined || current?.source === source);
