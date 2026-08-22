@@ -56,6 +56,14 @@ pub trait TrackRepository: Send + Sync {
     ) -> SoundgnomeResult<Vec<(i32, String)>>;
     fn count(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64>;
     fn count_pending_validations(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64>;
+    /// Count tracks whose `file_path` equals `file_path`, optionally excluding one
+    /// id. Used to detect when two rows share one physical file before deleting it.
+    fn count_by_file_path(
+        &self,
+        conn: &mut SqliteConnection,
+        file_path: &str,
+        exclude_id: Option<i32>,
+    ) -> SoundgnomeResult<i64>;
     fn create_references(
         &self,
         conn: &mut SqliteConnection,

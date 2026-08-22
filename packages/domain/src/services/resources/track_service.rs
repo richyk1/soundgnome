@@ -418,6 +418,34 @@ impl TrackService {
         Ok(file_deleted)
     }
 
+    /// Delete the track's audio file, but only when no other track row references
+    /// the same path. Two rows can point to one physical file (duplicate rows);
+    /// deleting unconditionally would orphan the surviving row. Returns whether the
+    /// file was actually removed.
+    pub fn delete_track_file_if_unreferenced(
+        &self,
+        conn: &mut SqliteConnection,
+        track: &Track,
+    ) -> bool {
+        let Some(path) = track.file_path.as_ref() else {
+            return false;
+        };
+        let path_str = path.to_string_lossy();
+        let shared = self
+            .track_repo
+            .count_by_file_path(conn, &path_str, track.id)
+            .unwrap_or(0)
+            > 0;
+        if shared {
+            tracing::warn!(
+                "Not deleting {}: another track row references the same file",
+                path_str
+            );
+            return false;
+        }
+        self.delete_track_file(track).unwrap_or(false)
+    }
+
     /// Append a single reference to a track and return the full updated list.
     pub fn add_reference(
         &self,

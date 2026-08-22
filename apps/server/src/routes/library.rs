@@ -474,15 +474,17 @@ pub async fn backfill_fingerprints(
 /// remove the rest. `apply=false` (the default) returns the plan without deleting
 /// anything - always dry-run it first and review the removals. Runs synchronously
 /// (uses stored fingerprints; no re-decoding).
-#[post("/library/dedupe?<apply>")]
+#[post("/library/dedupe?<apply>&<loose>")]
 pub async fn dedupe(
     apply: Option<bool>,
+    loose: Option<bool>,
     db: Db,
     services: &rocket::State<Arc<ServiceLayer>>,
 ) -> Result<Json<domain::services::download_service::DedupeReport>, Error> {
     let services = Arc::clone(services);
     let apply = apply.unwrap_or(false);
-    db.run(move |conn| services.download_service.dedupe_library(conn, apply))
+    let loose = loose.unwrap_or(false);
+    db.run(move |conn| services.download_service.dedupe_library(conn, apply, loose))
         .await
         .map(Json)
         .map_err(Error::from)

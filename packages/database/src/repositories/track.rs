@@ -483,6 +483,23 @@ impl TrackRepository for DieselTrackRepository {
             })
     }
 
+    fn count_by_file_path(
+        &self,
+        conn: &mut SqliteConnection,
+        file_path: &str,
+        exclude_id: Option<i32>,
+    ) -> SoundgnomeResult<i64> {
+        let mut query = schema::track::table
+            .filter(schema::track::file_path.eq(file_path))
+            .into_boxed();
+        if let Some(id) = exclude_id {
+            query = query.filter(schema::track::id.ne(id));
+        }
+        query.count().get_result(conn).map_err(|err| {
+            shared::errors::Error::Database(format!("Failed to count tracks by file_path: {}", err))
+        })
+    }
+
     fn get_by_soundome_id(
         &self,
         conn: &mut SqliteConnection,
@@ -562,5 +579,51 @@ impl TrackRepository for DieselTrackRepository {
                 ))
             })?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use diesel::connection::SimpleConnection;
+    use diesel_migrations::MigrationHarness;
+
+    fn migrated_conn() -> SqliteConnection {
+        let mut conn = SqliteConnection::establish(":memory:").unwrap();
+        conn.run_pending_migrations(crate::MIGRATIONS).unwrap();
+        conn
+    }
+
+    #[test]
+    fn count_by_file_path_detects_rows_sharing_one_file() {
+        let mut conn = migrated_conn();
+        conn.batch_execute(
+            "INSERT INTO track (title, needs_validation, file_path) VALUES ('shared', 0, '/tmp/shared.m4a');\
+             INSERT INTO track (title, needs_validation, file_path) VALUES ('shared', 1, '/tmp/shared.m4a');\
+             INSERT INTO track (title, needs_validation, file_path) VALUES ('solo', 0, '/tmp/solo.m4a');",
+        )
+        .unwrap();
+        let repo = DieselTrackRepository::new();
+
+        // Two rows point at the same physical file.
+        assert_eq!(
+            repo.count_by_file_path(&mut conn, "/tmp/shared.m4a", None)
+                .unwrap(),
+            2
+        );
+        // Deleting row 2 (the loser) still leaves row 1 holding the file, so the
+        // guard sees a positive count and must preserve it - this is the exact
+        // case that orphaned a keeper before the fix.
+        assert_eq!(
+            repo.count_by_file_path(&mut conn, "/tmp/shared.m4a", Some(2))
+                .unwrap(),
+            1
+        );
+        // A uniquely-referenced file has no other holder, so deletion is safe.
+        assert_eq!(
+            repo.count_by_file_path(&mut conn, "/tmp/solo.m4a", Some(3))
+                .unwrap(),
+            0
+        );
     }
 }

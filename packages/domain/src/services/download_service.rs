@@ -558,6 +558,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         apply: bool,
+        loose: bool,
     ) -> SoundgnomeResult<DedupeReport> {
         use std::collections::HashMap;
 
@@ -617,6 +618,7 @@ impl DownloadService {
                             group[j].id.and_then(|id| fps.get(&id)),
                             t.duration,
                             group[j].duration,
+                            loose,
                         )
                     }) {
                         cl.push(i);
@@ -683,7 +685,8 @@ impl DownloadService {
                                 keeper_rating = Some(r);
                             }
                         }
-                        let _ = self.track_service.delete_track_file(loser);
+                        self.track_service
+                            .delete_track_file_if_unreferenced(conn, loser);
                         if let Some(lid) = loser.id {
                             self.track_service.delete_by_id(conn, lid)?;
                         }
@@ -2960,6 +2963,11 @@ const FINGERPRINT_MIN_COVERAGE: f32 = 0.50;
 /// (so coverage-by-fraction cannot be computed).
 const FINGERPRINT_MIN_ABS_MATCH_SECS: f32 = 45.0;
 
+/// In loose dedup mode, two copies in the same title+artist group are treated as
+/// the same song when their durations are within this many seconds - even if
+/// Chromaprint cannot confirm it (e.g. a different master of the same track).
+const LOOSE_DURATION_SECS: i32 = 5;
+
 /// Decode `path` to 44.1 kHz stereo PCM via ffmpeg and compute its Chromaprint
 /// acoustic fingerprint. Decoding leans on the ffmpeg binary already required for
 /// downloads, so every ingestable format (opus, m4a, ...) is handled uniformly.
@@ -3042,7 +3050,17 @@ fn same_recording(
     b: Option<&Vec<u32>>,
     da: Option<i32>,
     db: Option<i32>,
+    loose: bool,
 ) -> bool {
+    // Loose mode: near-identical durations within the same title+artist group are
+    // the same song even when Chromaprint can't confirm (different masters).
+    if loose {
+        if let (Some(x), Some(y)) = (da, db) {
+            if (x - y).abs() <= LOOSE_DURATION_SECS {
+                return true;
+            }
+        }
+    }
     let (Some(a), Some(b)) = (a, b) else {
         return false;
     };

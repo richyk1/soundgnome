@@ -13,6 +13,12 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Added
 
+- **Looser duplicate cleanup.** `POST /api/library/dedupe?loose=true` also merges
+  same-title/same-artist copies whose durations are within 5 s even when the
+  acoustic fingerprint cannot confirm them (different masters of the same track),
+  still keeping the best complete copy. Different versions (durations more than
+  5 s apart) are left untouched.
+
 - **Disliked tracks are skipped automatically.** Disliking the track you're
   playing (from the player bar, the Now Playing sheet, or its row) jumps to the
   next one, and next/previous/auto-advance now step over disliked tracks entirely
@@ -185,6 +191,11 @@ First Soundgnome release. Continues the version line from the inherited Soundome
   image (`ghcr.io/richyk1/soundgnome`).
 
 ### Fixed
+
+- **Dedup could delete a file two rows shared.** When two track rows pointed at
+  one physical file (a duplicate row), removing one deleted the file and orphaned
+  the survivor. The dedup delete step now skips removing a file that any other
+  track row still references.
 
 - **Duplicate songs in the library.** Two causes, both fixed. (1) The main Tracks
   list showed pending `needs_validation` tracks alongside finalized ones, so a
