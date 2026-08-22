@@ -442,6 +442,7 @@ fn rocket() -> _ {
                 routes::images::batch_fetch_album_covers,
                 routes::tracks::waveform,
                 routes::tracks::cover,
+                routes::library::dedupe,
             ],
         )
         .mount("/", routes![routes::metrics::metrics])

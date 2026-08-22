@@ -329,9 +329,15 @@ function createLibraryStore() {
     let list = tracks;
     const q = trackSearch.trim().toLowerCase();
     if (q) list = list.filter(t => t.title.toLowerCase().includes(q) || t.artists.some(a => a.name.toLowerCase().includes(q)));
-    if (trackFilter === 'review') list = list.filter(t => t.needs_validation);
-    else if (trackFilter === 'lossless') list = list.filter(t => t.quality?.lossless === true);
-    else if (trackFilter === 'liked') list = list.filter(t => t.rating === 'liked');
+    if (trackFilter === 'review') {
+      list = list.filter(t => t.needs_validation);
+    } else {
+      // The main library shows finalized tracks only; pending ones live in the
+      // Validations tab (and often shadow a finalized copy, looking like dupes).
+      list = list.filter(t => !t.needs_validation);
+      if (trackFilter === 'lossless') list = list.filter(t => t.quality?.lossless === true);
+      else if (trackFilter === 'liked') list = list.filter(t => t.rating === 'liked');
+    }
     if (playOrder) {
       const pos = new Map<number, number>();
       playOrder.forEach((id, i) => pos.set(id, i));

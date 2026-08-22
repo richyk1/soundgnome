@@ -470,6 +470,24 @@ pub async fn backfill_fingerprints(
     Ok(Json(serde_json::json!({ "task_id": task_id })))
 }
 
+/// Library-wide acoustic dedup: for each song, keep the best COMPLETE copy and
+/// remove the rest. `apply=false` (the default) returns the plan without deleting
+/// anything - always dry-run it first and review the removals. Runs synchronously
+/// (uses stored fingerprints; no re-decoding).
+#[post("/library/dedupe?<apply>")]
+pub async fn dedupe(
+    apply: Option<bool>,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<Json<domain::services::download_service::DedupeReport>, Error> {
+    let services = Arc::clone(services);
+    let apply = apply.unwrap_or(false);
+    db.run(move |conn| services.download_service.dedupe_library(conn, apply))
+        .await
+        .map(Json)
+        .map_err(Error::from)
+}
+
 // ================================================================================================
 // Upload (browser -> ingest dir)
 // ================================================================================================

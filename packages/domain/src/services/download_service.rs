@@ -138,6 +138,37 @@ pub struct FingerprintBackfillSummary {
     pub errors: usize,
 }
 
+/// One duplicate cluster found by [`DownloadService::dedupe_library`]: the copy
+/// that is kept and the copies removed (or that would be, in a dry run).
+#[derive(Debug, serde::Serialize)]
+pub struct DedupeCluster {
+    pub keeper: DedupeTrack,
+    pub removed: Vec<DedupeTrack>,
+}
+
+/// A track in a dedup report.
+#[derive(Debug, serde::Serialize)]
+pub struct DedupeTrack {
+    pub id: i32,
+    pub title: String,
+    pub artist: String,
+    pub duration: Option<i32>,
+    pub quality: String,
+    pub needs_validation: bool,
+    pub rating: Option<String>,
+    pub file_path: Option<String>,
+}
+
+/// Outcome of a library-wide acoustic dedup pass.
+#[derive(Debug, serde::Serialize)]
+pub struct DedupeReport {
+    pub applied: bool,
+    pub groups_examined: usize,
+    pub clusters: Vec<DedupeCluster>,
+    pub tracks_removed: usize,
+    pub bytes_freed: u64,
+}
+
 /// Fetch cover-art bytes for a URL, preferring a higher-resolution variant of
 /// known image hosts and falling back to the original when the upgrade is not
 /// available. Runs the blocking request off the async runtime.
@@ -514,6 +545,167 @@ impl DownloadService {
             total
         );
         Ok(s)
+    }
+
+    /// Library-wide acoustic dedup. Groups tracks by normalized title+artist, then
+    /// within each group clusters the copies that acoustically match (Chromaprint
+    /// overlap) - so only genuine same-recording copies are merged, never different
+    /// versions that merely share a title. For each cluster it keeps the best
+    /// COMPLETE copy (finalized, full-length, then highest audio quality) and, when
+    /// `apply` is set, deletes the rest (file + row), transferring a like/dislike to
+    /// the keeper if it had none. `apply=false` only reports the plan.
+    pub fn dedupe_library(
+        &self,
+        conn: &mut SqliteConnection,
+        apply: bool,
+    ) -> SoundgnomeResult<DedupeReport> {
+        use std::collections::HashMap;
+
+        // Stored fingerprints, keyed by track id (one query for the whole library).
+        let mut fps: HashMap<i32, Vec<u32>> = HashMap::new();
+        for (id, encoded) in self
+            .track_service
+            .fingerprint_candidates(conn, i32::MIN, i32::MAX)?
+        {
+            if let Some(fp) = encoded
+                .strip_prefix(CHROMAPRINT_PREFIX)
+                .and_then(decode_fingerprint)
+            {
+                fps.insert(id, fp);
+            }
+        }
+
+        // Ratings, keyed by track id, so a like/dislike survives merging.
+        let ratings: HashMap<i32, shared::models::Rating> =
+            self.track_service.get_ratings(conn)?.into_iter().collect();
+
+        // Group by normalized (title, sorted lowercased artist names).
+        let mut groups: HashMap<(String, Vec<String>), Vec<Track>> = HashMap::new();
+        for t in self.track_service.get_all(conn)? {
+            let mut arts: Vec<String> =
+                t.artists.iter().map(|a| a.name.trim().to_lowercase()).collect();
+            arts.sort();
+            groups
+                .entry((t.title.trim().to_lowercase(), arts))
+                .or_default()
+                .push(t);
+        }
+
+        let mut report = DedupeReport {
+            applied: apply,
+            groups_examined: 0,
+            clusters: Vec::new(),
+            tracks_removed: 0,
+            bytes_freed: 0,
+        };
+
+        for group in groups.into_values() {
+            if group.len() < 2 {
+                continue;
+            }
+            report.groups_examined += 1;
+
+            // Cluster within the group by acoustic match (both need a fingerprint).
+            let mut clusters: Vec<Vec<usize>> = Vec::new();
+            for (i, t) in group.iter().enumerate() {
+                let fp_i = t.id.and_then(|id| fps.get(&id));
+                let mut placed = false;
+                for cl in clusters.iter_mut() {
+                    if cl.iter().any(|&j| {
+                        same_recording(
+                            fp_i,
+                            group[j].id.and_then(|id| fps.get(&id)),
+                            t.duration,
+                            group[j].duration,
+                        )
+                    }) {
+                        cl.push(i);
+                        placed = true;
+                        break;
+                    }
+                }
+                if !placed {
+                    clusters.push(vec![i]);
+                }
+            }
+
+            for cl in clusters {
+                if cl.len() < 2 {
+                    continue;
+                }
+                let max_dur = cl.iter().filter_map(|&i| group[i].duration).max().unwrap_or(0);
+                // Rank: finalized > complete (not truncated) > quality > organized > newest.
+                let scored: Vec<(usize, (bool, bool, Option<shared::models::AudioQuality>, bool, i32))> =
+                    cl.iter()
+                        .map(|&i| {
+                            let t = &group[i];
+                            let complete = match t.duration {
+                                Some(d) => max_dur == 0 || d as f64 >= 0.9 * max_dur as f64,
+                                None => true,
+                            };
+                            let organized = t
+                                .file_path
+                                .as_ref()
+                                .map(|p| p.to_string_lossy().contains("library/"))
+                                .unwrap_or(false);
+                            (
+                                i,
+                                (
+                                    !t.needs_validation,
+                                    complete,
+                                    t.audio_quality(),
+                                    organized,
+                                    t.id.unwrap_or(0),
+                                ),
+                            )
+                        })
+                        .collect();
+                let keeper_i = scored.iter().max_by(|a, b| a.1.cmp(&b.1)).map(|s| s.0).unwrap();
+                let keeper = &group[keeper_i];
+                let keeper_id = keeper.id;
+                let mut keeper_rating = keeper.id.and_then(|id| ratings.get(&id).cloned());
+
+                let mut removed = Vec::new();
+                for &li in cl.iter().filter(|&&i| i != keeper_i) {
+                    let loser = &group[li];
+                    let loser_rating = loser.id.and_then(|id| ratings.get(&id).cloned());
+                    removed.push(dedupe_track_summary(loser, loser_rating.clone()));
+                    if let Some(p) = loser.file_path.as_ref() {
+                        report.bytes_freed += std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+                    }
+                    report.tracks_removed += 1;
+
+                    if apply {
+                        // Preserve a like/dislike on the keeper if it had none.
+                        if keeper_rating.is_none() {
+                            if let (Some(kid), Some(r)) = (keeper_id, loser_rating) {
+                                let _ = self.track_service.set_rating(conn, kid, Some(r.clone()));
+                                keeper_rating = Some(r);
+                            }
+                        }
+                        let _ = self.track_service.delete_track_file(loser);
+                        if let Some(lid) = loser.id {
+                            self.track_service.delete_by_id(conn, lid)?;
+                        }
+                    }
+                }
+
+                report.clusters.push(DedupeCluster {
+                    keeper: dedupe_track_summary(keeper, keeper_rating),
+                    removed,
+                });
+            }
+        }
+
+        tracing::info!(
+            "Library dedup ({}): {} groups, {} clusters, {} tracks removed, {} bytes",
+            if apply { "applied" } else { "dry-run" },
+            report.groups_examined,
+            report.clusters.len(),
+            report.tracks_removed,
+            report.bytes_freed
+        );
+        Ok(report)
     }
 
     pub fn new(
@@ -2751,7 +2943,9 @@ fn ingest_concurrency() -> usize {
 
 /// Duration window (seconds) for narrowing acoustic dedup candidates: only tracks
 /// whose length is within this many seconds of the incoming file are compared.
-const FINGERPRINT_DURATION_TOLERANCE_SECS: i32 = 8;
+/// Kept wide enough to still catch re-encodes with slightly different trailing
+/// silence; the fingerprint overlap check is the real identity gate.
+const FINGERPRINT_DURATION_TOLERANCE_SECS: i32 = 30;
 
 /// A matched segment counts toward coverage only when its alignment score is at or
 /// below this. Chromaprint scores are Hamming-distance based (0 = identical), so
@@ -2838,6 +3032,69 @@ fn matched_overlap_secs(fp_a: &[u32], fp_b: &[u32]) -> f32 {
         .filter(|s| s.score <= FINGERPRINT_MAX_SEGMENT_SCORE)
         .map(|s| s.duration(&config))
         .sum()
+}
+
+/// Whether two tracks are the same recording: both have a fingerprint and their
+/// well-aligned overlap covers a large fraction of the shorter one (so a truncated
+/// copy still matches the full one, but different songs never do).
+fn same_recording(
+    a: Option<&Vec<u32>>,
+    b: Option<&Vec<u32>>,
+    da: Option<i32>,
+    db: Option<i32>,
+) -> bool {
+    let (Some(a), Some(b)) = (a, b) else {
+        return false;
+    };
+    let overlap = matched_overlap_secs(a, b);
+    let shorter = match (da, db) {
+        (Some(x), Some(y)) => x.min(y).max(1),
+        (Some(x), None) | (None, Some(x)) => x.max(1),
+        _ => 0,
+    };
+    if shorter > 0 {
+        overlap >= 0.45 * shorter as f32
+    } else {
+        overlap >= 30.0
+    }
+}
+
+/// Human-readable quality string for a dedup report entry, e.g. "FLAC 1580kbps lossless".
+fn quality_label(track: &Track) -> String {
+    let ext = track
+        .file_path
+        .as_ref()
+        .and_then(|p| p.extension())
+        .and_then(|e| e.to_str())
+        .unwrap_or("?")
+        .to_uppercase();
+    match track.audio_quality() {
+        Some(q) => format!(
+            "{} {}kbps{}",
+            ext,
+            q.bitrate_bps / 1000,
+            if q.lossless { " lossless" } else { "" }
+        ),
+        None => ext,
+    }
+}
+
+fn dedupe_track_summary(track: &Track, rating: Option<shared::models::Rating>) -> DedupeTrack {
+    DedupeTrack {
+        id: track.id.unwrap_or(0),
+        title: track.title.clone(),
+        artist: track
+            .artists
+            .iter()
+            .map(|a| a.name.clone())
+            .collect::<Vec<_>>()
+            .join(", "),
+        duration: track.duration,
+        quality: quality_label(track),
+        needs_validation: track.needs_validation,
+        rating: rating.map(|r| format!("{r:?}").to_lowercase()),
+        file_path: track.file_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+    }
 }
 
 fn normalize_album_and_artist_refs_as_metadata(track: &mut Track) {

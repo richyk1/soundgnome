@@ -393,6 +393,14 @@ impl TrackService {
     /// file cannot be probed the answer is `false`, so an unreadable candidate
     /// never displaces audio we already have.
     pub fn is_better_quality(&self, existing_track: &Track, new_track: &Track) -> bool {
+        // Never replace a complete file with a materially shorter (truncated)
+        // one, however good its format - a 70s lossless clip must not beat a full
+        // lossy track.
+        if let (Some(e), Some(n)) = (existing_track.duration, new_track.duration) {
+            if e > 0 && n > 0 && (n as f64) < 0.9 * e as f64 {
+                return false;
+            }
+        }
         match (existing_track.audio_quality(), new_track.audio_quality()) {
             (Some(existing), Some(new)) => new > existing,
             _ => false,

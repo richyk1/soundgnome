@@ -186,6 +186,19 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Duplicate songs in the library.** Two causes, both fixed. (1) The main Tracks
+  list showed pending `needs_validation` tracks alongside finalized ones, so a
+  failed/partial download (e.g. a truncated Spotify copy of a song you already own
+  as FLAC) appeared as a lower-quality "duplicate". The list now shows finalized
+  tracks only; pending ones stay in Validations. (2) A one-shot **library dedup**
+  (`POST /api/library/dedupe`, dry-run by default) finds same-recording copies by
+  Chromaprint fingerprint and keeps the best COMPLETE copy, removing the rest -
+  cleaning up dupes that slipped past the pipeline. A truncated file never wins,
+  even if it is lossless.
+- **Quality comparison could replace a complete file with a truncated one.**
+  `is_better_quality` now refuses a candidate that is materially shorter than the
+  copy on disk, and the acoustic-dedup duration window widened from ±8 s to ±30 s.
+
 - **Editing the playing track now updates the now-playing bar.** The bar showed a
   snapshot taken at play time, so an edit (e.g. AI cleanup) to the current track's
   title/artist did not appear until the next play. It now reads the live library
