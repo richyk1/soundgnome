@@ -43,6 +43,9 @@ pub enum AudioResponse {
         total: u64,
         content_type: ContentType,
     },
+    /// `Range` request that cannot be satisfied (start past EOF): 416 carrying the
+    /// full length so the client can recover, per RFC 7233.
+    NotSatisfiable { total: u64 },
 }
 
 impl<'r> Responder<'r, 'static> for AudioResponse {
@@ -73,6 +76,11 @@ impl<'r> Responder<'r, 'static> for AudioResponse {
                 )
                 .sized_body(bytes.len(), Cursor::new(bytes))
                 .ok(),
+            AudioResponse::NotSatisfiable { total } => Response::build()
+                .status(Status::RangeNotSatisfiable)
+                .raw_header("Accept-Ranges", "bytes")
+                .raw_header("Content-Range", format!("bytes */{}", total))
+                .ok(),
         }
     }
 }
@@ -87,6 +95,7 @@ impl rocket_okapi::response::OpenApiResponderInner for AudioResponse {
         for (status, description) in [
             ("200", "The whole audio file."),
             ("206", "The requested byte range of the audio file."),
+            ("416", "The requested range cannot be satisfied."),
         ] {
             responses.responses.insert(
                 status.to_string(),
@@ -194,14 +203,6 @@ fn not_found(code: &str, message: String) -> crate::utils::error::Error {
     })
 }
 
-fn range_not_satisfiable(total: u64) -> crate::utils::error::Error {
-    crate::utils::error::Error::Custom(CustomError {
-        status: Status::RangeNotSatisfiable,
-        code: "RangeNotSatisfiable".to_string(),
-        message: format!("Requested range not satisfiable; file is {total} bytes"),
-    })
-}
-
 /// Stream a library track's audio file, with range support so the browser can
 /// seek without downloading the whole file first.
 #[openapi]
@@ -239,7 +240,9 @@ pub async fn stream(
 
     let (start, end) = match range.as_ref().map(|r| parse_range(&r.0, total)) {
         Some(ParsedRange::Range(start, end)) => (start, end),
-        Some(ParsedRange::Unsatisfiable) => return Err(range_not_satisfiable(total)),
+        Some(ParsedRange::Unsatisfiable) => {
+            return Ok(AudioResponse::NotSatisfiable { total })
+        }
         // No header, or a header we ignore: send the whole file.
         Some(ParsedRange::Ignore) | None => {
             return Ok(AudioResponse::Full {
