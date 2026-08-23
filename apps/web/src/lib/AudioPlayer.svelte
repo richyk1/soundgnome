@@ -563,7 +563,12 @@
 
     if (retriedCurrent) {
       el.pause();
-      onError?.(track, 'Playback failed. The audio link could not be refreshed.');
+      onError?.(
+        track,
+        track.source === 'soundcloud'
+          ? 'Playback failed. The audio link could not be refreshed.'
+          : 'Playback failed. Please try again.',
+      );
       return;
     }
 

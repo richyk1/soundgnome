@@ -200,6 +200,16 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Confusing "audio link could not be refreshed" on a playback hiccup.** That
+  message is only meaningful for SoundCloud's expiring URLs; for a local library
+  track the URL is static, so a transient error now reports "Playback failed.
+  Please try again." after the automatic one-shot retry.
+
+- **Audio range requests past the end of the file returned the whole file.** The
+  stream route now answers an unsatisfiable `Range` with `416 Range Not
+  Satisfiable` (RFC 7233); malformed ranges are still ignored and normal seeking
+  is unchanged.
+
 - **Now-playing bar showed no artwork after a reload.** The player bar drew the
   artwork from the persisted play-time snapshot, which could predate the track's
   cover, so it fell back to the note-icon placeholder. It now prefers the live
