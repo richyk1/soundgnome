@@ -200,6 +200,13 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Playing a track that was removed by cleanup failed with a confusing error.**
+  A client (or a persisted queue) could still reference a track that dedup had
+  deleted; playing it hit a 404 and reported "Playback failed." The player now
+  detects a removed track, shows "This track is no longer available.", and skips
+  to the next one. Missing-track lookups also return a consistent `404` (the
+  waveform endpoint previously returned `500`).
+
 - **Confusing "audio link could not be refreshed" on a playback hiccup.** That
   message is only meaningful for SoundCloud's expiring URLs; for a local library
   track the URL is static, so a transient error now reports "Playback failed.

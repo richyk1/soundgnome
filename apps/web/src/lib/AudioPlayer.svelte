@@ -561,6 +561,25 @@
     const track = current;
     if (!track || !el) return;
 
+    // A deleted/missing library track 404s deterministically, so retrying is
+    // pointless. Detect it and skip with an accurate message instead of the
+    // generic "try again" - this happens when a cleanup removes a track a
+    // client still has queued.
+    if (track.source === 'library') {
+      try {
+        const res = await fetch(`/api/tracks/${track.id}/audio`, { method: 'HEAD' });
+        if (current?.id !== track.id) return;
+        if (res.status === 404) {
+          el.pause();
+          onError?.(track, 'This track is no longer available.');
+          if (canStep) advance(1);
+          return;
+        }
+      } catch {
+        /* probe failed (offline?): fall through to the normal retry */
+      }
+    }
+
     if (retriedCurrent) {
       el.pause();
       onError?.(

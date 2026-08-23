@@ -352,8 +352,13 @@ impl TrackRepository for DieselTrackRepository {
             )
             .filter(schema::track::id.eq(id))
             .first(conn)
-            .map_err(|err| {
-                shared::errors::Error::Database(format!("Failed to get resource by id: {}", err))
+            .map_err(|err| match err {
+                diesel::result::Error::NotFound => {
+                    shared::errors::Error::NotFound(format!("Track {id} not found"))
+                }
+                other => {
+                    shared::errors::Error::Database(format!("Failed to get resource by id: {}", other))
+                }
             })?;
 
         let artists: Vec<ArtistEntity> = schema::artist_tracks::table
