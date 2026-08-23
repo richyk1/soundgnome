@@ -598,17 +598,20 @@ pub async fn delete(
         })
 }
 
-/// Serve the embedded cover art from a track's audio file. Used as the `cover`
-/// URL for locally-ingested files, whose artwork lives inside the audio
-/// container rather than at an external URL. Responds 404 when the file is
-/// missing or carries no embedded picture. Not part of the OpenAPI surface
-/// (returns a raw image, mounted as a plain route).
-#[get("/tracks/<id>/cover")]
+/// Cover art for a track's embedded picture. Serves a small cached JPEG
+/// thumbnail by default (`?size=thumb`, 128px) so lists load a few KB instead of
+/// the multi-megabyte raw artwork; `?size=large` (512px) is for the full-screen
+/// now-playing art, and `?size=full` returns the raw embedded original. Cached
+/// thumbnails live beside the waveform cache, keyed by file mtime. Responds 404
+/// when the file is missing or carries no embedded picture. Not part of the
+/// OpenAPI surface (returns a raw image).
+#[get("/tracks/<id>/cover?<size>")]
 pub async fn cover(
     id: i32,
+    size: Option<String>,
     db: Db,
     services: &rocket::State<Arc<ServiceLayer>>,
-) -> Result<(ContentType, Vec<u8>), crate::utils::error::Error> {
+) -> Result<CachedImage, crate::utils::error::Error> {
     let services = Arc::clone(services);
     let track = db
         .run(move |conn| services.track_service.get_by_id(conn, id))
@@ -629,7 +632,28 @@ pub async fn cover(
         })
     })?;
 
-    let (bytes, mime) = tagger::file::read_cover_from_path(&path).ok_or_else(|| {
+    // Which size: default to the small list thumbnail.
+    let px = match size.as_deref() {
+        Some("full") | Some("orig") => None,
+        Some("large") => Some(COVER_LARGE_PX),
+        _ => Some(COVER_THUMB_PX),
+    };
+
+    // Reading and resizing embedded art is blocking; keep it off async workers.
+    let result = rocket::tokio::task::spawn_blocking(move || match px {
+        Some(px) => cover_cached(id, &path, px),
+        None => tagger::file::read_cover_from_path(&path),
+    })
+    .await
+    .map_err(|e| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::InternalServerError,
+            code: "CoverJoin".to_string(),
+            message: e.to_string(),
+        })
+    })?;
+
+    let (bytes, mime) = result.ok_or_else(|| {
         crate::utils::error::Error::Custom(CustomError {
             status: Status::NotFound,
             code: "NoCover".to_string(),
@@ -638,7 +662,82 @@ pub async fn cover(
     })?;
 
     let content_type = ContentType::parse_flexible(&mime).unwrap_or(ContentType::JPEG);
-    Ok((content_type, bytes))
+    Ok(CachedImage {
+        inner: (content_type, bytes),
+        cache_control: Header::new("Cache-Control", "public, max-age=86400"),
+    })
+}
+
+/// A raw image response plus a long cache header, so the browser holds cover
+/// thumbnails; the `/api` scope is exempt from the app-wide no-cache fairing.
+#[derive(Responder)]
+pub struct CachedImage {
+    inner: (ContentType, Vec<u8>),
+    cache_control: Header<'static>,
+}
+
+/// Cover thumbnail sizes (px, long edge). Thumb serves lists and the small
+/// player-bar art; large serves the full-screen now-playing art.
+pub const COVER_THUMB_PX: u32 = 128;
+const COVER_LARGE_PX: u32 = 512;
+
+/// Directory holding precomputed cover thumbnails, beside the waveform cache so
+/// it lands on the same mounted volume in Docker.
+fn cover_cache_dir() -> PathBuf {
+    PathBuf::from("data/covers")
+}
+
+/// Cache file for `id` at audio-file mtime `mtime` and size `px`. The mtime is in
+/// the name so a re-tagged/replaced file misses the cache without any parsing.
+fn cover_cache_path(id: i32, mtime: u64, px: u32) -> PathBuf {
+    cover_cache_dir().join(format!("{id}-{mtime}-{px}.jpg"))
+}
+
+/// Whether a fresh thumbnail for `id`/`path` at `px` is already on disk. Used by
+/// the startup backfill to skip already-cached tracks cheaply.
+pub fn cover_is_cached(id: i32, path: &Path, px: u32) -> bool {
+    file_mtime_secs(path)
+        .map(|mtime| cover_cache_path(id, mtime, px).exists())
+        .unwrap_or(false)
+}
+
+/// Return a cached JPEG thumbnail for `id`/`path` at `px`, computing and
+/// persisting it on a miss. `None` when the file has no decodable embedded art.
+pub fn cover_cached(id: i32, path: &Path, px: u32) -> Option<(Vec<u8>, String)> {
+    let mtime = file_mtime_secs(path).ok()?;
+    let cache_path = cover_cache_path(id, mtime, px);
+
+    if let Ok(bytes) = std::fs::read(&cache_path) {
+        if !bytes.is_empty() {
+            return Some((bytes, "image/jpeg".to_string()));
+        }
+    }
+
+    let (raw, _mime) = tagger::file::read_cover_from_path(path)?;
+    let thumb = tagger::file::make_thumbnail(&raw, px)?;
+
+    let _ = std::fs::create_dir_all(cover_cache_dir());
+    if std::fs::write(&cache_path, &thumb).is_ok() {
+        remove_stale_covers(id, mtime);
+    }
+
+    Some((thumb, "image/jpeg".to_string()))
+}
+
+/// Drop any older thumbnails for this track (previous mtimes) after a fresh
+/// write, keeping every size for the current mtime.
+fn remove_stale_covers(id: i32, keep_mtime: u64) {
+    let prefix = format!("{id}-");
+    let keep = format!("{id}-{keep_mtime}-");
+    if let Ok(entries) = std::fs::read_dir(cover_cache_dir()) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(&prefix) && !name.starts_with(&keep) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
 }
 
 /// Download the audio file for a track.

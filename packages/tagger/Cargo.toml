@@ -19,6 +19,9 @@ lofty = "0.22"
 chrono = "0.4.39"
 musicbrainz_rs = "0.9.0"
 bandcamp = "0.3.4"
+# Downscale embedded artwork to small list thumbnails; decode jpeg/png/webp,
+# encode jpeg. default-features off keeps the format set minimal.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [dev-dependencies]
 lofty = "0.22"

@@ -13,6 +13,14 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Added
 
+- **Cover thumbnails for snappy lists.** `GET /api/tracks/<id>/cover` now serves a
+  small cached 128px JPEG by default instead of the raw embedded artwork (often
+  1-5 MB each), cutting a full list of covers from ~110 MB to under 1 MB so they
+  appear instantly. The full-screen now-playing art requests `?size=large`
+  (512px), and `?size=full` still returns the untouched original. Thumbnails are
+  cached on disk (keyed by file mtime) and precomputed for the whole library by a
+  gentle background backfill on startup, mirroring the waveform pipeline.
+
 - **Looser duplicate cleanup.** `POST /api/library/dedupe?loose=true` also merges
   same-title/same-artist copies whose durations are within 5 s even when the
   acoustic fingerprint cannot confirm them (different masters of the same track),

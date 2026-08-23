@@ -74,6 +74,53 @@ fn backfill_waveforms(services: &ServiceLayer, db_url: &str) {
     tracing::info!("Waveform backfill complete: {ok}/{total} newly cached");
 }
 
+/// Precompute and cache the small cover thumbnail for every track with a local
+/// file that carries embedded art, so the Library and Validations lists (which
+/// render hundreds of covers at once) show artwork instantly instead of pulling
+/// the multi-megabyte raw pictures. Gentle like the waveform backfill: a delayed
+/// start and a breather between tracks so image decoding never contends with
+/// foreground requests. Anything viewed first is computed on demand and cached.
+fn backfill_covers(services: &ServiceLayer, db_url: &str) {
+    use std::time::Duration;
+
+    // Start after the waveform backfill has a head start so the two never
+    // saturate the CPU together right after launch.
+    std::thread::sleep(Duration::from_secs(30));
+
+    let mut conn = database::init_connection(db_url);
+    let tracks = match services.track_service.get_all(&mut conn) {
+        Ok(tracks) => tracks,
+        Err(e) => {
+            tracing::warn!("Cover backfill: could not list tracks: {e}");
+            return;
+        }
+    };
+    drop(conn);
+
+    let px = routes::tracks::COVER_THUMB_PX;
+    // Only build what is missing; a stat per track is cheap on later runs.
+    let pending: Vec<(i32, std::path::PathBuf)> = tracks
+        .into_iter()
+        .filter_map(|t| Some((t.id?, t.file_path?)))
+        .filter(|(id, path)| !routes::tracks::cover_is_cached(*id, path, px))
+        .collect();
+    if pending.is_empty() {
+        tracing::info!("Cover backfill: all tracks already cached");
+        return;
+    }
+
+    let total = pending.len();
+    let mut ok = 0usize;
+    for (id, path) in &pending {
+        if routes::tracks::cover_cached(*id, path, px).is_some() {
+            ok += 1;
+        }
+        std::thread::sleep(Duration::from_millis(120));
+    }
+
+    tracing::info!("Cover backfill complete: {ok}/{total} newly cached");
+}
+
 #[dotenvy::load(path = "./.env", required = false)]
 #[launch]
 fn rocket() -> _ {
@@ -327,6 +374,8 @@ fn rocket() -> _ {
 
     let waveform_services = services.clone();
     let waveform_db_url = db_url.clone();
+    let cover_services = services.clone();
+    let cover_db_url = db_url.clone();
 
     rocket::custom(figment)
         .attach(Cors)
@@ -341,6 +390,16 @@ fn rocket() -> _ {
                 Box::pin(async move {
                     rocket::tokio::task::spawn_blocking(move || {
                         backfill_waveforms(&waveform_services, &waveform_db_url);
+                    });
+                })
+            },
+        ))
+        .attach(rocket::fairing::AdHoc::on_liftoff(
+            "cover-backfill",
+            move |_rocket| {
+                Box::pin(async move {
+                    rocket::tokio::task::spawn_blocking(move || {
+                        backfill_covers(&cover_services, &cover_db_url);
                     });
                 })
             },

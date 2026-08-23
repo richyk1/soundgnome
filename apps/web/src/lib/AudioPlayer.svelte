@@ -660,6 +660,13 @@
       ? currentLibTrack.artists.map((a) => a.name).join(', ') || (current?.artist ?? '')
       : (current?.artist ?? ''),
   );
+  // The full-screen now-playing art renders large, so request the 512px cover
+  // variant for our own tracks; external artwork URLs are left untouched.
+  let npArt = $derived.by(() => {
+    const url = current?.artwork ?? resolvedArt;
+    if (!url) return null;
+    return /^\/api\/tracks\/\d+\/cover$/.test(url) ? `${url}?size=large` : url;
+  });
   function rateCurrent(rating: 'liked' | 'disliked') {
     const t = currentLibTrack;
     if (t) lib.setRating(t, t.rating === rating ? null : rating);
@@ -797,8 +804,8 @@
     </div>
 
     <div class="np-art">
-      {#if current.artwork || resolvedArt}
-        <img src={current.artwork ?? resolvedArt} alt="" />
+      {#if npArt}
+        <img src={npArt} alt="" />
       {:else}
         <div class="cover-ph"><i class="lni lni-music-note"></i></div>
       {/if}

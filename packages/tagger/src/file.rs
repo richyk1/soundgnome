@@ -72,6 +72,22 @@ pub fn read_cover_from_path(file_path: &Path) -> Option<(Vec<u8>, String)> {
     Some((pic.data().to_vec(), mime))
 }
 
+/// Downscale raw image bytes to a small JPEG thumbnail no larger than `max_px`
+/// on its long edge, preserving aspect ratio. Serves fast list-sized covers
+/// instead of the multi-megabyte artwork embedded in downloads. Returns `None`
+/// if the bytes are not a decodable image.
+pub fn make_thumbnail(bytes: &[u8], max_px: u32) -> Option<Vec<u8>> {
+    use std::io::Cursor;
+    let img = image::load_from_memory(bytes).ok()?;
+    // `thumbnail` is fast and preserves aspect ratio, fitting within max_px^2.
+    let thumb = img.thumbnail(max_px, max_px).to_rgb8();
+    let mut out = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(thumb)
+        .write_to(&mut out, image::ImageFormat::Jpeg)
+        .ok()?;
+    Some(out.into_inner())
+}
+
 /**
  * Tag an audio file with the provided track information.
  * Also writes the SOUNDOME_ID custom tag when `track.soundome_id` is set.
