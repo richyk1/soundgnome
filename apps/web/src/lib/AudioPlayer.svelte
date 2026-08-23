@@ -265,7 +265,7 @@
       navigator.mediaSession.metadata = null;
       return;
     }
-    const art = t.artwork ?? resolvedArt;
+    const art = coverBase ? coverAtSize(coverBase, 'large') : null;
     navigator.mediaSession.metadata = new MediaMetadata({
       title: t.title,
       artist: t.artist,
@@ -660,13 +660,17 @@
       ? currentLibTrack.artists.map((a) => a.name).join(', ') || (current?.artist ?? '')
       : (current?.artist ?? ''),
   );
-  // The full-screen now-playing art renders large, so request the 512px cover
-  // variant for our own tracks; external artwork URLs are left untouched.
-  let npArt = $derived.by(() => {
-    const url = current?.artwork ?? resolvedArt;
-    if (!url) return null;
-    return /^\/api\/tracks\/\d+\/cover$/.test(url) ? `${url}?size=large` : url;
-  });
+  // Artwork: prefer the live library track's cover so it stays correct after an
+  // edit and after a reload (the persisted `current` snapshot can predate the
+  // cover being generated). External URLs (Spotify/SoundCloud) are used as-is;
+  // our own cover route is sized per surface - small thumb in the bar, 512px for
+  // the full-screen art.
+  function coverAtSize(url: string, size: 'large'): string {
+    return /^\/api\/tracks\/\d+\/cover$/.test(url) ? `${url}?size=${size}` : url;
+  }
+  let coverBase = $derived(currentLibTrack?.cover ?? current?.artwork ?? resolvedArt ?? null);
+  let barArt = $derived(coverBase);
+  let npArt = $derived(coverBase ? coverAtSize(coverBase, 'large') : null);
   function rateCurrent(rating: 'liked' | 'disliked') {
     const t = currentLibTrack;
     if (t) lib.setRating(t, t.rating === rating ? null : rating);
@@ -702,8 +706,8 @@
         onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); openNP(); } }}
       >
         <div class="player-thumb">
-          {#if current.artwork || resolvedArt}
-            <img src={current.artwork ?? resolvedArt} alt="" />
+          {#if barArt}
+            <img src={barArt} alt="" />
           {:else}
             <div class="cover-ph"><i class="lni lni-music-note"></i></div>
           {/if}

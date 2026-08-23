@@ -200,6 +200,12 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Fixed
 
+- **Now-playing bar showed no artwork after a reload.** The player bar drew the
+  artwork from the persisted play-time snapshot, which could predate the track's
+  cover, so it fell back to the note-icon placeholder. It now prefers the live
+  library track's cover (like the title and artist already did), so artwork shows
+  on reload and updates immediately after an edit.
+
 - **Dedup could delete a file two rows shared.** When two track rows pointed at
   one physical file (a duplicate row), removing one deleted the file and orphaned
   the survivor. The dedup delete step now skips removing a file that any other
