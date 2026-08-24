@@ -121,6 +121,48 @@ fn backfill_covers(services: &ServiceLayer, db_url: &str) {
     tracing::info!("Cover backfill complete: {ok}/{total} newly cached");
 }
 
+/// Precompute and cache each track's integrated loudness so the player can
+/// normalize volume from the first play instead of decoding the file on demand.
+/// Gentle like the other backfills: a delayed start and a breather between tracks
+/// so ffmpeg never contends with foreground playback.
+fn backfill_loudness(services: &ServiceLayer, db_url: &str) {
+    use std::time::Duration;
+
+    // Start last of the three backfills so they never saturate the CPU together.
+    std::thread::sleep(Duration::from_secs(40));
+
+    let mut conn = database::init_connection(db_url);
+    let tracks = match services.track_service.get_all(&mut conn) {
+        Ok(tracks) => tracks,
+        Err(e) => {
+            tracing::warn!("Loudness backfill: could not list tracks: {e}");
+            return;
+        }
+    };
+    drop(conn);
+
+    let pending: Vec<(i32, std::path::PathBuf)> = tracks
+        .into_iter()
+        .filter_map(|t| Some((t.id?, t.file_path?)))
+        .filter(|(id, path)| !routes::tracks::loudness_is_cached(*id, path))
+        .collect();
+    if pending.is_empty() {
+        tracing::info!("Loudness backfill: all tracks already measured");
+        return;
+    }
+
+    let total = pending.len();
+    let mut ok = 0usize;
+    for (id, path) in &pending {
+        if routes::tracks::loudness_cached(*id, path).is_some() {
+            ok += 1;
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+
+    tracing::info!("Loudness backfill complete: {ok}/{total} newly measured");
+}
+
 #[dotenvy::load(path = "./.env", required = false)]
 #[launch]
 fn rocket() -> _ {
@@ -376,6 +418,8 @@ fn rocket() -> _ {
     let waveform_db_url = db_url.clone();
     let cover_services = services.clone();
     let cover_db_url = db_url.clone();
+    let loudness_services = services.clone();
+    let loudness_db_url = db_url.clone();
 
     rocket::custom(figment)
         .attach(Cors)
@@ -400,6 +444,16 @@ fn rocket() -> _ {
                 Box::pin(async move {
                     rocket::tokio::task::spawn_blocking(move || {
                         backfill_covers(&cover_services, &cover_db_url);
+                    });
+                })
+            },
+        ))
+        .attach(rocket::fairing::AdHoc::on_liftoff(
+            "loudness-backfill",
+            move |_rocket| {
+                Box::pin(async move {
+                    rocket::tokio::task::spawn_blocking(move || {
+                        backfill_loudness(&loudness_services, &loudness_db_url);
                     });
                 })
             },
@@ -501,6 +555,7 @@ fn rocket() -> _ {
                 routes::images::batch_fetch_album_covers,
                 routes::tracks::waveform,
                 routes::tracks::cover,
+                routes::tracks::loudness,
                 routes::library::dedupe,
             ],
         )

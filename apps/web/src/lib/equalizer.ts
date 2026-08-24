@@ -190,8 +190,10 @@ export class Equalizer {
   private ctx: AudioContext | null = null;
   private source: MediaElementAudioSourceNode | null = null;
   private preampNode: GainNode | null = null;
+  private normNode: GainNode | null = null;
+  private limiter: DynamicsCompressorNode | null = null;
   private filters: BiquadFilterNode[] = [];
-  private sig = '';
+  private sig: string | null = null;
   private built = false;
 
   get isBuilt(): boolean {
@@ -209,8 +211,19 @@ export class Equalizer {
     el.crossOrigin = 'anonymous';
     this.ctx = new Ctor();
     this.source = this.ctx.createMediaElementSource(el);
+    this.normNode = this.ctx.createGain();
     this.preampNode = this.ctx.createGain();
-    this.source.connect(this.preampNode);
+    // Safety limiter so boosting a quiet track can never clip; effectively
+    // transparent on already-loud (attenuated) tracks since it only acts near 0 dBFS.
+    this.limiter = this.ctx.createDynamicsCompressor();
+    this.limiter.threshold.value = -1;
+    this.limiter.knee.value = 0;
+    this.limiter.ratio.value = 20;
+    this.limiter.attack.value = 0.003;
+    this.limiter.release.value = 0.25;
+    this.source.connect(this.normNode);
+    this.normNode.connect(this.preampNode);
+    this.limiter.connect(this.ctx.destination);
     this.built = true;
     this.apply(state);
   }
@@ -251,7 +264,13 @@ export class Equalizer {
       node.connect(filter);
       node = filter;
     }
-    node.connect(this.ctx.destination);
+    node.connect(this.limiter!);
     this.sig = sig;
+  }
+
+  /** Per-track normalization gain in dB (0 = unity). Applied ahead of the EQ, so
+   *  it works whether or not the equalizer bands are enabled. */
+  setNormalization(gainDb: number): void {
+    if (this.normNode) this.normNode.gain.value = dbToGain(gainDb);
   }
 }

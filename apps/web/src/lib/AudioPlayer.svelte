@@ -56,6 +56,27 @@
   let eqBtnEl: HTMLButtonElement | undefined = $state();
   let eqStyle = $state('');
 
+  // -- Playback normalization (ReplayGain-style, non-destructive) --------------
+  const NORMALIZE_KEY = 'soundgnome:normalize:v1';
+  function loadNormalize(): boolean {
+    try {
+      const v = localStorage.getItem(NORMALIZE_KEY);
+      return v === null ? true : v === '1';
+    } catch {
+      return true;
+    }
+  }
+  function saveNormalize(on: boolean): void {
+    try {
+      localStorage.setItem(NORMALIZE_KEY, on ? '1' : '0');
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  let normalizeEnabled = $state(loadNormalize());
+  // Gain (dB) for the current track, from its measured loudness. 0 until fetched.
+  let currentGainDb = $state(0);
+
   /** Move a node to <body> so it escapes the player bar's clipping/stacking. */
   function portal(node: HTMLElement) {
     document.body.appendChild(node);
@@ -79,27 +100,32 @@
     return () => window.removeEventListener('resize', onResize);
   });
 
+  /** (Re)build the Web Audio graph on the shared element, keeping position and
+   *  play state. attach() creates the MediaElementSource on an element already
+   *  playing its current resource; Chrome leaves that resource on the old direct
+   *  output so it goes silent once routed through the new graph, so reload the
+   *  current resource to flow it through. Cross-origin streams can't be routed. */
+  function buildGraphNow() {
+    if (!audio || eq.isBuilt) return;
+    const el = audio;
+    const at = el.currentTime;
+    const wasPlaying = !el.paused;
+    eq.attach(el, eqState);
+    eq.resume();
+    eq.setNormalization(normalizeEnabled ? currentGainDb : 0);
+    const abs = el.currentSrc || el.src;
+    if (abs && new URL(abs, location.href).origin === location.origin) {
+      pendingSeek = at > 0 ? at : null;
+      resumeOnLoad = wasPlaying;
+      el.load();
+    }
+  }
+
   /** Push EQ changes onto the graph (building it on first enable) and persist. */
   function handleEqUpdate(s: EqState) {
     if (audio) {
       if (s.enabled && !eq.isBuilt) {
-        const el = audio;
-        const at = el.currentTime;
-        const wasPlaying = !el.paused;
-        eq.attach(el, s);
-        eq.resume();
-        // attach() creates the MediaElementSource on an element already playing
-        // its current resource; Chrome leaves that resource on the old direct
-        // output, so it goes silent once routed through the new graph - the same
-        // reason a reloaded track stayed silent until you switched songs. Reload
-        // the current resource so it flows through the graph, keeping position and
-        // play state. Cross-origin streams can't be routed, so leave them be.
-        const abs = el.currentSrc || el.src;
-        if (abs && new URL(abs, location.href).origin === location.origin) {
-          pendingSeek = at > 0 ? at : null;
-          resumeOnLoad = wasPlaying;
-          el.load();
-        }
+        buildGraphNow();
       } else {
         eq.apply(s);
         if (s.enabled) eq.resume();
@@ -108,13 +134,49 @@
     saveEqState(s);
   }
 
-  /** Build the graph on the first play if EQ was left enabled, and resume the
+  /** Turn playback normalization on/off; persist and (build then) apply. */
+  function setNormalize(on: boolean) {
+    normalizeEnabled = on;
+    saveNormalize(on);
+    if (on && audio && !eq.isBuilt) buildGraphNow();
+    if (eq.isBuilt) {
+      eq.resume();
+      eq.setNormalization(on ? currentGainDb : 0);
+    }
+  }
+
+  /** Build the graph on first play if EQ or normalization is on, and resume the
      AudioContext (it starts suspended until a user gesture). */
   function ensureEq() {
     if (!audio) return;
-    if (eqState.enabled && !eq.isBuilt) eq.attach(audio, eqState);
-    if (eq.isBuilt) eq.resume();
+    if ((eqState.enabled || normalizeEnabled) && !eq.isBuilt) eq.attach(audio, eqState);
+    if (eq.isBuilt) {
+      eq.resume();
+      eq.setNormalization(normalizeEnabled ? currentGainDb : 0);
+    }
   }
+
+  // Fetch the current track's loudness and keep the normalization gain in sync.
+  $effect(() => {
+    const t = current;
+    currentGainDb = 0;
+    if (!t || t.source !== 'library') return;
+    let cancelled = false;
+    fetch(`/api/tracks/${t.id}/loudness`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && current?.id === t.id && d) currentGainDb = d.gain_db ?? 0;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  });
+  // Push the gain onto the graph whenever it or the toggle changes.
+  $effect(() => {
+    const gain = normalizeEnabled ? currentGainDb : 0;
+    if (eq.isBuilt) eq.setNormalization(gain);
+  });
 
 
   // -- Persistence: keep the queue + current track across page reloads --------
@@ -793,6 +855,14 @@
             use:portal
           ></button>
           <div class="eq-pop" style={eqStyle} use:portal>
+            <label class="norm-toggle">
+              <input
+                type="checkbox"
+                checked={normalizeEnabled}
+                onchange={(e) => setNormalize(e.currentTarget.checked)}
+              />
+              <span>Normalize volume</span>
+            </label>
             <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} />
           </div>
         {/if}
@@ -875,7 +945,17 @@
     <input class="volume np-vol" type="range" min="0" max="1" step="0.01" bind:value={volume} aria-label="Volume" />
 
     {#if eqOpen && expanded}
-      <div class="np-eq"><EqPanel bind:state={eqState} onUpdate={handleEqUpdate} /></div>
+      <div class="np-eq">
+        <label class="norm-toggle">
+          <input
+            type="checkbox"
+            checked={normalizeEnabled}
+            onchange={(e) => setNormalize(e.currentTarget.checked)}
+          />
+          <span>Normalize volume</span>
+        </label>
+        <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} />
+      </div>
     {/if}
 
     {#if upNext.length > 0}
@@ -1077,6 +1157,18 @@
 
   /* ── Equalizer button + popover ──────────────────────────────────────── */
   .eq-wrap { position: relative; display: flex; align-items: center; }
+  .norm-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 2px 10px;
+    margin-bottom: 8px;
+    font-size: 12.5px;
+    color: var(--text);
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+  }
+  .norm-toggle input { accent-color: var(--accent); width: 15px; height: 15px; }
   .eq-btn {
     background: none;
     border: none;

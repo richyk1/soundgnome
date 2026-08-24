@@ -13,6 +13,14 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Added
 
+- **Volume normalization (ReplayGain-style).** Each track's integrated loudness is
+  measured once (EBU R128 via ffmpeg) and cached; the player applies a per-track
+  gain toward a -14 LUFS target so songs play at a consistent level, with a safety
+  limiter so boosting a quiet track can't clip. Non-destructive - the files are
+  never touched. Toggle "Normalize volume" in the equalizer (on by default);
+  loudness is measured in the background on startup and on demand. `GET
+  /api/tracks/<id>/loudness` exposes the measurement and gain.
+
 - **Cover thumbnails for snappy lists.** `GET /api/tracks/<id>/cover` now serves a
   small cached 128px JPEG by default instead of the raw embedded artwork (often
   1-5 MB each), cutting a full list of covers from ~110 MB to under 1 MB so they

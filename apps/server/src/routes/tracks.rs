@@ -880,6 +880,175 @@ pub async fn waveform(
     })
 }
 
+/// Target integrated loudness for playback normalization (the streaming standard).
+const LOUDNESS_TARGET_LUFS: f64 = -14.0;
+/// Clamp the applied gain so a very quiet track is not boosted into heavy clipping
+/// (a limiter on the client is the final guard) and a very loud one is not
+/// over-attenuated into a whisper.
+const LOUDNESS_MAX_GAIN_DB: f64 = 12.0;
+
+#[derive(Serialize)]
+pub struct LoudnessDto {
+    /// Measured integrated loudness in LUFS; null when it could not be measured.
+    pub lufs: Option<f64>,
+    /// Gain to apply for normalization, in dB: target minus measured, clamped.
+    pub gain_db: f64,
+}
+
+/// `LoudnessDto` plus a long cache header. Loudness is immutable for a given file
+/// (cache keyed by mtime), so the browser may hold onto it.
+#[derive(Responder)]
+pub struct CachedLoudness {
+    inner: Json<LoudnessDto>,
+    cache_control: Header<'static>,
+}
+
+/// A track's integrated loudness for playback normalization: one number measured
+/// once with ffmpeg's `ebur128` filter and cached by file mtime. The player uses
+/// `gain_db` to bring every track toward a common level without touching the file.
+#[get("/tracks/<id>/loudness")]
+pub async fn loudness(
+    id: i32,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<CachedLoudness, crate::utils::error::Error> {
+    let services = Arc::clone(services);
+    let track = db
+        .run(move |conn| services.track_service.get_by_id(conn, id))
+        .await
+        .map_err(|err| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: match err {
+                    shared::errors::Error::NotFound(_) => Status::NotFound,
+                    _ => Status::InternalServerError,
+                },
+                code: "NotFound".to_string(),
+                message: err.to_string(),
+            })
+        })?;
+
+    let file_path = track.file_path.ok_or_else(|| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::NotFound,
+            code: "NoFile".to_string(),
+            message: "Track has no local file".to_string(),
+        })
+    })?;
+
+    // ffmpeg decode is blocking; keep it off the async workers.
+    let lufs = rocket::tokio::task::spawn_blocking(move || loudness_cached(id, &file_path))
+        .await
+        .map_err(|e| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: Status::InternalServerError,
+                code: "LoudnessJoin".to_string(),
+                message: e.to_string(),
+            })
+        })?;
+
+    Ok(CachedLoudness {
+        inner: Json(LoudnessDto {
+            lufs,
+            gain_db: loudness_gain_db(lufs),
+        }),
+        cache_control: Header::new("Cache-Control", "public, max-age=86400"),
+    })
+}
+
+/// Gain (dB) to reach the target from a measured loudness, clamped. Tracks that
+/// couldn't be measured (silence, decode failure) get 0 dB, i.e. no change.
+fn loudness_gain_db(lufs: Option<f64>) -> f64 {
+    match lufs {
+        Some(l) if l.is_finite() && l > -70.0 => {
+            (LOUDNESS_TARGET_LUFS - l).clamp(-LOUDNESS_MAX_GAIN_DB, LOUDNESS_MAX_GAIN_DB)
+        }
+        _ => 0.0,
+    }
+}
+
+/// Directory holding cached loudness measurements, beside the other caches.
+fn loudness_cache_dir() -> PathBuf {
+    PathBuf::from("data/loudness")
+}
+
+/// Cache file for `id` at audio-file mtime `mtime`; the mtime invalidates a
+/// re-tagged/replaced file without any parsing.
+fn loudness_cache_path(id: i32, mtime: u64) -> PathBuf {
+    loudness_cache_dir().join(format!("{id}-{mtime}.txt"))
+}
+
+/// Whether a measurement for `id`/`path` is already on disk. Used by the backfill.
+pub fn loudness_is_cached(id: i32, path: &Path) -> bool {
+    file_mtime_secs(path)
+        .map(|mtime| loudness_cache_path(id, mtime).exists())
+        .unwrap_or(false)
+}
+
+/// Measured integrated loudness for `id`/`path`, computing and caching on a miss.
+/// `None` when it could not be measured. A failed/silent read is cached too, so a
+/// bad file is not re-decoded on every play.
+pub fn loudness_cached(id: i32, path: &Path) -> Option<f64> {
+    let mtime = file_mtime_secs(path).ok()?;
+    let cache_path = loudness_cache_path(id, mtime);
+
+    if let Ok(s) = std::fs::read_to_string(&cache_path) {
+        return s.trim().parse::<f64>().ok().filter(|v: &f64| v.is_finite());
+    }
+
+    let measured = measure_loudness_lufs(path).filter(|v| v.is_finite());
+
+    let _ = std::fs::create_dir_all(loudness_cache_dir());
+    let to_store = measured
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "nan".to_string());
+    if std::fs::write(&cache_path, to_store).is_ok() {
+        remove_stale_loudness(id, mtime);
+    }
+
+    measured
+}
+
+/// Drop older measurements for this track after a fresh write.
+fn remove_stale_loudness(id: i32, keep_mtime: u64) {
+    let prefix = format!("{id}-");
+    let keep = format!("{id}-{keep_mtime}.txt");
+    if let Ok(entries) = std::fs::read_dir(loudness_cache_dir()) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(&prefix) && name != keep {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+/// Measure integrated loudness (LUFS) with ffmpeg's `ebur128` filter. Returns the
+/// last reported integrated value (the summary), or `None` on failure.
+fn measure_loudness_lufs(path: &Path) -> Option<f64> {
+    let output = Command::new("ffmpeg")
+        .args(["-hide_banner", "-nostats", "-i"])
+        .arg(path)
+        .args(["-af", "ebur128", "-f", "null", "-"])
+        .output()
+        .ok()?;
+
+    let text = String::from_utf8_lossy(&output.stderr);
+    let mut last: Option<f64> = None;
+    for line in text.lines() {
+        // Lines look like "... I: -9.9 LUFS ..." (per-frame and the final summary);
+        // the last one is the integrated loudness for the whole file.
+        if let Some(after) = line.split_once("I:").map(|(_, r)| r) {
+            if let Some((num, _)) = after.trim_start().split_once("LUFS") {
+                if let Ok(v) = num.trim().parse::<f64>() {
+                    last = Some(v);
+                }
+            }
+        }
+    }
+    last
+}
+
 /// Directory holding precomputed waveform peaks, beside the database and web
 /// assets so it lands on the same mounted volume in Docker.
 fn waveform_cache_dir() -> PathBuf {
