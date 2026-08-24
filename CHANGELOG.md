@@ -151,6 +151,16 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Changed
 
+- **Duplicate detection is now acoustic-first, not title-first.** Dedup used to
+  bucket by title+artist and only fingerprint-compare within a bucket, so the same
+  song under a slightly different title (e.g. a curly vs straight apostrophe, a
+  different album, or "Artist - Song" vs "Song") never got compared and stayed
+  duplicated. It now builds an inverted index over the acoustic fingerprints and
+  clusters across the whole library, independent of metadata, confirming a match
+  only when two tracks are near-equal length and their fingerprints overlap for
+  most of the longer one (so a different song sharing a sample never merges).
+  Title+artist remains a fallback for the ~3% of tracks without a fingerprint.
+
 - **Feels like an app, not a web page: no stray focus rings, Space always plays.**
   Interactive controls (buttons, cards, the waveform) no longer show a focus
   outline on click or Tab - keyboard use goes through the documented shortcuts

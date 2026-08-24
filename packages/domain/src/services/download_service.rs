@@ -580,18 +580,6 @@ impl DownloadService {
         let ratings: HashMap<i32, shared::models::Rating> =
             self.track_service.get_ratings(conn)?.into_iter().collect();
 
-        // Group by normalized (title, sorted lowercased artist names).
-        let mut groups: HashMap<(String, Vec<String>), Vec<Track>> = HashMap::new();
-        for t in self.track_service.get_all(conn)? {
-            let mut arts: Vec<String> =
-                t.artists.iter().map(|a| a.name.trim().to_lowercase()).collect();
-            arts.sort();
-            groups
-                .entry((t.title.trim().to_lowercase(), arts))
-                .or_default()
-                .push(t);
-        }
-
         let mut report = DedupeReport {
             applied: apply,
             groups_examined: 0,
@@ -600,104 +588,176 @@ impl DownloadService {
             bytes_freed: 0,
         };
 
-        for group in groups.into_values() {
-            if group.len() < 2 {
+        // ---- Cluster tracks that are the same recording ----
+        // The acoustic fingerprint is the primary, metadata-independent signal: a
+        // curly vs straight apostrophe, a different album, or a "feat." difference
+        // can't hide a duplicate. Fingerprints only confirm the same master, so a
+        // second (loose) pass also merges same-(title, artist) copies within a tight
+        // duration window - an album track vs the same song on a sampler, mastered
+        // differently - gated by metadata so unrelated same-length songs never merge.
+        let all: Vec<Track> = self.track_service.get_all(conn)?;
+        let n = all.len();
+        let mut parent: Vec<usize> = (0..n).collect();
+
+        // Pass 1 (always): acoustic, metadata-independent. An all-pairs alignment is
+        // far too slow, so build an inverted index over subfingerprint values and
+        // only run the expensive alignment on real candidates - tracks that share
+        // several *discriminative* subfingerprints. Over-common values (silence,
+        // common patterns) carry no signal and are skipped; a shared rare 32-bit
+        // subfingerprint is astronomically unlikely between unrelated recordings, so
+        // very few false candidates reach the matcher.
+        let fp_vecs: Vec<Option<&Vec<u32>>> =
+            (0..n).map(|i| all[i].id.and_then(|id| fps.get(&id))).collect();
+        let distinct: Vec<Vec<u32>> = fp_vecs
+            .iter()
+            .map(|o| match o {
+                Some(v) => {
+                    let mut s: Vec<u32> = v.iter().copied().collect();
+                    s.sort_unstable();
+                    s.dedup();
+                    s
+                }
+                None => Vec::new(),
+            })
+            .collect();
+        let mut df: HashMap<u32, u32> = HashMap::new();
+        for d in &distinct {
+            for &v in d {
+                *df.entry(v).or_default() += 1;
+            }
+        }
+        let mut index: HashMap<u32, Vec<usize>> = HashMap::new();
+        for (i, d) in distinct.iter().enumerate() {
+            for &v in d {
+                if (df[&v] as usize) <= FINGERPRINT_INDEX_MAX_DF {
+                    index.entry(v).or_default().push(i);
+                }
+            }
+        }
+        let mut shared: HashMap<(usize, usize), u32> = HashMap::new();
+        for bucket in index.values() {
+            for a in 0..bucket.len() {
+                for b in (a + 1)..bucket.len() {
+                    *shared.entry((bucket[a], bucket[b])).or_default() += 1;
+                }
+            }
+        }
+        for (&(i, j), &cnt) in &shared {
+            if cnt < FINGERPRINT_INDEX_MIN_SHARED {
+                continue;
+            }
+            if same_recording(fp_vecs[i], fp_vecs[j], all[i].duration, all[j].duration) {
+                let (ri, rj) = (uf_find(&mut parent, i), uf_find(&mut parent, j));
+                if ri != rj {
+                    parent[ri] = rj;
+                }
+            }
+        }
+
+        // Pass 2 (loose only): merge same-song different-master copies the
+        // fingerprint can't confirm, gated by normalized (title, artists) so only
+        // metadata-identical tracks within a tight duration window are joined.
+        if loose {
+            let mut meta: HashMap<(String, Vec<String>), Vec<usize>> = HashMap::new();
+            for i in 0..n {
+                let mut arts: Vec<String> =
+                    all[i].artists.iter().map(|a| normalize_key(&a.name)).collect();
+                arts.sort();
+                meta.entry((normalize_key(&all[i].title), arts)).or_default().push(i);
+            }
+            for idxs in meta.values() {
+                for a in 0..idxs.len() {
+                    for b in (a + 1)..idxs.len() {
+                        let (i, j) = (idxs[a], idxs[b]);
+                        if let (Some(di), Some(dj)) = (all[i].duration, all[j].duration) {
+                            if (di - dj).abs() <= LOOSE_DURATION_SECS {
+                                let (ri, rj) = (uf_find(&mut parent, i), uf_find(&mut parent, j));
+                                if ri != rj {
+                                    parent[ri] = rj;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Gather clusters (union-find components with 2+ members).
+        let mut clusters_map: HashMap<usize, Vec<usize>> = HashMap::new();
+        for i in 0..n {
+            let root = uf_find(&mut parent, i);
+            clusters_map.entry(root).or_default().push(i);
+        }
+
+        for cluster in clusters_map.into_values() {
+            if cluster.len() < 2 {
                 continue;
             }
             report.groups_examined += 1;
 
-            // Cluster within the group by acoustic match (both need a fingerprint).
-            let mut clusters: Vec<Vec<usize>> = Vec::new();
-            for (i, t) in group.iter().enumerate() {
-                let fp_i = t.id.and_then(|id| fps.get(&id));
-                let mut placed = false;
-                for cl in clusters.iter_mut() {
-                    if cl.iter().any(|&j| {
-                        same_recording(
-                            fp_i,
-                            group[j].id.and_then(|id| fps.get(&id)),
-                            t.duration,
-                            group[j].duration,
-                            loose,
-                        )
-                    }) {
-                        cl.push(i);
-                        placed = true;
-                        break;
-                    }
-                }
-                if !placed {
-                    clusters.push(vec![i]);
-                }
-            }
-
-            for cl in clusters {
-                if cl.len() < 2 {
-                    continue;
-                }
-                let max_dur = cl.iter().filter_map(|&i| group[i].duration).max().unwrap_or(0);
-                // Rank: finalized > complete (not truncated) > quality > organized > newest.
-                let scored: Vec<(usize, (bool, bool, Option<shared::models::AudioQuality>, bool, i32))> =
-                    cl.iter()
-                        .map(|&i| {
-                            let t = &group[i];
-                            let complete = match t.duration {
-                                Some(d) => max_dur == 0 || d as f64 >= 0.9 * max_dur as f64,
-                                None => true,
-                            };
-                            let organized = t
-                                .file_path
-                                .as_ref()
-                                .map(|p| p.to_string_lossy().contains("library/"))
-                                .unwrap_or(false);
+            let max_dur = cluster.iter().filter_map(|&i| all[i].duration).max().unwrap_or(0);
+            // Rank: finalized > complete (not truncated) > quality > organized > newest.
+            let scored: Vec<(usize, (bool, bool, Option<shared::models::AudioQuality>, bool, i32))> =
+                cluster
+                    .iter()
+                    .map(|&i| {
+                        let t = &all[i];
+                        let complete = match t.duration {
+                            Some(d) => max_dur == 0 || d as f64 >= 0.9 * max_dur as f64,
+                            None => true,
+                        };
+                        let organized = t
+                            .file_path
+                            .as_ref()
+                            .map(|p| p.to_string_lossy().contains("library/"))
+                            .unwrap_or(false);
+                        (
+                            i,
                             (
-                                i,
-                                (
-                                    !t.needs_validation,
-                                    complete,
-                                    t.audio_quality(),
-                                    organized,
-                                    t.id.unwrap_or(0),
-                                ),
-                            )
-                        })
-                        .collect();
-                let keeper_i = scored.iter().max_by(|a, b| a.1.cmp(&b.1)).map(|s| s.0).unwrap();
-                let keeper = &group[keeper_i];
-                let keeper_id = keeper.id;
-                let mut keeper_rating = keeper.id.and_then(|id| ratings.get(&id).cloned());
+                                !t.needs_validation,
+                                complete,
+                                t.audio_quality(),
+                                organized,
+                                t.id.unwrap_or(0),
+                            ),
+                        )
+                    })
+                    .collect();
+            let keeper_i = scored.iter().max_by(|a, b| a.1.cmp(&b.1)).map(|s| s.0).unwrap();
+            let keeper = &all[keeper_i];
+            let keeper_id = keeper.id;
+            let mut keeper_rating = keeper.id.and_then(|id| ratings.get(&id).cloned());
 
-                let mut removed = Vec::new();
-                for &li in cl.iter().filter(|&&i| i != keeper_i) {
-                    let loser = &group[li];
-                    let loser_rating = loser.id.and_then(|id| ratings.get(&id).cloned());
-                    removed.push(dedupe_track_summary(loser, loser_rating.clone()));
-                    if let Some(p) = loser.file_path.as_ref() {
-                        report.bytes_freed += std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+            let mut removed = Vec::new();
+            for &li in cluster.iter().filter(|&&i| i != keeper_i) {
+                let loser = &all[li];
+                let loser_rating = loser.id.and_then(|id| ratings.get(&id).cloned());
+                removed.push(dedupe_track_summary(loser, loser_rating.clone()));
+                if let Some(p) = loser.file_path.as_ref() {
+                    report.bytes_freed += std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+                }
+                report.tracks_removed += 1;
+
+                if apply {
+                    // Preserve a like/dislike on the keeper if it had none.
+                    if keeper_rating.is_none() {
+                        if let (Some(kid), Some(r)) = (keeper_id, loser_rating) {
+                            let _ = self.track_service.set_rating(conn, kid, Some(r.clone()));
+                            keeper_rating = Some(r);
+                        }
                     }
-                    report.tracks_removed += 1;
-
-                    if apply {
-                        // Preserve a like/dislike on the keeper if it had none.
-                        if keeper_rating.is_none() {
-                            if let (Some(kid), Some(r)) = (keeper_id, loser_rating) {
-                                let _ = self.track_service.set_rating(conn, kid, Some(r.clone()));
-                                keeper_rating = Some(r);
-                            }
-                        }
-                        self.track_service
-                            .delete_track_file_if_unreferenced(conn, loser);
-                        if let Some(lid) = loser.id {
-                            self.track_service.delete_by_id(conn, lid)?;
-                        }
+                    self.track_service
+                        .delete_track_file_if_unreferenced(conn, loser);
+                    if let Some(lid) = loser.id {
+                        self.track_service.delete_by_id(conn, lid)?;
                     }
                 }
-
-                report.clusters.push(DedupeCluster {
-                    keeper: dedupe_track_summary(keeper, keeper_rating),
-                    removed,
-                });
             }
+
+            report.clusters.push(DedupeCluster {
+                keeper: dedupe_track_summary(keeper, keeper_rating),
+                removed,
+            });
         }
 
         tracing::info!(
@@ -2955,6 +3015,20 @@ const FINGERPRINT_DURATION_TOLERANCE_SECS: i32 = 30;
 /// re-encodes of the same master score very low while unrelated audio scores high.
 const FINGERPRINT_MAX_SEGMENT_SCORE: f64 = 8.0;
 
+/// Acoustic candidate index: a subfingerprint present in more than this many tracks
+/// is non-discriminative (silence, common patterns) and is skipped when pairing.
+const FINGERPRINT_INDEX_MAX_DF: usize = 8;
+
+/// Two tracks become an acoustic candidate (worth the expensive alignment) only
+/// when they share at least this many discriminative subfingerprints. Unrelated
+/// 32-bit fingerprints practically never collide this often.
+const FINGERPRINT_INDEX_MIN_SHARED: u32 = 3;
+
+/// Fraction of the *longer* track that aligned overlap must cover for two
+/// fingerprints to be treated as the same recording in the library dedup. High
+/// enough that a different song sharing a riff or sample never qualifies.
+const FINGERPRINT_SAME_MASTER_COVERAGE: f32 = 0.70;
+
 /// Fraction of the incoming track that low-score matched segments must cover for
 /// the two recordings to be treated as the same.
 const FINGERPRINT_MIN_COVERAGE: f32 = 0.50;
@@ -3041,40 +3115,68 @@ fn matched_overlap_secs(fp_a: &[u32], fp_b: &[u32]) -> f32 {
         .map(|s| s.duration(&config))
         .sum()
 }
+/// Iterative union-find root with path halving.
+fn uf_find(parent: &mut [usize], mut x: usize) -> usize {
+    while parent[x] != x {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+    }
+    x
+}
 
-/// Whether two tracks are the same recording: both have a fingerprint and their
-/// well-aligned overlap covers a large fraction of the shorter one (so a truncated
-/// copy still matches the full one, but different songs never do).
+/// Normalize a title or artist name for dedup grouping: trim, lowercase, fold
+/// common typographic punctuation (curly quotes/apostrophes, en/em dashes) to
+/// ASCII, and collapse internal whitespace. Without this, "If You Can't Hang"
+/// (straight quote) and "If You Can\u{2019}t Hang" (curly quote) hash to
+/// different groups and never dedup.
+fn normalize_key(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_space = false;
+    for ch in s.trim().chars() {
+        let mapped = match ch {
+            '\u{2018}' | '\u{2019}' | '\u{02BC}' | '`' => '\'',
+            '\u{201C}' | '\u{201D}' => '"',
+            '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' => '-',
+            c => c,
+        };
+        if mapped.is_whitespace() {
+            if !prev_space {
+                out.push(' ');
+                prev_space = true;
+            }
+        } else {
+            for lc in mapped.to_lowercase() {
+                out.push(lc);
+            }
+            prev_space = false;
+        }
+    }
+    out
+}
+
+
+/// Whether two tracks are the same full recording: both fingerprinted, nearly the
+/// same length, and their well-aligned overlap covers most of the *longer* one.
+/// Requiring the longer track to be mostly covered (not just the shorter) rejects
+/// a different song that merely shares a section or sample - essential now that
+/// matching runs across the whole library, not just within a title+artist group.
 fn same_recording(
     a: Option<&Vec<u32>>,
     b: Option<&Vec<u32>>,
     da: Option<i32>,
     db: Option<i32>,
-    loose: bool,
 ) -> bool {
-    // Loose mode: near-identical durations within the same title+artist group are
-    // the same song even when Chromaprint can't confirm (different masters).
-    if loose {
-        if let (Some(x), Some(y)) = (da, db) {
-            if (x - y).abs() <= LOOSE_DURATION_SECS {
-                return true;
-            }
-        }
-    }
     let (Some(a), Some(b)) = (a, b) else {
         return false;
     };
-    let overlap = matched_overlap_secs(a, b);
-    let shorter = match (da, db) {
-        (Some(x), Some(y)) => x.min(y).max(1),
-        (Some(x), None) | (None, Some(x)) => x.max(1),
-        _ => 0,
+    let (Some(da), Some(db)) = (da, db) else {
+        return false;
     };
-    if shorter > 0 {
-        overlap >= 0.45 * shorter as f32
-    } else {
-        overlap >= 30.0
+    if (da - db).abs() > LOOSE_DURATION_SECS {
+        return false;
     }
+    let longer = da.max(db).max(1) as f32;
+    matched_overlap_secs(a, b) >= FINGERPRINT_SAME_MASTER_COVERAGE * longer
 }
 
 /// Human-readable quality string for a dedup report entry, e.g. "FLAC 1580kbps lossless".
