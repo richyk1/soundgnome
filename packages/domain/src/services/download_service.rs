@@ -654,23 +654,25 @@ impl DownloadService {
             }
         }
 
-        // Pass 2 (loose only): merge same-song different-master copies the
-        // fingerprint can't confirm, gated by normalized (title, artists) so only
-        // metadata-identical tracks within a tight duration window are joined.
+        // Pass 2 (loose only): merge same-song copies the fingerprint can't confirm
+        // (a different master - e.g. an OGG and a FLAC from different sources), gated
+        // by normalized (title, artists). The artist key is split-agnostic so one
+        // row listing "A, B, C" as a single artist matches four separate A/B/C rows.
+        // A wider duration window than Pass 1 is safe here because title+artist
+        // already pins identity; it catches masters that differ by trailing content.
         if loose {
             let mut meta: HashMap<(String, Vec<String>), Vec<usize>> = HashMap::new();
             for i in 0..n {
-                let mut arts: Vec<String> =
-                    all[i].artists.iter().map(|a| normalize_key(&a.name)).collect();
-                arts.sort();
-                meta.entry((normalize_key(&all[i].title), arts)).or_default().push(i);
+                meta.entry((normalize_key(&all[i].title), artist_key(&all[i].artists)))
+                    .or_default()
+                    .push(i);
             }
             for idxs in meta.values() {
                 for a in 0..idxs.len() {
                     for b in (a + 1)..idxs.len() {
                         let (i, j) = (idxs[a], idxs[b]);
                         if let (Some(di), Some(dj)) = (all[i].duration, all[j].duration) {
-                            if (di - dj).abs() <= LOOSE_DURATION_SECS {
+                            if (di - dj).abs() <= METADATA_DEDUP_DURATION_SECS {
                                 let (ri, rj) = (uf_find(&mut parent, i), uf_find(&mut parent, j));
                                 if ri != rj {
                                     parent[ri] = rj;
@@ -3037,10 +3039,15 @@ const FINGERPRINT_MIN_COVERAGE: f32 = 0.50;
 /// (so coverage-by-fraction cannot be computed).
 const FINGERPRINT_MIN_ABS_MATCH_SECS: f32 = 45.0;
 
-/// In loose dedup mode, two copies in the same title+artist group are treated as
-/// the same song when their durations are within this many seconds - even if
-/// Chromaprint cannot confirm it (e.g. a different master of the same track).
+/// Max length difference for the acoustic pass to treat two fingerprints as the
+/// same master. Tight on purpose: same-master copies differ only by trailing
+/// silence, so anything larger is a different edit and is left to the metadata pass.
 const LOOSE_DURATION_SECS: i32 = 5;
+
+/// Max length difference for the metadata pass to merge same (title, artists)
+/// copies the fingerprint could not confirm - a different master of the same song.
+/// Wider than the acoustic gate because title + artists already pin identity.
+const METADATA_DEDUP_DURATION_SECS: i32 = 20;
 
 /// Decode `path` to 44.1 kHz stereo PCM via ffmpeg and compute its Chromaprint
 /// acoustic fingerprint. Decoding leans on the ffmpeg binary already required for
@@ -3155,11 +3162,13 @@ fn normalize_key(s: &str) -> String {
 }
 
 
-/// Whether two tracks are the same full recording: both fingerprinted, nearly the
-/// same length, and their well-aligned overlap covers most of the *longer* one.
-/// Requiring the longer track to be mostly covered (not just the shorter) rejects
-/// a different song that merely shares a section or sample - essential now that
-/// matching runs across the whole library, not just within a title+artist group.
+/// Whether two tracks are the same *master*: both fingerprinted, near-identical
+/// length (within Pass 1's tight window), and their aligned overlap covers most of
+/// the longer one. Both gates matter: the coverage rejects a different song that
+/// merely shares a section, and the length gate rejects a different edit (e.g. an
+/// "Official Video" with a long outro) that happens to overlap enough. Different
+/// masters of the same song (an OGG vs a FLAC a few seconds apart) are left to the
+/// metadata pass, which knows they are the same track from title + artists.
 fn same_recording(
     a: Option<&Vec<u32>>,
     b: Option<&Vec<u32>>,
@@ -3177,6 +3186,24 @@ fn same_recording(
     }
     let longer = da.max(db).max(1) as f32;
     matched_overlap_secs(a, b) >= FINGERPRINT_SAME_MASTER_COVERAGE * longer
+}
+
+/// A split-agnostic artist key: flatten every artist name, split on separators, and
+/// normalize each part, then sort+dedup. So a single row listing "Benny Jamz, Gilli,
+/// KESI, B.O.C" as one artist yields the same key as four separate artist rows.
+fn artist_key(artists: &[shared::models::Artist]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for a in artists {
+        for part in a.name.split([',', '&', ';', '/']) {
+            let k = normalize_key(part);
+            if !k.is_empty() {
+                names.push(k);
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// Human-readable quality string for a dedup report entry, e.g. "FLAC 1580kbps lossless".
