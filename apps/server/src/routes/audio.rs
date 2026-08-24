@@ -240,9 +240,7 @@ pub async fn stream(
 
     let (start, end) = match range.as_ref().map(|r| parse_range(&r.0, total)) {
         Some(ParsedRange::Range(start, end)) => (start, end),
-        Some(ParsedRange::Unsatisfiable) => {
-            return Ok(AudioResponse::NotSatisfiable { total })
-        }
+        Some(ParsedRange::Unsatisfiable) => return Ok(AudioResponse::NotSatisfiable { total }),
         // No header, or a header we ignore: send the whole file.
         Some(ParsedRange::Ignore) | None => {
             return Ok(AudioResponse::Full {
@@ -279,14 +277,23 @@ mod tests {
 
     #[test]
     fn parses_a_closed_range() {
-        assert_eq!(parse_range("bytes=0-499", TOTAL), ParsedRange::Range(0, 499));
-        assert_eq!(parse_range("bytes=500-999", TOTAL), ParsedRange::Range(500, 999));
+        assert_eq!(
+            parse_range("bytes=0-499", TOTAL),
+            ParsedRange::Range(0, 499)
+        );
+        assert_eq!(
+            parse_range("bytes=500-999", TOTAL),
+            ParsedRange::Range(500, 999)
+        );
     }
 
     #[test]
     fn open_ended_range_runs_to_the_end() {
         // This is what a browser sends first for an audio element.
-        assert_eq!(parse_range("bytes=0-", TOTAL), ParsedRange::Range(0, TOTAL - 1));
+        assert_eq!(
+            parse_range("bytes=0-", TOTAL),
+            ParsedRange::Range(0, TOTAL - 1)
+        );
         assert_eq!(
             parse_range("bytes=9000-", TOTAL),
             ParsedRange::Range(9000, TOTAL - 1)
@@ -332,8 +339,20 @@ mod tests {
 
     #[test]
     fn malformed_ranges_are_ignored() {
-        assert_eq!(parse_range("bytes=600-500", TOTAL), ParsedRange::Ignore, "inverted");
-        assert_eq!(parse_range("items=0-10", TOTAL), ParsedRange::Ignore, "wrong unit");
-        assert_eq!(parse_range("bytes=abc-def", TOTAL), ParsedRange::Ignore, "not numbers");
+        assert_eq!(
+            parse_range("bytes=600-500", TOTAL),
+            ParsedRange::Ignore,
+            "inverted"
+        );
+        assert_eq!(
+            parse_range("items=0-10", TOTAL),
+            ParsedRange::Ignore,
+            "wrong unit"
+        );
+        assert_eq!(
+            parse_range("bytes=abc-def", TOTAL),
+            ParsedRange::Ignore,
+            "not numbers"
+        );
     }
 }

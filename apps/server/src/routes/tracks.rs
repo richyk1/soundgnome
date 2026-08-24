@@ -1,11 +1,17 @@
-use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 use domain::services::ServiceLayer;
 use rocket::fs::NamedFile;
-use rocket::{delete, get, http::{ContentType, Header, Status}, patch, post, put, serde::json::Json, Responder};
+use rocket::{
+    delete, get,
+    http::{ContentType, Header, Status},
+    patch, post, put,
+    serde::json::Json,
+    Responder,
+};
 use rocket_okapi::openapi;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -277,33 +283,35 @@ pub async fn get_all(
     services: &rocket::State<Arc<ServiceLayer>>,
 ) -> Result<Json<Vec<TrackDto>>, crate::utils::error::Error> {
     let services = Arc::clone(services);
-    db.run(move |conn| -> shared::types::SoundgnomeResult<(Vec<Track>, Vec<(i32, Rating)>)> {
-        let tracks = services.track_service.get_all(conn)?;
-        let ratings = services.track_service.get_ratings(conn)?;
-        Ok((tracks, ratings))
+    db.run(
+        move |conn| -> shared::types::SoundgnomeResult<(Vec<Track>, Vec<(i32, Rating)>)> {
+            let tracks = services.track_service.get_all(conn)?;
+            let ratings = services.track_service.get_ratings(conn)?;
+            Ok((tracks, ratings))
+        },
+    )
+    .await
+    .map(|(tracks, ratings)| {
+        let ratings: std::collections::HashMap<i32, Rating> = ratings.into_iter().collect();
+        Json(
+            tracks
+                .into_iter()
+                .filter_map(|t| {
+                    let id = t.id?;
+                    let mut dto = TrackDto::from_track(t)?;
+                    dto.rating = ratings.get(&id).copied();
+                    Some(dto)
+                })
+                .collect(),
+        )
     })
-        .await
-        .map(|(tracks, ratings)| {
-            let ratings: std::collections::HashMap<i32, Rating> = ratings.into_iter().collect();
-            Json(
-                tracks
-                    .into_iter()
-                    .filter_map(|t| {
-                        let id = t.id?;
-                        let mut dto = TrackDto::from_track(t)?;
-                        dto.rating = ratings.get(&id).copied();
-                        Some(dto)
-                    })
-                    .collect(),
-            )
+    .map_err(|err| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::InternalServerError,
+            code: "Internal".to_string(),
+            message: err.to_string(),
         })
-        .map_err(|err| {
-            crate::utils::error::Error::Custom(CustomError {
-                status: Status::InternalServerError,
-                code: "Internal".to_string(),
-                message: err.to_string(),
-            })
-        })
+    })
 }
 
 #[openapi]
@@ -314,31 +322,33 @@ pub async fn get(
     services: &rocket::State<Arc<ServiceLayer>>,
 ) -> Result<Json<TrackDto>, crate::utils::error::Error> {
     let services = Arc::clone(services);
-    db.run(move |conn| -> shared::types::SoundgnomeResult<(Track, Option<Rating>)> {
-        let track = services.track_service.get_by_id(conn, id)?;
-        let rating = services
-            .track_service
-            .get_ratings(conn)?
-            .into_iter()
-            .find(|(tid, _)| *tid == id)
-            .map(|(_, r)| r);
-        Ok((track, rating))
+    db.run(
+        move |conn| -> shared::types::SoundgnomeResult<(Track, Option<Rating>)> {
+            let track = services.track_service.get_by_id(conn, id)?;
+            let rating = services
+                .track_service
+                .get_ratings(conn)?
+                .into_iter()
+                .find(|(tid, _)| *tid == id)
+                .map(|(_, r)| r);
+            Ok((track, rating))
+        },
+    )
+    .await
+    .and_then(|(track, rating)| {
+        let mut dto = TrackDto::from_track(track)
+            .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))?;
+        dto.rating = rating;
+        Ok(dto)
     })
-        .await
-        .and_then(|(track, rating)| {
-            let mut dto = TrackDto::from_track(track)
-                .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))?;
-            dto.rating = rating;
-            Ok(dto)
+    .map(Json)
+    .map_err(|err| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::NotFound,
+            code: "NotFound".to_string(),
+            message: err.to_string(),
         })
-        .map(Json)
-        .map_err(|err| {
-            crate::utils::error::Error::Custom(CustomError {
-                status: Status::NotFound,
-                code: "NotFound".to_string(),
-                message: err.to_string(),
-            })
-        })
+    })
 }
 
 #[openapi]
@@ -842,22 +852,23 @@ pub async fn waveform(
     })?;
 
     // ffmpeg decode is blocking; keep it off the async workers.
-    let samples = rocket::tokio::task::spawn_blocking(move || waveform_peaks_cached(id, &file_path))
-        .await
-        .map_err(|e| {
-            crate::utils::error::Error::Custom(CustomError {
-                status: Status::InternalServerError,
-                code: "WaveformJoin".to_string(),
-                message: e.to_string(),
-            })
-        })?
-        .map_err(|e| {
-            crate::utils::error::Error::Custom(CustomError {
-                status: Status::InternalServerError,
-                code: "WaveformFailed".to_string(),
-                message: e,
-            })
-        })?;
+    let samples =
+        rocket::tokio::task::spawn_blocking(move || waveform_peaks_cached(id, &file_path))
+            .await
+            .map_err(|e| {
+                crate::utils::error::Error::Custom(CustomError {
+                    status: Status::InternalServerError,
+                    code: "WaveformJoin".to_string(),
+                    message: e.to_string(),
+                })
+            })?
+            .map_err(|e| {
+                crate::utils::error::Error::Custom(CustomError {
+                    status: Status::InternalServerError,
+                    code: "WaveformFailed".to_string(),
+                    message: e,
+                })
+            })?;
 
     Ok(CachedWaveform {
         inner: Json(WaveformDto {
@@ -985,7 +996,11 @@ pub fn compute_waveform_peaks(path: &Path) -> Result<Vec<u16>, String> {
     let scale = peaks.iter().copied().fold(0f32, f32::max).max(f32::EPSILON);
     Ok(peaks
         .iter()
-        .map(|&p| ((p / scale) * f32::from(WAVEFORM_HEIGHT)).round().clamp(0.0, f32::from(WAVEFORM_HEIGHT)) as u16)
+        .map(|&p| {
+            ((p / scale) * f32::from(WAVEFORM_HEIGHT))
+                .round()
+                .clamp(0.0, f32::from(WAVEFORM_HEIGHT)) as u16
+        })
         .collect())
 }
 

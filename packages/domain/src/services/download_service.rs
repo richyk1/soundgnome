@@ -373,11 +373,7 @@ impl DownloadService {
                     if let Some(id) = track.id {
                         track.cover = Some(url);
                         if let Err(e) = self.track_service.update(conn, id, &track) {
-                            tracing::warn!(
-                                "Backfill: could not persist cover for {}: {}",
-                                id,
-                                e
-                            );
+                            tracing::warn!("Backfill: could not persist cover for {}: {}", id, e);
                         }
                     }
                 }
@@ -606,8 +602,9 @@ impl DownloadService {
         // common patterns) carry no signal and are skipped; a shared rare 32-bit
         // subfingerprint is astronomically unlikely between unrelated recordings, so
         // very few false candidates reach the matcher.
-        let fp_vecs: Vec<Option<&Vec<u32>>> =
-            (0..n).map(|i| all[i].id.and_then(|id| fps.get(&id))).collect();
+        let fp_vecs: Vec<Option<&Vec<u32>>> = (0..n)
+            .map(|i| all[i].id.and_then(|id| fps.get(&id)))
+            .collect();
         let distinct: Vec<Vec<u32>> = fp_vecs
             .iter()
             .map(|o| match o {
@@ -697,35 +694,45 @@ impl DownloadService {
             }
             report.groups_examined += 1;
 
-            let max_dur = cluster.iter().filter_map(|&i| all[i].duration).max().unwrap_or(0);
+            let max_dur = cluster
+                .iter()
+                .filter_map(|&i| all[i].duration)
+                .max()
+                .unwrap_or(0);
             // Rank: finalized > complete (not truncated) > quality > organized > newest.
-            let scored: Vec<(usize, (bool, bool, Option<shared::models::AudioQuality>, bool, i32))> =
-                cluster
-                    .iter()
-                    .map(|&i| {
-                        let t = &all[i];
-                        let complete = match t.duration {
-                            Some(d) => max_dur == 0 || d as f64 >= 0.9 * max_dur as f64,
-                            None => true,
-                        };
-                        let organized = t
-                            .file_path
-                            .as_ref()
-                            .map(|p| p.to_string_lossy().contains("library/"))
-                            .unwrap_or(false);
+            let scored: Vec<(
+                usize,
+                (bool, bool, Option<shared::models::AudioQuality>, bool, i32),
+            )> = cluster
+                .iter()
+                .map(|&i| {
+                    let t = &all[i];
+                    let complete = match t.duration {
+                        Some(d) => max_dur == 0 || d as f64 >= 0.9 * max_dur as f64,
+                        None => true,
+                    };
+                    let organized = t
+                        .file_path
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().contains("library/"))
+                        .unwrap_or(false);
+                    (
+                        i,
                         (
-                            i,
-                            (
-                                !t.needs_validation,
-                                complete,
-                                t.audio_quality(),
-                                organized,
-                                t.id.unwrap_or(0),
-                            ),
-                        )
-                    })
-                    .collect();
-            let keeper_i = scored.iter().max_by(|a, b| a.1.cmp(&b.1)).map(|s| s.0).unwrap();
+                            !t.needs_validation,
+                            complete,
+                            t.audio_quality(),
+                            organized,
+                            t.id.unwrap_or(0),
+                        ),
+                    )
+                })
+                .collect();
+            let keeper_i = scored
+                .iter()
+                .max_by(|a, b| a.1.cmp(&b.1))
+                .map(|s| s.0)
+                .unwrap();
             let keeper = &all[keeper_i];
             let keeper_id = keeper.id;
             let mut keeper_rating = keeper.id.and_then(|id| ratings.get(&id).cloned());
@@ -1523,7 +1530,10 @@ impl DownloadService {
             .filter(|e| {
                 // Skip partial-download artifacts (e.g. "Song.temp.m4a"): incomplete
                 // files with no decodable audio.
-                !e.file_name().to_string_lossy().to_lowercase().contains(".temp.")
+                !e.file_name()
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .contains(".temp.")
             })
             .map(|e| e.path().to_path_buf())
             .collect();
@@ -1532,7 +1542,10 @@ impl DownloadService {
         tracing::info!("Ingest dir {:?}: found {} audio files", ingest_dir, total);
 
         let concurrency = ingest_concurrency();
-        tracing::info!("Ingest: preparing files with up to {} parallel workers", concurrency);
+        tracing::info!(
+            "Ingest: preparing files with up to {} parallel workers",
+            concurrency
+        );
 
         let mut stats = shared::models::TaskStats::default();
 
@@ -1573,9 +1586,9 @@ impl DownloadService {
             let commit_result = match handle.await {
                 Ok(Ok(prepared)) => self.commit_ingest(conn, prepared).await,
                 Ok(Err(e)) => Err(e),
-                Err(join_err) => {
-                    Err(Error::Custom(format!("ingest prepare task failed: {join_err}")))
-                }
+                Err(join_err) => Err(Error::Custom(format!(
+                    "ingest prepare task failed: {join_err}"
+                ))),
             };
 
             match commit_result {
@@ -3054,7 +3067,14 @@ const METADATA_DEDUP_DURATION_SECS: i32 = 20;
 /// downloads, so every ingestable format (opus, m4a, ...) is handled uniformly.
 fn compute_fingerprint(path: &Path) -> SoundgnomeResult<Vec<u32>> {
     let output = std::process::Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-t", FINGERPRINT_MAX_SECS, "-i"])
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-t",
+            FINGERPRINT_MAX_SECS,
+            "-i",
+        ])
         .arg(path)
         .args(["-f", "s16le", "-ac", "2", "-ar", "44100", "-"])
         .output()
@@ -3161,7 +3181,6 @@ fn normalize_key(s: &str) -> String {
     out
 }
 
-
 /// Whether two tracks are the same *master*: both fingerprinted, near-identical
 /// length (within Pass 1's tight window), and their aligned overlap covers most of
 /// the longer one. Both gates matter: the coverage rejects a different song that
@@ -3240,7 +3259,10 @@ fn dedupe_track_summary(track: &Track, rating: Option<shared::models::Rating>) -
         quality: quality_label(track),
         needs_validation: track.needs_validation,
         rating: rating.map(|r| format!("{r:?}").to_lowercase()),
-        file_path: track.file_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+        file_path: track
+            .file_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
     }
 }
 

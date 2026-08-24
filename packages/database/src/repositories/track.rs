@@ -158,7 +158,8 @@ impl TrackRepository for DieselTrackRepository {
         Ok(rows
             .into_iter()
             .filter_map(|(id, r)| {
-                r.and_then(|s| shared::models::Rating::from_db(&s)).map(|r| (id, r))
+                r.and_then(|s| shared::models::Rating::from_db(&s))
+                    .map(|r| (id, r))
             })
             .collect())
     }
@@ -356,9 +357,10 @@ impl TrackRepository for DieselTrackRepository {
                 diesel::result::Error::NotFound => {
                     shared::errors::Error::NotFound(format!("Track {id} not found"))
                 }
-                other => {
-                    shared::errors::Error::Database(format!("Failed to get resource by id: {}", other))
-                }
+                other => shared::errors::Error::Database(format!(
+                    "Failed to get resource by id: {}",
+                    other
+                )),
             })?;
 
         let artists: Vec<ArtistEntity> = schema::artist_tracks::table
