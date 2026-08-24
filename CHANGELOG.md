@@ -151,6 +151,11 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Changed
 
+- **Search now points to matches hidden in Needs review.** The Tracks list shows
+  finalized tracks only, so searching for a song still awaiting validation used to
+  show "no results" even though you have it. A search now shows "N matching tracks
+  are awaiting review — view", which jumps to Needs review with the search kept.
+
 - **The Tracks search/filter/sort bar now sticks to the top while scrolling.** You
   can search or re-sort from anywhere in a long list instead of scrolling back up;
   the page title scrolls away, the toolbar stays.

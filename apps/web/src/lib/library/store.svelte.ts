@@ -345,6 +345,18 @@ function createLibraryStore() {
     }
     return sortTracks(list, tracksSortBy, tracksSortDir);
   });
+  // A search in the default (finalized-only) view can hide tracks the user really
+  // has, sitting in Needs review. Count those so the UI can offer to jump there
+  // instead of showing "no results".
+  let hiddenReviewMatches = $derived.by(() => {
+    const q = trackSearch.trim().toLowerCase();
+    if (!q || trackFilter === 'review') return 0;
+    return tracks.filter(
+      (t) =>
+        t.needs_validation &&
+        (t.title.toLowerCase().includes(q) || t.artists.some((a) => a.name.toLowerCase().includes(q))),
+    ).length;
+  });
   let needsReviewCount = $derived(tracks.filter(t => t.needs_validation).length);
   let likedTracks = $derived(tracks.filter(t => t.rating === 'liked'));
   let dislikedTracks = $derived(tracks.filter(t => t.rating === 'disliked'));
@@ -926,6 +938,7 @@ function createLibraryStore() {
     setPlayOrder(ids: number[] | null) { playOrder = ids; },
     set onTrackDisliked(fn: ((id: number) => void) | null) { onTrackDisliked = fn; },
     get needsReviewCount() { return needsReviewCount; },
+    get hiddenReviewMatches() { return hiddenReviewMatches; },
     get likedTracks() { return likedTracks; },
     get dislikedTracks() { return dislikedTracks; },
     setRating,

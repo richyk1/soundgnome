@@ -73,6 +73,12 @@
     </div>
   </div>
 
+  {#if lib.hiddenReviewMatches > 0}
+    <button class="review-hint" onclick={() => (lib.trackFilter = 'review')}>
+      {lib.hiddenReviewMatches} matching {lib.hiddenReviewMatches === 1 ? 'track is' : 'tracks are'} awaiting review — view
+    </button>
+  {/if}
+
   {#if lib.tracksView === 'list'}
     <TrackTable tracks={lib.filteredTracks} showAlbumCol={true} />
     {#if lib.filteredTracks.length === 0}<p class="status">No tracks found.</p>{/if}
@@ -137,6 +143,22 @@
     padding: 12px 0;
     box-shadow: 0 1px 0 var(--border);
   }
+  .review-hint {
+    display: block;
+    width: 100%;
+    margin: 10px 0 0;
+    padding: 9px 13px;
+    text-align: left;
+    font: inherit;
+    font-size: 13px;
+    color: #c9bcf7;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .review-hint:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
   .search-wrap {
     display: flex; align-items: center; gap: 8px;
     flex: 1 1 260px; max-width: 420px; height: 38px;
