@@ -151,6 +151,10 @@ First Soundgnome release. Continues the version line from the inherited Soundome
 
 ### Changed
 
+- **The Tracks search/filter/sort bar now sticks to the top while scrolling.** You
+  can search or re-sort from anywhere in a long list instead of scrolling back up;
+  the page title scrolls away, the toolbar stays.
+
 - **Duplicate detection is now acoustic-first, not title-first.** Dedup used to
   bucket by title+artist and only fingerprint-compare within a bucket, so the same
   song under a slightly different title (e.g. a curly vs straight apostrophe, a

@@ -123,7 +123,20 @@
 {/if}
 
 <style>
-  .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    /* Keep search/filters/sort reachable while scrolling a long list. Sticks to
+       the scrolling content panel; the page header above scrolls away. */
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--panel);
+    padding: 12px 0;
+    box-shadow: 0 1px 0 var(--border);
+  }
   .search-wrap {
     display: flex; align-items: center; gap: 8px;
     flex: 1 1 260px; max-width: 420px; height: 38px;
