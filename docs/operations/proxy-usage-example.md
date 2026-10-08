@@ -4,12 +4,12 @@ This document shows the code paths that are actually available in the current re
 
 ## Boot-time initialization
 
-The preferred entry point is not `ProxyRotator` directly. Soundome initializes the config singleton and the global proxy rotator together through `shared::init_globals()`.
+The preferred entry point is not `ProxyRotator` directly. Soundgnome initializes the config singleton and the global proxy rotator together through `shared::init_globals()`.
 
 ```rust
 use shared::init_globals;
 
-fn bootstrap() -> shared::types::SoundomeResult<()> {
+fn bootstrap() -> shared::types::SoundgnomeResult<()> {
     init_globals()?;
     Ok(())
 }
@@ -22,7 +22,7 @@ Use `shared::libs::http::HttpClientBuilder` instead of constructing a raw `reqwe
 ```rust
 use shared::libs::http::HttpClientBuilder;
 
-async fn fetch_text(url: &str) -> shared::types::SoundomeResult<String> {
+async fn fetch_text(url: &str) -> shared::types::SoundgnomeResult<String> {
     let client = HttpClientBuilder::get_reqwest_client()?;
     let response = client.get(url).send().await?;
     Ok(response.text().await?)
@@ -36,7 +36,7 @@ If you need to inspect or override proxy selection, use `ProxyRotator` and then 
 ```rust
 use shared::libs::http::{HttpClientBuilder, ProxyRotator};
 
-fn build_client_for_domain(domain: &str) -> shared::types::SoundomeResult<reqwest::Client> {
+fn build_client_for_domain(domain: &str) -> shared::types::SoundgnomeResult<reqwest::Client> {
     let proxy = if HttpClientBuilder::should_use_proxy(domain) {
         ProxyRotator::get().get_next_proxy()
     } else {

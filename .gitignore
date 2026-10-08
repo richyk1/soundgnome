@@ -1,12 +1,15 @@
 # env
 .direnv
-.env
+.env*
+!.env.example
+cookies.txt
 
 # build
 target/
 
 # node
 node_modules/
+apps/web/dev-dist/
 dist/
 
 # config
@@ -30,3 +33,9 @@ rustypipe_reports/
 
 # logs
 out
+
+# agent session logs (never commit)
+omp-session-*.html
+
+# macos
+.DS_Store

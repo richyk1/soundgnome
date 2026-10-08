@@ -8,13 +8,13 @@ export default defineConfig({
     svelte(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.png', 'apple-touch-icon.png', 'logo_soundome.png'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png', 'logo_soundgnome.png'],
       manifest: {
-        name: 'Soundome',
-        short_name: 'Soundome',
+        name: 'Soundgnome',
+        short_name: 'Soundgnome',
         description: 'Personal music library manager',
-        theme_color: '#6366f1',
-        background_color: '#ffffff',
+        theme_color: '#000000',
+        background_color: '#000000',
         display: 'standalone',
         scope: '/',
         start_url: '/',
@@ -49,28 +49,22 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,json,webmanifest}'],
         cleanupOutdatedCaches: true,
+        // The app sits behind Cloudflare Access. Serving the SPA shell from cache
+        // for navigations bypasses the Access login, so once the session lapses
+        // the shell still loads but every /api call is 302'd to the login and the
+        // fetch throws "Failed to fetch". Disable the cached navigation fallback
+        // and force navigations to the network so the edge always runs Access
+        // (and re-prompts login when needed). Static assets stay precached.
+        navigateFallbackDenylist: [/./],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/api\./i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 300,
-              },
-            },
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkOnly',
           },
           {
-            urlPattern: /^http:\/\/localhost:8000\/api/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'local-api-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 300,
-              },
-            },
+            // Never cache the API (it's Access-gated + live); always hit network.
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
+            handler: 'NetworkOnly',
           },
         ],
       },
@@ -87,7 +81,9 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     proxy: {
-      '/api': 'http://localhost:8000',
+      // Override when the API runs elsewhere or on another port, e.g. a remote
+      // box where 8000 is already taken: SOUNDGNOME_API_URL=http://localhost:8100
+      '/api': process.env.SOUNDGNOME_API_URL ?? 'http://localhost:8000',
     },
   },
 })

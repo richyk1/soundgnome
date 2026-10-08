@@ -33,14 +33,14 @@
 {#if showUpdatePrompt}
   <div class="pwa-update-prompt">
     <div class="pwa-update-content">
-      <h3>Mise à jour disponible</h3>
-      <p>Une nouvelle version de Soundome est disponible.</p>
+      <h3>Update available</h3>
+      <p>A new version of Soundgnome is available.</p>
       <div class="pwa-update-actions">
         <button class="btn-primary" on:click={handleUpdate}>
-          Mettre à jour
+          Update
         </button>
         <button class="btn-secondary" on:click={handleDismiss}>
-          Plus tard
+          Later
         </button>
       </div>
     </div>
@@ -57,11 +57,11 @@
   }
 
   .pwa-update-content {
-    background: white;
-    border: 1px solid #ddd;
+    background: var(--panel);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 16px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--shadow);
     max-width: 320px;
   }
 
@@ -69,13 +69,13 @@
     margin: 0 0 8px 0;
     font-size: 16px;
     font-weight: 600;
-    color: #333;
+    color: var(--text-bright);
   }
 
   p {
     margin: 0 0 16px 0;
     font-size: 14px;
-    color: #666;
+    color: var(--muted);
   }
 
   .pwa-update-actions {
@@ -95,21 +95,21 @@
   }
 
   .btn-primary {
-    background: #863bff;
-    color: white;
+    background: var(--accent);
+    color: var(--on-accent);
   }
 
   .btn-primary:hover {
-    background: #7029d6;
+    background: var(--accent-strong);
   }
 
   .btn-secondary {
-    background: #f0f0f0;
-    color: #333;
+    background: var(--surface);
+    color: var(--text-bright);
   }
 
   .btn-secondary:hover {
-    background: #e0e0e0;
+    background: var(--surface-2);
   }
 
   @keyframes slideIn {
@@ -133,5 +133,10 @@
     .pwa-update-content {
       max-width: none;
     }
+  }
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    button { min-height: 44px; min-width: 44px; }
+    .pwa-update-prompt { bottom: auto; top: calc(var(--app-top, 0px) + 1rem); left: 1rem; right: 1rem; max-height: calc(var(--app-height, 100dvh) - 2rem); overflow-y: auto; } .pwa-update-content { margin-left: auto; margin-right: auto; } button { min-height: 44px; }
   }
 </style>

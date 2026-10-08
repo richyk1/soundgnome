@@ -1,53 +1,36 @@
 # Spotify integration
 
-Spotify serves two distinct roles in Soundome: a **source adapter** (resolving Spotify URLs into metadata) and a **metadata enrichment provider** (looking up track details when enriching any source). Both use the same credentials.
+Spotify is a single connection that powers everything Spotify-related in Soundgnome:
 
-## Why configure Spotify
+- **Audio download** — tracks whose source is Spotify are downloaded directly from Spotify (via librespot), not matched on YouTube.
+- **Liked Songs sync** — list and download the signed-in account's Liked Songs.
+- **Source adapter** — resolving Spotify track, playlist, album, and artist URLs into metadata.
+- **Metadata enrichment** — looking up track details (cover art, track/disc number, release date, artist photos) when enriching any source.
 
-Without Spotify credentials, Soundome works fine for YouTube Music and SoundCloud URLs. Adding Spotify credentials unlocks:
-
-- Submitting Spotify track, playlist, album, and artist URLs directly
-- Richer metadata during enrichment: cover art, track number, disc number, release date, artist photos
-- Higher-confidence deduplication against your existing library when ingesting local files (Spotify is placed first in the ingest enrichment order by default)
+All of this uses one login. There is no app to register and no client id or secret to paste.
 
 ## Prerequisites
 
-You need a Premium Spotify account.
+A **Spotify Premium** account. That is the only requirement.
 
-1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
-2. Click **Create app**.
-3. Fill in any name and description. Set the redirect URI to `http://localhost` (unused but required by the form).
-4. Open the app settings and note the **Client ID** and **Client Secret**.
+## Connecting
 
-## Configuration
+1. Open **Tools -> Providers -> Spotify** and click **Connect**.
+2. A Spotify authorization tab opens. Approve the request.
+3. Spotify redirects your browser to `http://127.0.0.1:8898/login?code=...`. This page will not load (it points at the server's loopback, which your browser cannot reach). That is expected.
+4. Copy the whole URL from the address bar and paste it into the field on the Spotify card, then click **Complete connection**.
 
-Add the following to your `config.toml`:
+That is it. The credentials are cached on the server, so you only do this once; you will not be asked again unless you disconnect.
 
-```toml
-[providers.spotify]
-client_id = "your_client_id_here"
-client_secret = "your_client_secret_here"
-```
+> Why paste instead of an automatic redirect? Spotify only accepts the fixed `127.0.0.1:8898` redirect for its desktop client, which a remote or self-hosted server cannot receive directly. Pasting the URL back works over a tailnet or any remote deployment without an SSH tunnel.
 
-Or via environment variables (useful in containers or CI):
+The single approval grants three scopes: `streaming` (audio), `user-library-read` and `playlist-read-private` (Liked Songs and playlists). Once connected, `GET /api/providers` lists `"Spotify"`.
 
-```
-SOUNDOME__PROVIDERS__SPOTIFY__CLIENT_ID=your_client_id_here
-SOUNDOME__PROVIDERS__SPOTIFY__CLIENT_SECRET=your_client_secret_here
-```
+## What the connection provides
 
-Restart the server after changing the config. The `/api/providers` endpoint will list `"Spotify"` once credentials are valid.
+### Audio download
 
-## What Spotify provides
-
-### As a source adapter (Spotify URLs as input)
-
-When you paste a Spotify URL, Soundome fetches the metadata from Spotify and then downloads the audio from YouTube Music or YouTube (not from Spotify directly — Spotify does not allow audio download). This means:
-
-- The metadata (title, artists, album, cover art) comes from Spotify
-- The audio file comes from the best available YouTube Music match
-
-Supported URL types:
+A Spotify-sourced track is downloaded straight from Spotify as Ogg Vorbis (320 kbps) and tagged in place. Supported URL types:
 
 | URL pattern | What is synced |
 |---|---|
@@ -56,9 +39,13 @@ Supported URL types:
 | `open.spotify.com/album/...` | Full album (async background task) |
 | `open.spotify.com/artist/...` | All artist tracks (async background task) |
 
-### As a metadata enrichment provider (tagger)
+### Liked Songs
 
-Even when the source is SoundCloud or YouTube Music, Soundome can query Spotify during the enrichment step to get a better match. This is controlled by `tagger.metadata_providers`:
+Click **Sync my Liked Songs** on the Spotify card (or submit `https://open.spotify.com/collection/tracks`). Soundgnome creates a Liked Songs playlist and downloads every liked track not already in your library, as a background task you can follow on the **Tasks** page.
+
+### Metadata enrichment (tagger)
+
+Even when the source is SoundCloud or YouTube Music, Soundgnome can query Spotify during enrichment for a better match. This reuses the same connection's Web API token and is controlled by `tagger.metadata_providers`:
 
 ```toml
 [tagger]
@@ -69,34 +56,35 @@ metadata_providers = ["musicbrainz", "bandcamp", "spotify"]
 ingest_metadata_providers = ["spotify", "musicbrainz", "bandcamp"]
 ```
 
-Spotify enrichment adds:
-- Cover art URL (usually the highest-quality source)
-- Release date
-- Track number and disc number
-- Artist Spotify IDs (used for deduplication and linking)
-- Artist photo URLs
+Spotify enrichment adds cover art, release date, track and disc number, artist Spotify IDs (used for deduplication and linking), and artist photo URLs.
 
-## Behaviour without credentials
+## Behaviour when not connected
 
-If `[providers.spotify]` is absent or the credentials are empty:
+If Spotify is not connected:
 
-- Spotify URLs return a `ProviderUnavailable` error — the download page shows an error message
-- The Spotify enrichment provider is silently skipped during metadata matching; MusicBrainz and Bandcamp still run
-- The server starts and operates normally for all other sources
+- Spotify URLs return a `ProviderUnavailable` error, and the download page shows a message.
+- The Spotify enrichment provider is silently skipped; MusicBrainz and Bandcamp still run.
+- The server starts and operates normally for all other sources.
 
-There is no crash or degraded startup. You will see a `debug`-level log line: `"Spotify metadata provider: no credentials in config, skipping"`.
+There is no crash or degraded startup. You will see a `debug`-level log line: `"Spotify metadata provider: not connected, skipping"`.
 
 ## Proxy
 
-The Spotify SDK sets the `ALL_PROXY` environment variable internally rather than using the shared `HttpClientBuilder`. If you need Spotify traffic to go through a proxy, set `ALL_PROXY` directly in your environment in addition to the `[proxy]` config section.
+Spotify Web API traffic (URL resolution, Liked Songs, enrichment) goes through the shared `HttpClientBuilder`, so it honours the `[proxy]` config section. The librespot audio session connects to Spotify's access points directly and does not use the shared proxy.
 
 ## Troubleshooting
 
 **"ProviderUnavailable: Spotify" when pasting a Spotify URL**
-→ Credentials are missing or empty. Check that both `client_id` and `client_secret` are set and non-empty.
+-> Spotify is not connected. Connect it in Tools -> Providers -> Spotify.
+
+**Login says "No authorization code found" or "Login state did not match"**
+-> Paste the entire redirect URL from the address bar (the one starting `http://127.0.0.1:8898/login?code=`), and complete the login in the same session you started it from.
+
+**Liked Songs sync fails with a rate-limit / "Try again later" message**
+-> Spotify is temporarily rate-limiting the account (it returns a `Retry-After`, sometimes many hours). Wait it out; the listing is cached for 5 minutes to avoid re-tripping it.
 
 **Spotify appears in `/api/providers` but enrichment still uses MusicBrainz only**
-→ Normal behaviour. The enrichment provider order is `["musicbrainz", "bandcamp", "spotify"]` by default. If MusicBrainz finds an exact match first, Spotify is not queried. Only when MusicBrainz returns a partial or no match will Spotify be tried.
+-> Normal. The enrichment order is `["musicbrainz", "bandcamp", "spotify"]` by default; if MusicBrainz finds an exact match first, Spotify is not queried.
 
 **Artist photos are missing**
-→ Spotify enrichment performs a secondary lookup per artist. This lookup can fail silently for artists with non-exact name matches. It is best-effort.
+-> Spotify enrichment performs a best-effort secondary lookup per artist. It can fail silently for artists with non-exact name matches.

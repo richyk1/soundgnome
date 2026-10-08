@@ -35,6 +35,8 @@ pub struct TaskStatsDto {
     pub errors: Vec<TaskTrackErrorDto>,
     /// Live progress of an in-flight AI metadata curation phase, if one is running.
     pub ai_curation: Option<AiCurationProgressDto>,
+    /// Live progress of an in-flight maintenance backfill (fingerprint / artwork).
+    pub backfill: Option<BackfillProgressDto>,
 }
 
 /// Live progress of an AI metadata curation batch loop (title/artist cleanup).
@@ -44,6 +46,19 @@ pub struct AiCurationProgressDto {
     pub processed: i32,
     /// Total number of tracks to curate in this phase.
     pub total: i32,
+}
+
+/// Live progress of a one-shot library maintenance backfill.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct BackfillProgressDto {
+    /// `"fingerprint"` or `"artwork"`.
+    pub kind: String,
+    /// Items successfully processed.
+    pub ok: i32,
+    /// Items intentionally skipped (already done / no source / no file).
+    pub skipped: i32,
+    /// Items that errored without aborting the run.
+    pub errors: i32,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -102,6 +117,12 @@ impl TaskDto {
             ai_curation: s.ai_curation.map(|a| AiCurationProgressDto {
                 processed: a.processed,
                 total: a.total,
+            }),
+            backfill: s.backfill.map(|b| BackfillProgressDto {
+                kind: b.kind,
+                ok: b.ok,
+                skipped: b.skipped,
+                errors: b.errors,
             }),
         });
         Some(Self {
@@ -169,8 +190,9 @@ pub async fn get_by_id(
         })
 }
 
-/// Retry a failed or interrupted task. Resets progress to 0 and re-enqueues the background job.
-/// Already-downloaded tracks will be skipped automatically.
+/// Retry a failed, interrupted, or completed(-with-errors) task. Resets progress
+/// to 0 and re-enqueues the background job. Already-downloaded tracks are skipped
+/// by dedup, so a retry effectively re-attempts only the previously errored ones.
 #[openapi]
 #[post("/tasks/<id>/retry")]
 pub async fn retry(
@@ -193,6 +215,7 @@ pub async fn retry(
                 && task.status != TaskStatus::Running
                 && task.status != TaskStatus::Pending
                 && task.status != TaskStatus::Cancelled
+                && task.status != TaskStatus::Completed
             {
                 return Err(shared::errors::Error::Custom(format!(
                     "Task {} is in status {:?} and cannot be retried",

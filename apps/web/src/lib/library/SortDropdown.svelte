@@ -110,4 +110,10 @@
     border-color: var(--accent);
     color: var(--accent);
   }
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    button { min-height: 44px; min-width: 44px; }
+    .sort-select { font-size: 16px; min-height: 44px; }
+    .sort-controls { min-width: 0; max-width: 100%; } .sort-select { min-width: 0; } .sort-direction-btn { width: 44px; height: 44px; }
+  }
 </style>

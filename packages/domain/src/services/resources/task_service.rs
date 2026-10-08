@@ -18,11 +18,14 @@ impl TaskService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> shared::types::SoundomeResult<Task> {
+    ) -> shared::types::SoundgnomeResult<Task> {
         self.task_repo.get_by_id(conn, id)
     }
 
-    pub fn get_all(&self, conn: &mut SqliteConnection) -> shared::types::SoundomeResult<Vec<Task>> {
+    pub fn get_all(
+        &self,
+        conn: &mut SqliteConnection,
+    ) -> shared::types::SoundgnomeResult<Vec<Task>> {
         self.task_repo.get_all(conn)
     }
 
@@ -32,7 +35,7 @@ impl TaskService {
         conn: &mut SqliteConnection,
         url: &str,
         label: Option<String>,
-    ) -> shared::types::SoundomeResult<Task> {
+    ) -> shared::types::SoundgnomeResult<Task> {
         let task = Task {
             id: None,
             task_type: TaskType::SyncPlaylist,
@@ -55,7 +58,7 @@ impl TaskService {
         conn: &mut SqliteConnection,
         url: &str,
         label: Option<String>,
-    ) -> shared::types::SoundomeResult<Task> {
+    ) -> shared::types::SoundgnomeResult<Task> {
         let task = Task {
             id: None,
             task_type: TaskType::SyncArtist,
@@ -78,7 +81,7 @@ impl TaskService {
         conn: &mut SqliteConnection,
         url: &str,
         label: Option<String>,
-    ) -> shared::types::SoundomeResult<Task> {
+    ) -> shared::types::SoundgnomeResult<Task> {
         let task = Task {
             id: None,
             task_type: TaskType::SyncAlbum,
@@ -100,7 +103,7 @@ impl TaskService {
         &self,
         conn: &mut SqliteConnection,
         ingest_dir: &str,
-    ) -> shared::types::SoundomeResult<Task> {
+    ) -> shared::types::SoundgnomeResult<Task> {
         let task = Task {
             id: None,
             task_type: TaskType::IngestDir,
@@ -117,11 +120,35 @@ impl TaskService {
         self.task_repo.create(conn, &task)
     }
 
+    /// Create a new pending task for a one-shot library maintenance backfill
+    /// (fingerprinting or artwork embedding).
+    pub fn create_backfill(
+        &self,
+        conn: &mut SqliteConnection,
+        task_type: TaskType,
+        label: &str,
+    ) -> shared::types::SoundgnomeResult<Task> {
+        let task = Task {
+            id: None,
+            task_type,
+            status: TaskStatus::Pending,
+            payload: "{}".to_string(),
+            label: Some(label.to_string()),
+            progress: 0,
+            total: None,
+            error: None,
+            stats: None,
+            created_at: None,
+            updated_at: None,
+        };
+        self.task_repo.create(conn, &task)
+    }
+
     pub fn set_running(
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         self.task_repo.set_running(conn, id)
     }
 
@@ -131,7 +158,7 @@ impl TaskService {
         id: i32,
         progress: i32,
         total: i32,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         self.task_repo.update_progress(conn, id, progress, total)
     }
 
@@ -139,7 +166,7 @@ impl TaskService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         self.task_repo.set_completed(conn, id)
     }
 
@@ -148,7 +175,7 @@ impl TaskService {
         conn: &mut SqliteConnection,
         id: i32,
         error: &str,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         self.task_repo.set_failed(conn, id, error)
     }
 
@@ -156,7 +183,7 @@ impl TaskService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         self.task_repo.set_cancelled(conn, id)
     }
 
@@ -164,7 +191,7 @@ impl TaskService {
     pub fn get_stale_running(
         &self,
         conn: &mut SqliteConnection,
-    ) -> shared::types::SoundomeResult<Vec<Task>> {
+    ) -> shared::types::SoundgnomeResult<Vec<Task>> {
         self.task_repo
             .get_by_status(conn, TaskStatus::Running.as_ref())
     }
@@ -175,7 +202,7 @@ impl TaskService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> shared::types::SoundomeResult<Task> {
+    ) -> shared::types::SoundgnomeResult<Task> {
         self.task_repo.reset_for_retry(conn, id)?;
         self.task_repo.get_by_id(conn, id)
     }
@@ -184,7 +211,7 @@ impl TaskService {
         &self,
         conn: &mut SqliteConnection,
         status: &str,
-    ) -> shared::types::SoundomeResult<i64> {
+    ) -> shared::types::SoundgnomeResult<i64> {
         self.task_repo.count_by_status(conn, status)
     }
 
@@ -194,7 +221,7 @@ impl TaskService {
         conn: &mut SqliteConnection,
         id: i32,
         label: &str,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         self.task_repo.update_label(conn, id, label)
     }
 
@@ -204,7 +231,7 @@ impl TaskService {
         conn: &mut SqliteConnection,
         id: i32,
         stats: &shared::models::TaskStats,
-    ) -> shared::types::SoundomeResult<()> {
+    ) -> shared::types::SoundgnomeResult<()> {
         self.task_repo.update_stats(conn, id, stats)
     }
 }

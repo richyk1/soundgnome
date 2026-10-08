@@ -240,9 +240,10 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    background: var(--surface-2);
+    background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm);
     padding: 0.65rem 0.75rem;
   }
 
@@ -303,7 +304,7 @@
   }
   .btn-cancel-ref { background: none; color: var(--muted); }
   .btn-cancel-ref:hover { background: var(--surface-2); color: var(--text); }
-  .btn-save-ref { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-save-ref { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   .btn-save-ref:disabled { opacity: 0.45; cursor: default; }
   .btn-save-ref:not(:disabled):hover { filter: brightness(1.1); }
 
@@ -327,9 +328,10 @@
     display: flex;
     align-items: center;
     gap: 0.45rem;
-    background: var(--surface-2);
+    background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm);
     padding: 0.35rem 0.55rem;
     font-size: 0.8rem;
     min-width: 0;
@@ -395,5 +397,11 @@
     line-height: 1;
     border-radius: 3px;
   }
-  .btn-delete-ref:hover { color: var(--danger, #e05a5a); background: var(--surface); }
+  .btn-delete-ref:hover { color: var(--error); background: var(--surface); }
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    button { min-height: 44px; min-width: 44px; }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select { font-size: 16px; min-height: 44px; }
+    .ref-form-row { flex-wrap: wrap; } .ref-field-type, .ref-field-link, .ref-field { flex: 1 1 100%; min-width: 0; } .ref-form-actions { flex-wrap: wrap; } .btn-delete-ref { min-width: 44px; } .ref-link { display: inline-flex; align-items: center; min-height: 44px; max-width: 100%; }
+  }
 </style>

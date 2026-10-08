@@ -1,12 +1,12 @@
 ---
 name: proxy-aware-http
-description: 'Use when: adding or fixing direct HTTP calls, reqwest clients, proxy support, no_proxy behavior, rotating proxy behavior, or network code that should respect Soundome proxy configuration.'
+description: 'Use when: adding or fixing direct HTTP calls, reqwest clients, proxy support, no_proxy behavior, rotating proxy behavior, or network code that should respect Soundgnome proxy configuration.'
 argument-hint: 'Describe the HTTP call, target domain, and current proxy-related issue or expected behavior.'
 ---
 
 # Proxy-aware HTTP
 
-Use this skill when an HTTP path in Soundome should respect the shared proxy layer.
+Use this skill when an HTTP path in Soundgnome should respect the shared proxy layer.
 
 ## When to use
 

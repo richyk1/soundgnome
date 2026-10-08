@@ -1,5 +1,8 @@
 <script lang="ts">
   import { lib } from './store.svelte';
+  import CardActions from './CardActions.svelte';
+  import LibraryOptions from './LibraryOptions.svelte';
+  import { runNavigation } from '../navigation-motion';
 
   function fmtDuration(secs: number | null): string {
     if (secs == null) return '—';
@@ -42,7 +45,9 @@
             <a class="source-link" href={playlist.source_url} target="_blank" rel="noopener noreferrer">Open source ↗</a>
           {/if}
           <div class="detail-actions">
-            <button class="btn-delete" onclick={() => lib.handleDeletePlaylist(playlist.id)}>Delete playlist</button>
+            <CardActions inline title={playlist.name} actions={[
+              { label: 'Delete playlist', danger: true, onSelect: () => lib.handleDeletePlaylist(playlist.id) },
+            ]} />
           </div>
         </div>
       </div>
@@ -81,10 +86,15 @@
 {:else if lib.playlistsError}
   <p class="status error">{lib.playlistsError}</p>
 {:else}
-  <div class="toolbar">
-    <input class="search" placeholder="Search playlists…" bind:value={lib.playlistSearch} />
-    <span class="count">{lib.filteredPlaylists.length} playlist{lib.filteredPlaylists.length !== 1 ? 's' : ''}</span>
-  </div>
+  <LibraryOptions>
+    {#snippet search()}
+      <input class="search" aria-label="Search playlists" placeholder="Search playlists…" bind:value={lib.playlistSearch} />
+    {/snippet}
+    {#snippet children()}
+      <span class="count">{lib.filteredPlaylists.length} playlist{lib.filteredPlaylists.length !== 1 ? 's' : ''}</span>
+      <button class="playlist-refresh" onclick={lib.handleRefresh} disabled={lib.refreshing}>{lib.refreshing ? 'Refreshing…' : 'Refresh playlists'}</button>
+    {/snippet}
+  </LibraryOptions>
 
   {#if lib.filteredPlaylists.length === 0}
     <p class="status">No playlists found.</p>
@@ -92,16 +102,16 @@
     <div class="grid">
        {#each lib.filteredPlaylists as p (p.id)}
          <div class="card">
-           <button class="card-main" onclick={() => lib.drillIntoPlaylist(p)}>
+           <button class="card-main" onclick={() => runNavigation(() => lib.drillIntoPlaylist(p))}>
              {@render coverWrap(p.cover, p.name)}
             <div class="card-info">
               <div class="card-title" title={p.name}>{p.name}</div>
               <div class="card-sub">{p.source}</div>
             </div>
           </button>
-          <div class="card-hover-actions">
-            <button class="btn-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeletePlaylist(p.id); }}>Del</button>
-          </div>
+          <CardActions title={p.name} actions={[
+            { label: 'Delete playlist', danger: true, onSelect: () => lib.handleDeletePlaylist(p.id) },
+          ]} />
         </div>
       {/each}
     </div>
@@ -109,44 +119,39 @@
 {/if}
 
 <style>
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-  }
   .search {
     flex: 1;
     min-width: 0;
     padding: 0.4rem 0.6rem;
-    border: 1px solid var(--border, #333);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    background: var(--input-bg, #1a1a1a);
+    background: var(--surface);
     color: inherit;
     font-size: 0.85rem;
   }
   .count {
     font-size: 0.8rem;
-    color: var(--muted, #888);
+    color: var(--muted);
     white-space: nowrap;
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr));
     gap: 1rem;
   }
   .card {
-    background: var(--card-bg, #1c1c1c);
-    border: 1px solid var(--border, #333);
-    border-radius: 6px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm);
     overflow: hidden;
     display: flex;
     flex-direction: column;
     position: relative;
-    transition: border-color 0.15s;
+    transition: border-color var(--motion-fast, 160ms) var(--ease-out, ease-out);
   }
   .card:hover {
-    border-color: var(--accent, #7cb7ff);
+    border-color: var(--accent);
   }
   .card-main {
     display: flex;
@@ -164,7 +169,7 @@
     width: 100%;
     aspect-ratio: 1;
     overflow: hidden;
-    background: var(--cover-bg, #111);
+    background: var(--surface-2);
     flex-shrink: 0;
   }
   .cover-img {
@@ -178,7 +183,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--muted, #555);
+    color: var(--muted);
   }
   .cover-ph svg { width: 40%; height: 40%; }
   .card-info {
@@ -197,18 +202,8 @@
   }
   .card-sub {
     font-size: 0.75rem;
-    color: var(--muted, #888);
+    color: var(--muted);
     text-transform: capitalize;
-  }
-  .card-hover-actions {
-    display: none;
-    position: absolute;
-    top: 0.35rem;
-    right: 0.35rem;
-    gap: 0.25rem;
-  }
-  .card:hover .card-hover-actions {
-    display: flex;
   }
 
   /* Detail hero actions */
@@ -217,30 +212,7 @@
     gap: 0.5rem;
     margin-top: 0.75rem;
   }
-  .detail-actions button {
-    padding: 0.3rem 0.75rem;
-    border-radius: 5px;
-    border: 1px solid var(--border, #333);
-    cursor: pointer;
-    font-size: 0.8rem;
-    font-family: inherit;
-    background: var(--surface-2, #1c1c1c);
-    color: var(--text, #eee);
-  }
-  .detail-actions button:hover { background: var(--surface, #141414); }
-
-  /* Delete button */
-  .btn-delete {
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
-    border: 1px solid color-mix(in srgb, #e05 35%, transparent);
-    background: color-mix(in srgb, #e05 10%, var(--surface, #111));
-    color: #e05;
-    cursor: pointer;
-    font-size: 0.75rem;
-    font-family: inherit;
-  }
-  .btn-delete:hover { background: color-mix(in srgb, #e05 20%, var(--surface, #111)); }
+  .playlist-refresh { padding: 0.4rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); font: inherit; cursor: pointer; }
 
   /* Detail view */
   .detail-hero {
@@ -255,7 +227,7 @@
     border-radius: 6px;
     overflow: hidden;
     flex-shrink: 0;
-    background: var(--cover-bg, #111);
+    background: var(--surface-2);
   }
   .detail-info {
     display: flex;
@@ -265,15 +237,15 @@
   }
   .detail-type {
     font-size: 0.75rem;
-    color: var(--muted, #888);
+    color: var(--muted);
     text-transform: capitalize;
     letter-spacing: 0.04em;
   }
   .detail-info h2 { margin: 0; font-size: 1.3rem; font-weight: 700; }
-  .detail-meta { font-size: 0.85rem; color: var(--muted, #888); }
+  .detail-meta { font-size: 0.85rem; color: var(--muted); }
   .source-link {
     font-size: 0.8rem;
-    color: var(--accent, #7cb7ff);
+    color: var(--accent);
     text-decoration: none;
     margin-top: 0.2rem;
   }
@@ -289,24 +261,37 @@
     text-align: left;
     padding: 0.4rem 0.6rem;
     font-weight: 500;
-    color: var(--muted, #888);
-    border-bottom: 1px solid var(--border, #333);
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
     white-space: nowrap;
   }
   td {
     padding: 0.45rem 0.6rem;
-    border-bottom: 1px solid var(--border-subtle, #222);
+    border-bottom: 1px solid var(--border-soft);
     vertical-align: middle;
   }
   tr:last-child td { border-bottom: none; }
   .title-cell { font-weight: 500; }
-  .muted { color: var(--muted, #888); }
+  .muted { color: var(--muted); }
   .mono { font-variant-numeric: tabular-nums; }
 
   .status {
-    color: var(--muted, #888);
+    color: var(--muted);
     font-size: 0.9rem;
     padding: 1rem 0;
   }
-  .status.error { color: var(--error, #e05); }
+  .status.error { color: var(--error); }
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    button { min-height: 44px; min-width: 44px; }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 16px; min-height: 44px; }
+    .detail-hero { flex-wrap: wrap; gap: 1rem; }
+    .detail-info { flex: 1 1 100%; overflow-wrap: anywhere; }
+    .card-info { width: 100%; box-sizing: border-box; }
+    .card-title { max-width: 100%; }
+    .table-wrap { max-width: 100%; }
+    table { min-width: 600px; }
+    .source-link { display: inline-flex; align-items: center; min-height: 44px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .card { transition: none; } }
 </style>

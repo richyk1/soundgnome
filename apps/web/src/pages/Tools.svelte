@@ -1,11 +1,24 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule } from '../lib/api';
-  import type { StorageStatsDto, SyncScheduleDto } from '../lib/api';
+  import BackfillPanel from '../lib/BackfillPanel.svelte';
+  import MissingFiles from '../lib/MissingFiles.svelte';
+  import { runNavigation } from '../lib/navigation-motion';
+  import { getStorageStats, getSyncSchedules, createSyncSchedule, updateSyncSchedule, deleteSyncSchedule, triggerSyncSchedule, getSoundcloudStatus, connectSoundcloud, disconnectSoundcloud,
+    getSpotifyAudioStatus, connectSpotifyAudio, completeSpotifyAudio, disconnectSpotifyAudio, downloadUrl, embedArtwork, backfillFingerprints } from '../lib/api';
+  import type { StorageStatsDto, SyncScheduleDto, SoundcloudStatusDto, SpotifyAudioStatusDto } from '../lib/api';
+  import { getLastfmStatus, setLastfmCredentials, lastfmLogin, lastfmComplete, disconnectLastfm, type LastfmStatusDto } from '../lib/api';
+  import { isScrobbleEnabled, setScrobbleEnabled, refreshStatus as refreshScrobbler } from '../lib/scrobbler';
 
   // ── Tab ────────────────────────────────────────────────────────────────────
-  type Tab = 'storage' | 'sync';
-  let activeTab: Tab = $state('sync');
+  type Tab = 'sync' | 'storage' | 'providers' | 'artwork' | 'fingerprints' | 'missing';
+
+  let {
+    initialTab = 'sync',
+  }: {
+    initialTab?: Tab;
+  } = $props();
+
+  let activeTab: Tab = $state(initialTab);
 
   // ── Storage ─────────────────────────────────────────────────────────────────
   let stats: StorageStatsDto | null = $state(null);
@@ -145,174 +158,546 @@
     return d.toLocaleString();
   }
 
-  onMount(() => {
+  onMount(async () => {
     loadStorage();
     loadSync();
+    loadSoundcloud();
+    loadSpotifyAudio();
+    loadLastfm();
   });
 
   function switchTab(tab: Tab) {
-    activeTab = tab;
+    if (tab === activeTab) return;
+    void runNavigation(() => { activeTab = tab; });
+  }
+
+  // ── SoundCloud ───────────────────────────────────────────────────────────────
+  let scStatus: SoundcloudStatusDto | null = $state(null);
+  let scLoading = $state(true);
+  let scToken = $state('');
+  let scPending = $state(false);
+  let scError: string | null = $state(null);
+  let scSuccess: string | null = $state(null);
+
+  async function loadSoundcloud() {
+    scLoading = true;
+    scError = null;
+    try {
+      scStatus = await getSoundcloudStatus();
+    } catch (e: unknown) {
+      scError = e instanceof Error ? e.message : String(e);
+    } finally {
+      scLoading = false;
+    }
+  }
+
+  async function handleConnect(e: SubmitEvent) {
+    e.preventDefault();
+    const token = scToken.trim();
+    if (!token || scPending) return;
+    scPending = true;
+    scError = null;
+    scSuccess = null;
+    try {
+      scStatus = await connectSoundcloud(token);
+      scToken = '';
+      scSuccess = 'SoundCloud account connected.';
+    } catch (e: unknown) {
+      scError = e instanceof Error ? e.message : String(e);
+    } finally {
+      scPending = false;
+    }
+  }
+
+  async function handleDisconnect() {
+    scPending = true;
+    scError = null;
+    scSuccess = null;
+    try {
+      scStatus = await disconnectSoundcloud();
+      scToken = '';
+    } catch (e: unknown) {
+      scError = e instanceof Error ? e.message : String(e);
+    } finally {
+      scPending = false;
+    }
+  }
+
+  // SoundCloud's own likes URL. The backend recognises it and routes it
+  // through the normal playlist sync, so this reuses the download endpoint.
+  const SOUNDCLOUD_LIKES_URL = 'https://soundcloud.com/you/likes';
+
+  async function handleSyncLikes() {
+    scPending = true;
+    scError = null;
+    scSuccess = null;
+    try {
+      await downloadUrl(SOUNDCLOUD_LIKES_URL);
+      scSuccess = 'Likes sync started. Follow its progress on the Tasks page.';
+    } catch (e: unknown) {
+      scError = e instanceof Error ? e.message : String(e);
+    } finally {
+      scPending = false;
+    }
+  }
+
+  // ── Spotify audio (librespot) ─────────────────────────────────────────────────
+  let spaStatus: SpotifyAudioStatusDto | null = $state(null);
+  let spaLoading = $state(true);
+  let spaPending = $state(false);
+  let spaError: string | null = $state(null);
+  let spaSuccess: string | null = $state(null);
+  let spaAuthorizing = $state(false);
+  let spaRedirectUrl = $state('');
+
+  async function loadSpotifyAudio() {
+    spaLoading = true;
+    spaError = null;
+    try {
+      spaStatus = await getSpotifyAudioStatus();
+    } catch (e: unknown) {
+      spaError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spaLoading = false;
+    }
+  }
+
+  const SPOTIFY_LIKED_URL = 'https://open.spotify.com/collection/tracks';
+
+  async function handleSpotifyAudioConnect() {
+    if (spaPending) return;
+    spaPending = true;
+    spaError = null;
+    spaSuccess = null;
+    try {
+      const authorizeUrl = await connectSpotifyAudio();
+      window.open(authorizeUrl, '_blank', 'noopener');
+      spaAuthorizing = true;
+      spaSuccess = 'Approve in the Spotify tab, then paste the URL it lands on below.';
+    } catch (e: unknown) {
+      spaError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spaPending = false;
+    }
+  }
+
+  async function handleSpotifyAudioComplete() {
+    if (spaPending || !spaRedirectUrl.trim()) return;
+    spaPending = true;
+    spaError = null;
+    spaSuccess = null;
+    try {
+      spaStatus = await completeSpotifyAudio(spaRedirectUrl.trim());
+      spaAuthorizing = false;
+      spaRedirectUrl = '';
+      spaSuccess = `Spotify connected as ${spaStatus.username ?? 'your account'}.`;
+    } catch (e: unknown) {
+      spaError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spaPending = false;
+    }
+  }
+
+  async function handleSpotifyAudioSyncLikes() {
+    if (spaPending) return;
+    spaPending = true;
+    spaError = null;
+    spaSuccess = null;
+    try {
+      await downloadUrl(SPOTIFY_LIKED_URL);
+      spaSuccess = 'Liked Songs sync started. Follow its progress on the Tasks page.';
+    } catch (e: unknown) {
+      spaError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spaPending = false;
+    }
+  }
+
+  async function handleSpotifyAudioDisconnect() {
+    spaPending = true;
+    spaError = null;
+    spaSuccess = null;
+    try {
+      spaStatus = await disconnectSpotifyAudio();
+    } catch (e: unknown) {
+      spaError = e instanceof Error ? e.message : String(e);
+    } finally {
+      spaPending = false;
+    }
+  }
+
+  // ── Last.fm ───────────────────────────────────────────────────────────────────
+  let lfmStatus: LastfmStatusDto | null = $state(null);
+  let lfmLoading = $state(true);
+  let lfmPending = $state(false);
+  let lfmError: string | null = $state(null);
+  let lfmSuccess: string | null = $state(null);
+  let lfmKey = $state('');
+  let lfmSecret = $state('');
+  let lfmToken: string | null = $state(null);
+  let lfmAuthUrl: string | null = $state(null);
+  const LFM_PENDING = 'soundgnome:lastfm:pending';
+  function savePending(url: string, token: string) {
+    lfmAuthUrl = url;
+    lfmToken = token;
+    try {
+      localStorage.setItem(LFM_PENDING, JSON.stringify({ url, token }));
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  function clearPending() {
+    lfmAuthUrl = null;
+    lfmToken = null;
+    try {
+      localStorage.removeItem(LFM_PENDING);
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  let scrobbleOn = $state(isScrobbleEnabled());
+
+  async function loadLastfm() {
+    lfmLoading = true;
+    lfmError = null;
+    try {
+      lfmStatus = await getLastfmStatus();
+      if (!lfmStatus.connected) {
+        // Restore a pending authorization so a reload doesn't lose the finish step.
+        try {
+          const raw = localStorage.getItem(LFM_PENDING);
+          if (raw) {
+            const p = JSON.parse(raw);
+            lfmAuthUrl = typeof p?.url === 'string' ? p.url : null;
+            lfmToken = typeof p?.token === 'string' ? p.token : null;
+          }
+        } catch {
+          /* ignore malformed pending */
+        }
+      }
+    } catch (e: unknown) {
+      lfmError = e instanceof Error ? e.message : String(e);
+    } finally {
+      lfmLoading = false;
+    }
+  }
+
+  async function handleLastfmCredentials(e: Event) {
+    e.preventDefault();
+    if (lfmPending || !lfmKey.trim() || !lfmSecret.trim()) return;
+    lfmPending = true;
+    lfmError = null;
+    lfmSuccess = null;
+    try {
+      lfmStatus = await setLastfmCredentials(lfmKey.trim(), lfmSecret.trim());
+      lfmSecret = '';
+      lfmSuccess = 'API credentials saved. Now connect your account.';
+    } catch (e: unknown) {
+      lfmError = e instanceof Error ? e.message : String(e);
+    } finally {
+      lfmPending = false;
+    }
+  }
+
+  async function handleLastfmConnect() {
+    if (lfmPending) return;
+    lfmPending = true;
+    lfmError = null;
+    lfmSuccess = null;
+    try {
+      const { url, token } = await lastfmLogin();
+      savePending(url, token);
+      window.open(url, '_blank', 'noopener');
+    } catch (e: unknown) {
+      lfmError = e instanceof Error ? e.message : String(e);
+    } finally {
+      lfmPending = false;
+    }
+  }
+
+  async function handleLastfmComplete() {
+    if (lfmPending || !lfmToken) return;
+    lfmPending = true;
+    lfmError = null;
+    try {
+      lfmStatus = await lastfmComplete(lfmToken);
+      clearPending();
+      refreshScrobbler();
+      lfmSuccess = `Last.fm connected as ${lfmStatus.username ?? 'your account'}.`;
+    } catch (e: unknown) {
+      lfmError = e instanceof Error ? e.message : String(e);
+    } finally {
+      lfmPending = false;
+    }
+  }
+
+  async function handleLastfmDisconnect() {
+    lfmPending = true;
+    lfmError = null;
+    lfmSuccess = null;
+    try {
+      lfmStatus = await disconnectLastfm();
+      refreshScrobbler();
+      clearPending();
+    } catch (e: unknown) {
+      lfmError = e instanceof Error ? e.message : String(e);
+    } finally {
+      lfmPending = false;
+    }
+  }
+
+  function toggleScrobble() {
+    scrobbleOn = !scrobbleOn;
+    setScrobbleEnabled(scrobbleOn);
   }
 </script>
 
 <div class="tools-page">
-  <div class="page-header">
+  <header class="page-header">
     <h1>Tools</h1>
-  </div>
+    <p class="lede">
+      Connect external accounts, schedule automatic playlist syncs, and keep an eye on how your
+      library uses disk.
+    </p>
+  </header>
 
-  <div class="tabs">
+  <div class="tabs" role="tablist">
     <button class="tab" class:active={activeTab === 'sync'} onclick={() => switchTab('sync')}>
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-      </svg>
-      Sync
+      <i class="lni lni-repeat-1" aria-hidden="true"></i>Sync
     </button>
     <button class="tab" class:active={activeTab === 'storage'} onclick={() => switchTab('storage')}>
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <ellipse cx="12" cy="5" rx="9" ry="3"/>
-        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
-        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-      </svg>
-      Storage
+      <i class="lni lni-database-2" aria-hidden="true"></i>Storage
+    </button>
+    <button class="tab" class:active={activeTab === 'providers'} onclick={() => switchTab('providers')}>
+      <i class="lni lni-plug-1" aria-hidden="true"></i>Providers
+    </button>
+    <button class="tab" class:active={activeTab === 'artwork'} onclick={() => switchTab('artwork')}>
+      <i class="lni lni-gallery" aria-hidden="true"></i>Artwork
+    </button>
+    <button class="tab" class:active={activeTab === 'fingerprints'} onclick={() => switchTab('fingerprints')}>
+      <i class="lni lni-fingerprint-1" aria-hidden="true"></i>Fingerprints
+    </button>
+    <button class="tab" class:active={activeTab === 'missing'} onclick={() => switchTab('missing')}>
+      <i class="lni lni-unlink" aria-hidden="true"></i>Missing files
     </button>
   </div>
+
+  <!-- ── Artwork tab ─────────────────────────────────────────────────────────── -->
+  {#if activeTab === 'artwork'}
+    <section class="tab-content">
+      <BackfillPanel
+        title="Embed artwork"
+        description="Embed cover art into every library file in place so artwork travels with the audio and shows offline. Missing covers are resolved from each track's references (Spotify oEmbed or YouTube thumbnail). Audio is never re-downloaded or moved."
+        icon="gallery"
+        taskType="EmbedArtworkBackfill"
+        okLabel="embedded"
+        skipHint="Skipped = no cover art could be resolved for the track, or the audio file is missing from disk."
+        note="Runs in the background on the shared task queue, so it is safe to leave and come back to. Files that already have embedded art are refreshed in place."
+        start={embedArtwork}
+      />
+    </section>
+  {/if}
+
+  <!-- ── Fingerprints tab ────────────────────────────────────────────────────── -->
+  {#if activeTab === 'fingerprints'}
+    <section class="tab-content">
+      <BackfillPanel
+        title="Fingerprint library"
+        description="Compute an acoustic fingerprint (Chromaprint) for every library track so re-uploads of songs you already own are recognized and quality-compared, even when their tags differ. This needs to run once for tracks that predate fingerprinting."
+        icon="fingerprint-1"
+        taskType="FingerprintBackfill"
+        okLabel="fingerprinted"
+        skipHint="Skipped = the track is already fingerprinted (safe to re-run), or its audio file is missing from disk."
+        note="Runs in the background and is idempotent: already-fingerprinted tracks are skipped, so re-running is cheap. Expect roughly a second or two per track."
+        start={backfillFingerprints}
+      />
+    </section>
+  {/if}
+
+  <!-- ── Missing files tab ───────────────────────────────────────────────────── -->
+  {#if activeTab === 'missing'}
+    <section class="tab-content">
+      <MissingFiles />
+    </section>
+  {/if}
 
   <!-- ── Storage tab ─────────────────────────────────────────────────────────── -->
   {#if activeTab === 'storage'}
-    <div class="tab-content">
-      <div class="section-toolbar">
-        <button class="btn-header" onclick={loadStorage} disabled={storageLoading}>
-          {storageLoading ? 'Loading…' : 'Refresh'}
-        </button>
+    <section class="tab-content">
+      <div class="section-head">
+        <h2>Library storage</h2>
+        <div class="section-actions">
+          <button class="btn-ghost btn-sm" onclick={loadStorage} disabled={storageLoading}>
+            {#if storageLoading}<span class="spinner"></span>{:else}<i class="lni lni-refresh-circle-1-clockwise" aria-hidden="true"></i>{/if}Refresh
+          </button>
+        </div>
       </div>
 
       {#if storageError}
-        <div class="feedback error"><strong>Error:</strong> {storageError}</div>
+        <div class="callout callout-error" role="alert">
+          <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+          <div class="callout-body"><strong>Couldn't load storage statistics.</strong><span>{storageError}</span></div>
+        </div>
       {/if}
 
       {#if storageLoading}
-        <div class="status">Loading storage statistics…</div>
+        <ul class="artists-list" aria-hidden="true">
+          {#each { length: 5 } as _}
+            <li class="artist-row skeleton">
+              <span class="sk sk-name"></span>
+              <span class="sk sk-bar"></span>
+              <span class="sk sk-meta"></span>
+            </li>
+          {/each}
+        </ul>
       {:else if stats}
-        <div class="stats-header">
-          <div class="total-size">
-            <span class="stat-label">Library Size</span>
-            <span class="stat-value">{stats.total_formatted}</span>
-            <span class="stat-bytes">({stats.total_bytes.toLocaleString()} bytes)</span>
+        <div class="storage-summary">
+          <div class="summary-item">
+            <span class="summary-label">Library size</span>
+            <span class="summary-value">{stats.total_formatted}</span>
           </div>
-          <div class="stat-aside">{stats.artists.length} artists</div>
+          <div class="summary-item">
+            <span class="summary-label">Total bytes</span>
+            <span class="summary-mono">{stats.total_bytes.toLocaleString()}</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Artists</span>
+            <span class="summary-mono">{stats.artists.length}</span>
+          </div>
         </div>
 
         {#if stats.artists.length === 0}
-          <p class="status">No artists or storage data available.</p>
+          <div class="empty">
+            <i class="lni lni-database-2" aria-hidden="true"></i>
+            <p class="empty-title">No storage data yet</p>
+            <p class="empty-hint">Download some tracks and their footprint will show up here.</p>
+          </div>
         {:else}
           <ul class="artists-list">
             {#each stats.artists as artist (artist.id)}
               <li class="artist-row">
-                <div class="artist-name">{artist.name}</div>
-                <div class="artist-bar">
-                  <div class="bar-track">
-                    <div
-                      class="bar-fill"
-                      style="width: {Math.max(artist.percent, 2)}%"
-                      title="{artist.name}: {artist.percent.toFixed(1)}% ({formatBytes(artist.bytes)})"
-                    ></div>
-                  </div>
+                <span class="artist-name">{artist.name}</span>
+                <div class="bar-track" title="{artist.name}: {artist.percent.toFixed(1)}% ({formatBytes(artist.bytes)})">
+                  <div class="bar-fill" style="transform: scaleX({Math.max(artist.percent, 2) / 100})"></div>
                 </div>
-                <div class="artist-meta">
+                <span class="artist-meta">
                   <span class="meta-pct">{artist.percent.toFixed(1)}%</span>
                   <span class="meta-size">{formatBytes(artist.bytes)}</span>
-                </div>
+                </span>
               </li>
             {/each}
           </ul>
         {/if}
       {/if}
-    </div>
+    </section>
   {/if}
 
   <!-- ── Sync tab ────────────────────────────────────────────────────────────── -->
   {#if activeTab === 'sync'}
-    <div class="tab-content">
-      <p class="sync-subtitle">Define playlists to synchronize automatically using intervals or cron expressions.</p>
+    <section class="tab-content">
+      <div class="section-head">
+        <h2>Add a schedule</h2>
+      </div>
+      <p class="lede">Define playlists to synchronize automatically using intervals or cron expressions.</p>
 
-      <section class="create-section">
-        <h3>Add a schedule</h3>
-        <form class="create-form" onsubmit={handleCreate}>
-          <div class="form-row">
-            <input
-              type="url"
-              placeholder="Playlist URL (Spotify, SoundCloud, YouTube…)"
-              bind:value={newUrl}
+      <form class="create-panel" onsubmit={handleCreate}>
+        <div class="field">
+          <i class="lni lni-cloud-download field-icon" aria-hidden="true"></i>
+          <input
+            type="url"
+            placeholder="Playlist URL (Spotify, SoundCloud, YouTube…)"
+            bind:value={newUrl}
+            disabled={creating}
+            required
+          />
+        </div>
+        <div class="create-row">
+          <input
+            class="input"
+            type="text"
+            placeholder="Label (optional)"
+            bind:value={newLabel}
+            disabled={creating}
+          />
+          <div class="seg">
+            <button
+              type="button"
+              class="seg-btn"
+              class:active={newScheduleType === 'interval'}
               disabled={creating}
-              required
-            />
-          </div>
-          <div class="form-row form-row--split">
-            <input
-              type="text"
-              placeholder="Label (optional)"
-              bind:value={newLabel}
+              onclick={() => (newScheduleType = 'interval')}
+            >Interval</button>
+            <button
+              type="button"
+              class="seg-btn"
+              class:active={newScheduleType === 'cron'}
               disabled={creating}
-            />
-            <div class="schedule-type-toggle">
-              <button
-                type="button"
-                class="toggle-btn"
-                class:active={newScheduleType === 'interval'}
-                disabled={creating}
-                onclick={() => (newScheduleType = 'interval')}
-              >Interval</button>
-              <button
-                type="button"
-                class="toggle-btn"
-                class:active={newScheduleType === 'cron'}
-                disabled={creating}
-                onclick={() => (newScheduleType = 'cron')}
-              >Cron</button>
-            </div>
+              onclick={() => (newScheduleType = 'cron')}
+            >Cron</button>
           </div>
+        </div>
 
-          {#if newScheduleType === 'interval'}
-            <div class="form-row form-row--split">
-              <div class="interval-group">
-                <input type="number" min="0.25" step="0.25" bind:value={newIntervalHours} disabled={creating} />
-                <span class="interval-hint">hours</span>
-              </div>
-              <button type="submit" class="btn-accent" disabled={creating || !newUrl.trim()}>
-                {#if creating}<span class="spinner"></span> Adding…{:else}Add{/if}
-              </button>
+        {#if newScheduleType === 'interval'}
+          <div class="create-row">
+            <div class="interval-group">
+              <input type="number" min="0.25" step="0.25" bind:value={newIntervalHours} disabled={creating} />
+              <span class="unit">hours</span>
             </div>
-          {:else}
-            <div class="form-row form-row--split">
-              <input type="text" placeholder="Cron expression (e.g. '0 12 * * *' for daily at noon)" bind:value={newCronExpression} disabled={creating} />
-              <button type="submit" class="btn-accent" disabled={creating || !newUrl.trim()}>
-                {#if creating}<span class="spinner"></span> Adding…{:else}Add{/if}
-              </button>
-            </div>
-          {/if}
+            <button type="submit" class="btn-accent" disabled={creating || !newUrl.trim()}>
+              {#if creating}<span class="spinner"></span>Adding{:else}<i class="lni lni-calendar-plus" aria-hidden="true"></i>Add{/if}
+            </button>
+          </div>
+        {:else}
+          <div class="create-row">
+            <input class="input" type="text" placeholder="Cron expression (e.g. '0 12 * * *' for daily at noon)" bind:value={newCronExpression} disabled={creating} />
+            <button type="submit" class="btn-accent" disabled={creating || !newUrl.trim()}>
+              {#if creating}<span class="spinner"></span>Adding{:else}<i class="lni lni-calendar-plus" aria-hidden="true"></i>Add{/if}
+            </button>
+          </div>
+        {/if}
 
-          {#if createError}
-            <p class="feedback error">{createError}</p>
-          {/if}
-        </form>
-      </section>
+        {#if createError}
+          <p class="field-error">{createError}</p>
+        {/if}
+      </form>
 
       {#if triggerMsg}
-        <div class="feedback info">{triggerMsg}</div>
+        <div class="callout callout-info" role="status">
+          <i class="lni lni-repeat-1" aria-hidden="true"></i>
+          <div class="callout-body"><span>{triggerMsg}</span></div>
+        </div>
       {/if}
       {#if syncError}
-        <div class="feedback error">{syncError}</div>
+        <div class="callout callout-error" role="alert">
+          <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+          <div class="callout-body"><span>{syncError}</span></div>
+        </div>
       {/if}
 
+      <div class="section-head">
+        <h2>Schedules{#if !syncLoading}<span class="count">{schedules.length}</span>{/if}</h2>
+      </div>
+
       {#if syncLoading}
-        <p class="status">Loading…</p>
+        <ul class="schedule-list" aria-hidden="true">
+          {#each { length: 3 } as _}
+            <li class="schedule-panel skeleton">
+              <span class="sk sk-name"></span>
+              <span class="sk sk-sub"></span>
+            </li>
+          {/each}
+        </ul>
       {:else if schedules.length === 0}
-        <p class="status">No schedules yet.</p>
+        <div class="empty">
+          <i class="lni lni-calendar-plus" aria-hidden="true"></i>
+          <p class="empty-title">No schedules yet</p>
+          <p class="empty-hint">Add a playlist above to sync it automatically.</p>
+        </div>
       {:else}
         <ul class="schedule-list">
           {#each schedules as schedule (schedule.id)}
-            <li class="schedule-card" class:disabled={!schedule.enabled}>
-              <div class="schedule-header">
+            <li class="schedule-panel" class:disabled={!schedule.enabled}>
+              <div class="schedule-top">
                 <div class="schedule-info">
                   <span class="schedule-label">{schedule.label ?? schedule.playlist_url}</span>
                   {#if schedule.label}
@@ -320,8 +705,8 @@
                   {/if}
                 </div>
                 <div class="schedule-meta">
-                  <span class="interval-badge">{formatSchedule(schedule)}</span>
-                  <span class="status-badge" class:enabled={schedule.enabled} class:paused={!schedule.enabled}>
+                  <span class="pill pill-neutral">{formatSchedule(schedule)}</span>
+                  <span class="pill" class:pill-success={schedule.enabled} class:pill-muted={!schedule.enabled}>
                     {schedule.enabled ? 'Active' : 'Paused'}
                   </span>
                 </div>
@@ -331,569 +716,1019 @@
                 <span>Next run: {formatDate(schedule.next_run)}</span>
               </div>
               <div class="schedule-actions">
-                <button class="btn-secondary" onclick={() => toggleEnabled(schedule)}>
-                  {schedule.enabled ? 'Pause' : 'Resume'}
+                <button class="btn-ghost btn-sm" onclick={() => toggleEnabled(schedule)}>
+                  {#if schedule.enabled}<i class="lni lni-pause" aria-hidden="true"></i>Pause{:else}<i class="lni lni-play" aria-hidden="true"></i>Resume{/if}
                 </button>
-                <button class="btn-accent" disabled={triggeringId === schedule.id} onclick={() => handleTrigger(schedule.id)}>
+                <button class="btn-accent btn-sm" disabled={triggeringId === schedule.id} onclick={() => handleTrigger(schedule.id)}>
                   {#if triggeringId === schedule.id}
-                    <span class="spinner"></span> Syncing…
+                    <span class="spinner"></span>Syncing
                   {:else}
-                    Sync now
+                    <i class="lni lni-repeat-1" aria-hidden="true"></i>Sync now
                   {/if}
                 </button>
-                <button class="btn-danger" onclick={() => handleDelete(schedule.id)}>Delete</button>
+                <button class="btn-danger btn-sm" onclick={() => handleDelete(schedule.id)}>
+                  <i class="lni lni-trash-3" aria-hidden="true"></i>Delete
+                </button>
               </div>
             </li>
           {/each}
         </ul>
       {/if}
-    </div>
+    </section>
+  {/if}
+
+  <!-- ── Providers tab ───────────────────────────────────────────────────────── -->
+  {#if activeTab === 'providers'}
+    <section class="tab-content">
+      <div class="section-head">
+        <h2>Connected accounts</h2>
+      </div>
+      <p class="lede">
+        Connect external accounts so downloads and metadata can use your own access.
+      </p>
+
+      <div class="provider-panel">
+        <div class="provider-head">
+          <div class="provider-title">
+            <i class="lni lni-soundcloud provider-brand" aria-hidden="true"></i>
+            <span class="provider-name">SoundCloud</span>
+          </div>
+          {#if !scLoading}
+            <span class="pill" class:pill-success={scStatus?.connected} class:pill-muted={!scStatus?.connected}>
+              {scStatus?.connected ? 'Connected' : 'Not connected'}
+            </span>
+          {/if}
+        </div>
+
+        <p class="provider-note">
+          Connecting unlocks SoundCloud downloadable originals, often FLAC, plus age and region gated
+          tracks. Availability is per track and depends on the uploader enabling downloads.
+        </p>
+
+        {#if scError}
+          <div class="callout callout-error" role="alert">
+            <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+            <div class="callout-body"><span>{scError}</span></div>
+          </div>
+        {/if}
+        {#if scSuccess}
+          <div class="callout callout-success" role="status">
+            <i class="lni lni-check-circle-1" aria-hidden="true"></i>
+            <div class="callout-body"><span>{scSuccess}</span></div>
+          </div>
+        {/if}
+
+        {#if scLoading}
+          <p class="provider-note">Loading…</p>
+        {:else if scStatus?.connected}
+          <p class="provider-note">
+            Connected as <strong>{scStatus.username ?? 'unknown account'}</strong>
+          </p>
+          <p class="provider-note">
+            Syncing your likes creates a playlist called SoundCloud Likes and downloads every liked
+            track that is not already in your library. It runs as a background task, so you can
+            follow it on the Tasks page.
+          </p>
+          <div class="provider-actions">
+            <button class="btn-accent" disabled={scPending} onclick={handleSyncLikes}>
+              {#if scPending}<span class="spinner"></span>Working{:else}<i class="lni lni-heart" aria-hidden="true"></i>Sync my likes{/if}
+            </button>
+            <button class="btn-danger" disabled={scPending} onclick={handleDisconnect}>
+              {#if scPending}<span class="spinner"></span>Disconnecting{:else}<i class="lni lni-plug-1" aria-hidden="true"></i>Disconnect{/if}
+            </button>
+          </div>
+        {:else}
+          <form class="create-row" onsubmit={handleConnect}>
+            <input
+              class="input"
+              type="password"
+              placeholder="Paste your oauth_token cookie value"
+              bind:value={scToken}
+              disabled={scPending}
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="submit" class="btn-accent" disabled={scPending || !scToken.trim()}>
+              {#if scPending}<span class="spinner"></span>Connecting{:else}<i class="lni lni-link-1-angular-right" aria-hidden="true"></i>Connect{/if}
+            </button>
+          </form>
+          <p class="provider-note">
+            Where to find it: log in to soundcloud.com, open your browser devtools, go to Application
+            or Storage, then Cookies, then soundcloud.com, and copy the value of the oauth_token
+            cookie.
+          </p>
+        {/if}
+      </div>
+
+      <div class="provider-panel">
+        <div class="provider-head">
+          <div class="provider-title">
+            <i class="lni lni-spotify provider-brand" aria-hidden="true"></i>
+            <span class="provider-name">Spotify</span>
+          </div>
+          {#if !spaLoading}
+            <span class="pill" class:pill-success={spaStatus?.connected} class:pill-muted={!spaStatus?.connected}>
+              {spaStatus?.connected ? 'Connected' : 'Not connected'}
+            </span>
+          {/if}
+        </div>
+
+        <p class="provider-note">
+          Requires Spotify Premium. Connecting authorizes one Spotify session used for everything:
+          downloading your Liked Songs directly from Spotify, and reading metadata. Connecting opens
+          a browser on the server to authorize (works on a localhost install).
+        </p>
+
+        {#if spaError}
+          <div class="callout callout-error" role="alert">
+            <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+            <div class="callout-body"><span>{spaError}</span></div>
+          </div>
+        {/if}
+        {#if spaSuccess}
+          <div class="callout callout-success" role="status">
+            <i class="lni lni-check-circle-1" aria-hidden="true"></i>
+            <div class="callout-body"><span>{spaSuccess}</span></div>
+          </div>
+        {/if}
+
+        {#if spaLoading}
+          <p class="provider-note">Loading…</p>
+        {:else if spaStatus?.connected}
+          <p class="provider-note">
+            Connected as <strong>{spaStatus.username ?? 'your Spotify account'}</strong>
+          </p>
+          <p class="provider-note">
+            Syncing creates a Spotify Liked Songs playlist and downloads every liked track
+            not already in your library. It runs as a background task on the Tasks page.
+          </p>
+          <div class="provider-actions">
+            <button class="btn-accent" disabled={spaPending} onclick={handleSpotifyAudioSyncLikes}>
+              {#if spaPending}<span class="spinner"></span>Working{:else}<i class="lni lni-heart" aria-hidden="true"></i>Sync my Liked Songs{/if}
+            </button>
+            <button class="btn-danger" disabled={spaPending} onclick={handleSpotifyAudioDisconnect}>
+              {#if spaPending}<span class="spinner"></span>Disconnecting{:else}<i class="lni lni-plug-1" aria-hidden="true"></i>Disconnect{/if}
+            </button>
+          </div>
+        {:else}
+          {#if spaAuthorizing}
+            <p class="provider-note">
+              Approve in the Spotify tab, then paste the URL it redirects to (it starts with
+              <code>http://127.0.0.1:8898/login?code=</code>) here:
+            </p>
+            <form class="create-row" onsubmit={(e) => { e.preventDefault(); handleSpotifyAudioComplete(); }}>
+              <input
+                class="input"
+                type="text"
+                placeholder="http://127.0.0.1:8898/login?code=..."
+                bind:value={spaRedirectUrl}
+                disabled={spaPending}
+              />
+              <button type="submit" class="btn-accent" disabled={spaPending || !spaRedirectUrl.trim()}>
+                {#if spaPending}<span class="spinner"></span>Connecting{:else}<i class="lni lni-check" aria-hidden="true"></i>Complete connection{/if}
+              </button>
+            </form>
+          {:else}
+            <div class="provider-actions">
+              <button class="btn-accent" disabled={spaPending} onclick={handleSpotifyAudioConnect}>
+                {#if spaPending}<span class="spinner"></span>Opening{:else}<i class="lni lni-spotify" aria-hidden="true"></i>Connect Spotify{/if}
+              </button>
+            </div>
+          {/if}
+        {/if}
+      </div>
+
+      <div class="provider-panel">
+        <div class="provider-head">
+          <div class="provider-title">
+            <i class="lni lni-radio provider-brand" aria-hidden="true"></i>
+            <span class="provider-name">Last.fm</span>
+          </div>
+          {#if !lfmLoading}
+            <span class="pill" class:pill-success={lfmStatus?.connected} class:pill-muted={!lfmStatus?.connected}>
+              {lfmStatus?.connected ? 'Connected' : 'Not connected'}
+            </span>
+          {/if}
+        </div>
+
+        <p class="provider-note">
+          Scrobble what you play here to your Last.fm profile. Now-playing and completed plays are
+          reported automatically (a play counts after half the track, or 4 minutes).
+        </p>
+
+        {#if lfmError}
+          <div class="callout callout-error" role="alert">
+            <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+            <div class="callout-body"><span>{lfmError}</span></div>
+          </div>
+        {/if}
+        {#if lfmSuccess}
+          <div class="callout callout-success" role="status">
+            <i class="lni lni-check-circle-1" aria-hidden="true"></i>
+            <div class="callout-body"><span>{lfmSuccess}</span></div>
+          </div>
+        {/if}
+
+        {#if lfmLoading}
+          <p class="provider-note">Loading…</p>
+        {:else if lfmStatus?.connected}
+          <p class="provider-note">
+            Connected as <strong>{lfmStatus.username ?? 'your account'}</strong>
+          </p>
+          <label class="scrobble-toggle">
+            <input type="checkbox" checked={scrobbleOn} onchange={toggleScrobble} />
+            <span>Scrobble what I play</span>
+          </label>
+          <div class="provider-actions">
+            <button class="btn-danger" disabled={lfmPending} onclick={handleLastfmDisconnect}>
+              {#if lfmPending}<span class="spinner"></span>Disconnecting{:else}<i class="lni lni-plug-1" aria-hidden="true"></i>Disconnect{/if}
+            </button>
+          </div>
+        {:else if lfmStatus?.configured}
+          {#if lfmToken}
+            <p class="provider-note">
+              A Last.fm tab should have opened. If it didn't,
+              {#if lfmAuthUrl}<a href={lfmAuthUrl} target="_blank" rel="noopener noreferrer">open the authorization page</a>{:else}re-open it{/if}.
+              Click <strong>Allow access</strong> there, then finish here.
+            </p>
+            <div class="provider-actions">
+              <button class="btn-accent" disabled={lfmPending} onclick={handleLastfmComplete}>
+                {#if lfmPending}<span class="spinner"></span>Finishing{:else}<i class="lni lni-check-circle-1" aria-hidden="true"></i>I've approved, finish{/if}
+              </button>
+              <button class="btn-ghost" disabled={lfmPending} onclick={clearPending}>Cancel</button>
+            </div>
+          {:else}
+            <div class="provider-actions">
+              <button class="btn-accent" disabled={lfmPending} onclick={handleLastfmConnect}>
+                {#if lfmPending}<span class="spinner"></span>Opening{:else}<i class="lni lni-radio" aria-hidden="true"></i>Connect Last.fm{/if}
+              </button>
+            </div>
+          {/if}
+        {:else}
+          <form class="create-row" onsubmit={handleLastfmCredentials}>
+            <input class="input" type="text" placeholder="API key" bind:value={lfmKey} disabled={lfmPending} autocomplete="off" spellcheck="false" />
+            <input class="input" type="password" placeholder="Shared secret" bind:value={lfmSecret} disabled={lfmPending} autocomplete="off" spellcheck="false" />
+            <button type="submit" class="btn-accent" disabled={lfmPending || !lfmKey.trim() || !lfmSecret.trim()}>
+              {#if lfmPending}<span class="spinner"></span>Saving{:else}<i class="lni lni-link-1-angular-right" aria-hidden="true"></i>Save{/if}
+            </button>
+          </form>
+          <p class="provider-note">
+            Create a free API account at
+            <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">last.fm/api/account/create</a>
+            to get an API key and shared secret.
+          </p>
+        {/if}
+      </div>
+    </section>
   {/if}
 </div>
 
 <style>
   .tools-page {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 2rem 1rem;
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-page);
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
   }
 
+  /* ── Header ──────────────────────────────────────────────────────────── */
   .page-header {
-    margin-bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    max-width: 68ch;
   }
-
   h1 {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     font-weight: 700;
     margin: 0;
   }
+  @media (min-width: 768px) {
+    h1 {
+      font-size: 1.5rem;
+    }
+  }
+  .lede {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
 
-  /* ── Tabs ──────────────────────────────────────────────────────────────────── */
+  /* ── Tabs ────────────────────────────────────────────────────────────── */
   .tabs {
     display: flex;
-    gap: 0;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 1.75rem;
-  }
-
-  .tab {
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--muted);
-    font-size: 0.875rem;
-    font-family: inherit;
-    padding: 0.5rem 1.1rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-bottom: -1px;
-    transition: color 0.15s, border-color 0.15s;
-  }
-
-  .tab:hover {
-    color: var(--text);
-  }
-
-  .tab.active {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-  }
-
-  /* ── Tab content ───────────────────────────────────────────────────────────── */
-  .tab-content {
-    animation: fadein 0.12s ease;
-  }
-
-  @keyframes fadein {
-    from { opacity: 0; transform: translateY(4px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  .section-toolbar {
-    display: flex;
-    justify-content: flex-end;
-    margin-bottom: 1.25rem;
-  }
-
-  /* ── Storage ───────────────────────────────────────────────────────────────── */
-  .stats-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    padding: 1.5rem;
+    gap: 0.35rem;
+    padding: 0.3rem;
     background: var(--surface);
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    margin-bottom: 1.5rem;
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    align-self: flex-start;
+    flex-wrap: wrap;
+  }
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.5rem 0.95rem;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
+  }
+  .tab .lni {
+    font-size: 15px;
+  }
+  .tab:hover:not(.active) {
+    color: var(--text);
+    background: var(--surface-2);
+  }
+  .tab.active {
+    background: var(--surface-2);
+    color: var(--text-bright);
   }
 
-  .total-size {
+  .tab-content {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 1rem;
   }
 
-  .stat-label {
+  /* ── Section labels ──────────────────────────────────────────────────── */
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  h2 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
+    color: var(--muted-2);
+    margin: 0;
+  }
+  .count {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    background: var(--surface-2);
     color: var(--muted);
-    font-weight: 600;
+  }
+  .section-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
-  .stat-value {
-    font-size: 2rem;
-    font-weight: 700;
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+  .btn-accent,
+  .btn-ghost,
+  .btn-danger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.55rem 1rem;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      filter 0.12s ease,
+      background 0.12s ease,
+      opacity 0.12s ease;
+  }
+  .btn-accent .lni,
+  .btn-ghost .lni,
+  .btn-danger .lni {
+    font-size: 16px;
+  }
+  .btn-accent {
+    border: none;
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .btn-accent:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+  .btn-ghost {
+    background: var(--surface);
+    border: 1px solid var(--border);
     color: var(--text);
   }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+  .btn-danger {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+    color: var(--error);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--error-bg);
+  }
+  .btn-accent:disabled,
+  .btn-ghost:disabled,
+  .btn-danger:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .btn-sm {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.82rem;
+  }
 
-  .stat-bytes {
-    font-size: 0.8rem;
+  /* ── Inputs ──────────────────────────────────────────────────────────── */
+  .field {
+    display: flex;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding-left: 12px;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .field:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .field-icon {
+    font-size: 17px;
+    color: var(--muted-2);
+    flex-shrink: 0;
+  }
+  .field:focus-within .field-icon {
+    color: var(--accent);
+  }
+  .field input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.9rem;
+    padding: 0.7rem 0.7rem;
+  }
+  .field input::placeholder {
+    color: var(--muted);
+  }
+  .input {
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.9rem;
+    padding: 0.6rem 0.75rem;
+    outline: none;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .input::placeholder {
+    color: var(--muted);
+  }
+  .input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .input:disabled {
+    opacity: 0.6;
+  }
+
+  /* ── Create schedule form ────────────────────────────────────────────── */
+  .create-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+  }
+  .create-row {
+    display: flex;
+    gap: 0.6rem;
+  }
+  .create-row .input {
+    flex: 1;
+  }
+  .seg {
+    display: inline-flex;
+    padding: 3px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+  .seg-btn {
+    padding: 0.35rem 0.85rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
+  }
+  .seg-btn:hover:not(.active):not(:disabled) {
+    color: var(--text);
+  }
+  .seg-btn.active {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+  .seg-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .interval-group {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .interval-group input {
+    width: 5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    padding: 0.6rem 0.7rem;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .interval-group input:focus {
+    border-color: var(--accent);
+  }
+  .unit {
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .field-error {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--error);
+  }
+
+  /* ── Callouts ────────────────────────────────────────────────────────── */
+  .callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    font-size: 0.9rem;
+  }
+  .callout .lni {
+    font-size: 19px;
+    flex-shrink: 0;
+    line-height: 1.35;
+  }
+  .callout-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .callout-body strong {
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+  .callout-error {
+    background: var(--error-bg);
+    border-color: color-mix(in srgb, var(--error) 45%, transparent);
+    color: var(--error);
+  }
+  .callout-success {
+    background: color-mix(in srgb, var(--success) 16%, var(--panel));
+    border-color: color-mix(in srgb, var(--success) 45%, transparent);
+    color: var(--success);
+  }
+  .callout-info {
+    background: var(--accent-muted);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    color: var(--accent-2);
+  }
+
+  /* ── Status pills ────────────────────────────────────────────────────── */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill-neutral {
+    background: var(--surface-2);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    letter-spacing: 0;
+  }
+  .pill-success {
+    background: color-mix(in srgb, var(--success) 18%, transparent);
+    color: var(--success);
+  }
+  .pill-muted {
+    background: var(--surface-2);
     color: var(--muted);
   }
 
-  .stat-aside {
-    font-size: 0.875rem;
-    color: var(--muted);
+  /* ── Storage summary ─────────────────────────────────────────────────── */
+  .storage-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 2rem;
+    padding: 1rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+  }
+  .summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .summary-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+  }
+  .summary-value {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+  .summary-mono {
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
   }
 
+  /* ── Artists list ────────────────────────────────────────────────────── */
   .artists-list {
     list-style: none;
     padding: 0;
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 2px;
   }
-
   .artist-row {
     display: grid;
-    grid-template-columns: 200px 1fr 120px;
-    gap: 1rem;
+    grid-template-columns: minmax(8rem, 1.2fr) 2fr auto;
     align-items: center;
-    padding: 0.65rem 0.9rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    transition: background 0.1s;
+    gap: 0.85rem;
+    padding: 0.55rem 0.7rem;
+    border-radius: 8px;
+    transition: background 0.1s ease;
   }
-
-  .artist-row:hover {
+  .artist-row:not(.skeleton):hover {
     background: var(--surface);
   }
-
   .artist-name {
-    font-weight: 500;
-    font-size: 0.875rem;
+    font-size: 0.88rem;
+    color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-
-  .artist-bar {
-    display: flex;
-    align-items: center;
-  }
-
   .bar-track {
-    flex: 1;
-    height: 5px;
+    height: 6px;
+    border-radius: 999px;
     background: var(--surface-2);
-    border-radius: 3px;
     overflow: hidden;
   }
-
   .bar-fill {
     height: 100%;
+    width: 100%;
     background: var(--accent);
-    border-radius: 3px;
-    transition: width 0.3s ease;
+    border-radius: 999px;
+    transform-origin: left;
+    transition: transform 0.3s ease;
   }
-
   .artist-meta {
     display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
     justify-content: flex-end;
-    gap: 1rem;
-    align-items: center;
   }
-
   .meta-pct {
+    font-family: var(--font-mono);
     font-size: 0.78rem;
-    color: var(--muted);
-    min-width: 38px;
-    text-align: right;
+    color: var(--text);
     font-variant-numeric: tabular-nums;
   }
-
   .meta-size {
-    font-size: 0.82rem;
-    color: var(--text);
-    font-weight: 500;
-    min-width: 50px;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--muted-2);
+    min-width: 5.5rem;
     text-align: right;
-    font-variant-numeric: tabular-nums;
   }
 
-  /* ── Sync ──────────────────────────────────────────────────────────────────── */
-  .sync-subtitle {
-    color: var(--muted);
-    margin: 0 0 1.5rem;
-    font-size: 0.875rem;
-  }
-
-  .create-section h3 {
-    font-size: 0.875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--muted);
-    margin: 0 0 0.75rem;
-  }
-
-  .create-form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    margin-bottom: 2rem;
-  }
-
-  .form-row {
-    display: flex;
-  }
-
-  .form-row--split {
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-
-  .form-row input[type="url"],
-  .form-row input[type="text"] {
-    flex: 1;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--surface);
-    color: var(--text);
-    font-size: 0.875rem;
-    font-family: inherit;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-
-  .form-row input[type="url"]:focus,
-  .form-row input[type="text"]:focus {
-    border-color: var(--accent);
-  }
-
-  .form-row input:disabled {
-    opacity: 0.5;
-  }
-
-  .schedule-type-toggle {
-    display: flex;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-
-  .toggle-btn {
-    flex: 1;
-    padding: 0.5rem 0.75rem;
-    border: none;
-    background: var(--surface);
-    color: var(--muted);
-    font-size: 0.875rem;
-    font-weight: 500;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-  }
-
-  .toggle-btn:not(:last-child) {
-    border-right: 1px solid var(--border);
-  }
-
-  .toggle-btn.active {
-    background: var(--accent);
-    color: #fff;
-  }
-
-  .toggle-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .interval-group {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
-
-  .interval-group input[type="number"] {
-    width: 80px;
-    padding: 0.5rem 0.5rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--surface);
-    color: var(--text);
-    font-size: 0.875rem;
-    font-family: inherit;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-
-  .interval-group input[type="number"]:focus {
-    border-color: var(--accent);
-  }
-
-  .interval-group input[type="number"]:disabled {
-    opacity: 0.5;
-  }
-
-  .interval-hint {
-    font-size: 0.8rem;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-
+  /* ── Schedule list ───────────────────────────────────────────────────── */
   .schedule-list {
     list-style: none;
     padding: 0;
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.65rem;
+    gap: 8px;
   }
-
-  .schedule-card {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1rem 1.1rem;
-    background: var(--surface);
+  .schedule-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
+    gap: 0.7rem;
+    padding: 1rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    transition: opacity 0.12s ease;
   }
-
-  .schedule-card.disabled {
+  .schedule-panel.disabled {
     opacity: 0.6;
   }
-
-  .schedule-header {
+  .schedule-top {
     display: flex;
-    justify-content: space-between;
     align-items: flex-start;
+    justify-content: space-between;
     gap: 1rem;
   }
-
   .schedule-info {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 0.2rem;
     min-width: 0;
   }
-
   .schedule-label {
+    font-size: 0.95rem;
     font-weight: 600;
-    font-size: 0.9rem;
+    color: var(--text-bright);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-
   .schedule-url {
-    font-size: 0.75rem;
-    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--muted-2);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-
   .schedule-meta {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
     flex-shrink: 0;
   }
-
-  .interval-badge {
-    font-size: 0.75rem;
-    padding: 0.2rem 0.5rem;
-    border-radius: 20px;
-    background: var(--surface-2);
-    color: var(--muted);
-  }
-
-  .status-badge {
-    font-size: 0.75rem;
-    padding: 0.2rem 0.5rem;
-    border-radius: 20px;
-    font-weight: 600;
-  }
-
-  .status-badge.enabled {
-    background: rgba(100, 200, 120, 0.15);
-    color: #6dc87a;
-  }
-
-  .status-badge.paused {
-    background: rgba(180, 180, 180, 0.08);
-    color: var(--muted);
-  }
-
   .schedule-dates {
     display: flex;
-    gap: 1.5rem;
-    font-size: 0.78rem;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.25rem;
+    font-size: 0.8rem;
     color: var(--muted);
   }
-
   .schedule-actions {
     display: flex;
-    gap: 0.5rem;
     flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
-  /* ── Shared buttons ────────────────────────────────────────────────────────── */
-  .btn-header {
-    padding: 0.4rem 1rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
+  /* ── Provider panels ─────────────────────────────────────────────────── */
+  .provider-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.1rem 1.2rem;
     background: var(--surface);
-    color: var(--text);
-    font-size: 0.875rem;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.15s;
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
   }
-
-  .btn-header:hover:not(:disabled) {
-    background: var(--surface-2);
-  }
-
-  .btn-header:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-accent {
-    padding: 0.5rem 1.1rem;
-    border-radius: 6px;
-    border: none;
-    background: var(--accent);
-    color: #fff;
-    font-size: 0.875rem;
-    font-weight: 500;
-    font-family: inherit;
-    cursor: pointer;
-    display: inline-flex;
+  .provider-head {
+    display: flex;
     align-items: center;
-    gap: 0.4rem;
-    transition: opacity 0.15s;
+    justify-content: space-between;
+    gap: 1rem;
   }
-
-  .btn-accent:hover:not(:disabled) {
-    opacity: 0.88;
-  }
-
-  .btn-accent:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-secondary {
-    padding: 0.5rem 1.1rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--text);
-    font-size: 0.875rem;
-    font-family: inherit;
-    cursor: pointer;
-    display: inline-flex;
+  .provider-title {
+    display: flex;
     align-items: center;
-    gap: 0.4rem;
-    transition: background 0.15s;
+    gap: 0.6rem;
   }
-
-  .btn-secondary:hover {
-    background: var(--surface);
+  .provider-brand {
+    font-size: 22px;
+    color: var(--text-bright);
   }
-
-  .btn-danger {
-    padding: 0.5rem 1.1rem;
-    border-radius: 6px;
-    border: 1px solid var(--error);
-    background: transparent;
-    color: var(--error);
-    font-size: 0.875rem;
-    font-family: inherit;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    transition: background 0.15s;
+  .provider-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-bright);
   }
-
-  .btn-danger:hover {
-    background: color-mix(in srgb, var(--error) 12%, transparent);
-  }
-
-  /* ── Feedback ──────────────────────────────────────────────────────────────── */
-  .feedback {
-    padding: 0.6rem 0.9rem;
-    border-radius: 6px;
-    font-size: 0.875rem;
-    margin-bottom: 1rem;
-  }
-
-  .feedback.error {
-    background: color-mix(in srgb, var(--error) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--error) 35%, transparent);
-    color: var(--error);
-  }
-
-  .feedback.info {
-    background: rgba(100, 200, 120, 0.12);
-    color: #6dc87a;
-  }
-
-  /* ── Misc ──────────────────────────────────────────────────────────────────── */
-  .status {
-    text-align: center;
+  .provider-note {
+    margin: 0;
+    font-size: 0.86rem;
+    line-height: 1.55;
     color: var(--muted);
-    padding: 2.5rem 0;
-    font-size: 0.875rem;
+  }
+  .provider-note strong {
+    color: var(--text-bright);
+    font-weight: 600;
+  }
+  .provider-note code {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    background: var(--surface-2);
+    padding: 0.1rem 0.35rem;
+    border-radius: 5px;
+    color: var(--text);
+  }
+  .provider-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  /* ── Empty + loading ─────────────────────────────────────────────────── */
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.35rem;
+    padding: 2.5rem 1rem;
+  }
+  .empty .lni {
+    font-size: 30px;
+    color: var(--muted-2);
+    margin-bottom: 0.3rem;
+  }
+  .empty-title {
+    margin: 0;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .empty-hint {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .sk {
+    height: 0.75rem;
+    border-radius: 4px;
+    background: var(--surface-2);
+    animation: sk-pulse 1.3s ease-in-out infinite;
+  }
+  .artist-row.skeleton {
+    grid-template-columns: minmax(8rem, 1.2fr) 2fr auto;
+  }
+  .sk-name {
+    width: 60%;
+  }
+  .sk-bar {
+    height: 6px;
+    width: 100%;
+  }
+  .sk-meta {
+    width: 4rem;
+    justify-self: end;
+  }
+  .schedule-panel.skeleton {
+    gap: 0.5rem;
+  }
+  .schedule-panel.skeleton .sk-name {
+    width: 40%;
+  }
+  .schedule-panel.skeleton .sk-sub {
+    width: 25%;
+    height: 0.6rem;
+  }
+  @keyframes sk-pulse {
+    50% {
+      opacity: 0.45;
+    }
   }
 
   .spinner {
-    display: inline-block;
-    width: 11px;
-    height: 11px;
-    border: 2px solid currentColor;
-    border-top-color: transparent;
+    width: 13px;
+    height: 13px;
+    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-top-color: currentColor;
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
   }
-
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
-  @media (max-width: 768px) {
-    .stats-header {
+  @media (prefers-reduced-motion: reduce) {
+    .sk,
+    .spinner,
+    .bar-fill {
+      animation: none;
+      transition: none;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .tools-page {
+      padding: var(--space-page);
+    }
+    .create-row {
       flex-direction: column;
-      gap: 1rem;
     }
-
+    .seg {
+      align-self: stretch;
+    }
+    .seg-btn {
+      flex: 1;
+    }
     .artist-row {
-      grid-template-columns: 1fr;
-      gap: 0.4rem;
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        "name meta"
+        "bar bar";
+      row-gap: 0.4rem;
     }
-
+    .artist-name {
+      grid-area: name;
+    }
+    .bar-track {
+      grid-area: bar;
+    }
     .artist-meta {
-      justify-content: space-between;
+      grid-area: meta;
     }
+  }
+  .scrobble-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.875rem;
+    color: var(--text);
+    cursor: pointer;
+    margin: 0.25rem 0 0.6rem;
+  }
+  .scrobble-toggle input {
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    button { min-height: 44px; min-width: 44px; }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 16px; min-height: 44px; }
+    .tabs { max-width: 100%; overflow-x: auto; }
+    .tab { flex-shrink: 0; }
+    .section-head, .provider-head, .schedule-top { flex-wrap: wrap; }
+    .provider-title, .schedule-info { min-width: 0; }
+    .schedule-info { flex-basis: 100%; }
+    .schedule-meta { flex-wrap: wrap; }
+    .create-row { flex-direction: column; align-items: stretch; }
+    .create-row .input { flex: 0 0 auto; width: 100%; }
+    .scrobble-toggle { min-height: 44px; }
+    .callout-body, .provider-note { overflow-wrap: anywhere; }
+    .artist-row, .artist-row.skeleton { grid-template-columns: minmax(0, 1fr) auto; }
   }
 </style>

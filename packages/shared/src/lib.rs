@@ -14,7 +14,7 @@ pub use libs::*;
 // ===============================================================================
 
 // Special function to initialize all global singletons
-pub fn init_globals() -> crate::types::SoundomeResult<()> {
+pub fn init_globals() -> crate::types::SoundgnomeResult<()> {
     config::Config::init()
         .map_err(|e| crate::errors::Error::Config(format!("Failed to initialize config: {}", e)))?;
     libs::http::ProxyRotator::init()?;

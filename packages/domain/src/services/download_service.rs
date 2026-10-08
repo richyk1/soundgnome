@@ -7,11 +7,13 @@ use std::{
 use config::Config;
 use diesel::SqliteConnection;
 use fetcher::{curate_source_url, Fetcher, Source};
+use rusty_chromaprint::{match_fingerprints, Configuration, Fingerprinter};
+use sha2::{Digest, Sha256};
 use shared::models::ReferenceType;
 use shared::{
     errors::Error,
     models::{Album, AlbumType, Artist, Platform, Playlist, Reference, TaskTrackValidation, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
     utils::enums::Match,
     utils::fs::sanitize_filename,
 };
@@ -26,6 +28,232 @@ use super::{
 };
 pub use tagger::enricher::MatchCandidate;
 
+/// Outcome of ingesting one local file, so the batch job can categorize results
+/// (new vs. duplicate vs. needs-review) for the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IngestOutcome {
+    /// New track added to the library.
+    New,
+    /// Matched an existing track; the new file was better and replaced it.
+    Replaced,
+    /// Matched an existing track; kept the existing audio (metadata merged).
+    Duplicate,
+    /// Saved for manual validation (enrichment inconclusive).
+    NeedsValidation,
+}
+
+/// A collision-free staging file name. Many tracks share a sanitized title
+/// (e.g. "Lust", "Intro", "Stone cold."), so staging under the title alone
+/// lets a later download clobber an earlier track's staged file before it is
+/// organized, which then fails the move with "No such file or directory".
+/// The final library name stays title-based (see `organizer::move_track_file`),
+/// so this uuid prefix never reaches the library.
+fn staging_name(title: &str) -> String {
+    format!("{}-{}", Uuid::new_v4(), sanitize_filename(title))
+}
+
+/// Extract an 11-char YouTube video id from a watch/short URL, if present.
+fn youtube_video_id(url: &str) -> Option<String> {
+    let take_id = |s: &str| -> Option<String> {
+        let id: String = s
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+        (id.len() == 11).then_some(id)
+    };
+    if let Some(i) = url.find("v=") {
+        if let Some(id) = take_id(&url[i + 2..]) {
+            return Some(id);
+        }
+    }
+    if let Some(i) = url.find("youtu.be/") {
+        if let Some(id) = take_id(&url[i + 9..]) {
+            return Some(id);
+        }
+    }
+    None
+}
+
+/// The API endpoint that serves a track's embedded cover art (see the
+/// `GET /tracks/<id>/cover` route). Used as the `cover` URL for locally-ingested
+/// files whose artwork is stored inside the audio container rather than at an
+/// external URL.
+fn embedded_cover_url(id: i32) -> String {
+    format!("/api/tracks/{id}/cover")
+}
+
+/// Best-effort cover-art URL for a track whose source metadata carried none,
+/// derived from its references. YouTube -> thumbnail built from the video id;
+/// Spotify -> album art via the public, auth-free oEmbed endpoint. Used so
+/// downloads can embed artwork into the file (offline-safe) rather than relying
+/// on the client to fetch it at play time.
+async fn resolve_cover_url(track: &Track) -> Option<String> {
+    for r in &track.references {
+        let url = r.external_url.as_deref().unwrap_or_default();
+        if url.contains("youtube.com") || url.contains("youtu.be") {
+            if let Some(id) = youtube_video_id(url) {
+                return Some(format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"));
+            }
+        }
+    }
+
+    let spotify_url = track.references.iter().find_map(|r| {
+        let url = r.external_url.clone()?;
+        url.contains("open.spotify.com/track").then_some(url)
+    })?;
+    tokio::task::spawn_blocking(move || -> Option<String> {
+        let resp = reqwest::blocking::Client::new()
+            .get("https://open.spotify.com/oembed")
+            .query(&[("url", spotify_url.as_str())])
+            .send()
+            .ok()?
+            .error_for_status()
+            .ok()?;
+        let json: serde_json::Value = resp.json().ok()?;
+        json.get("thumbnail_url")?.as_str().map(String::from)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Result of a one-shot artwork backfill over the library.
+#[derive(Debug, Default, Clone)]
+pub struct ArtworkBackfillSummary {
+    pub total: usize,
+    pub embedded: usize,
+    pub no_art: usize,
+    pub no_file: usize,
+    pub missing_file: usize,
+    pub errors: usize,
+}
+
+/// Result of a one-shot acoustic-fingerprint backfill over the library.
+#[derive(Debug, Default, Clone)]
+pub struct FingerprintBackfillSummary {
+    pub total: usize,
+    pub fingerprinted: usize,
+    pub already_had: usize,
+    pub no_file: usize,
+    pub errors: usize,
+}
+
+/// One duplicate cluster found by [`DownloadService::dedupe_library`]: the copy
+/// that is kept and the copies removed (or that would be, in a dry run).
+#[derive(Debug, serde::Serialize)]
+pub struct DedupeCluster {
+    pub keeper: DedupeTrack,
+    pub removed: Vec<DedupeTrack>,
+}
+
+/// A track in a dedup report.
+#[derive(Debug, serde::Serialize)]
+pub struct DedupeTrack {
+    pub id: i32,
+    pub title: String,
+    pub artist: String,
+    pub duration: Option<i32>,
+    pub quality: String,
+    pub needs_validation: bool,
+    pub rating: Option<String>,
+    pub file_path: Option<String>,
+}
+
+/// Outcome of a library-wide acoustic dedup pass.
+#[derive(Debug, serde::Serialize)]
+pub struct DedupeReport {
+    pub applied: bool,
+    pub groups_examined: usize,
+    pub clusters: Vec<DedupeCluster>,
+    pub tracks_removed: usize,
+    pub bytes_freed: u64,
+}
+
+/// Fetch cover-art bytes for a URL, preferring a higher-resolution variant of
+/// known image hosts and falling back to the original when the upgrade is not
+/// available. Runs the blocking request off the async runtime.
+async fn fetch_cover_bytes(url: String) -> Option<Vec<u8>> {
+    for candidate in higher_res_cover_candidates(&url) {
+        let bytes = tokio::task::spawn_blocking(move || {
+            reqwest::blocking::get(&candidate)
+                .and_then(|r| r.error_for_status())
+                .and_then(|r| r.bytes().map(|b| b.to_vec()))
+                .ok()
+        })
+        .await
+        .ok()
+        .flatten();
+        if bytes.is_some() {
+            return bytes;
+        }
+    }
+    None
+}
+
+/// Higher-resolution cover variants to try, in order, ending with the original.
+///
+/// - SoundCloud artwork (`i1.sndcdn.com/artworks-...-large.jpg`) defaults to
+///   `-large` at only 100x100; the `-t<N>x<N>` tokens go far higher, so
+///   `t1080x1080` then `t500x500` are tried before the original.
+/// - YouTube thumbnails ship at fixed sizes; `hqdefault` is only 480x360.
+///   `maxresdefault` (1280x720) exists for most music uploads but 404s on some,
+///   so `sddefault` (640x480) then the original follow it.
+/// - Google-hosted images (YouTube Music covers) encode size in a `=w<W>-h<H>`
+///   suffix that can be requested larger; Google clamps to the source
+///   resolution, so asking for 1200 is safe.
+/// - Spotify images encode size in the id prefix (`00001e02` = 300,
+///   `0000b273` = 640, its maximum); the 300 variant is rewritten to 640.
+fn higher_res_cover_candidates(url: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+
+    if url.contains("ytimg.com/vi/") || url.contains("img.youtube.com/vi/") {
+        for name in ["maxresdefault", "sddefault", "hqdefault"] {
+            if let Some(upgraded) = replace_youtube_thumb_name(url, name) {
+                candidates.push(upgraded);
+            }
+        }
+    } else if url.contains("googleusercontent.com") || url.contains("ggpht.com") {
+        if let Some(upgraded) = bump_google_image_size(url, 1200) {
+            candidates.push(upgraded);
+        }
+    } else if url.contains("sndcdn.com/artworks-") {
+        for size in ["t1080x1080", "t500x500"] {
+            if let Some(upgraded) = replace_soundcloud_size(url, size) {
+                candidates.push(upgraded);
+            }
+        }
+    } else if url.contains("scdn.co/image/") || url.contains("spotifycdn.com/image/") {
+        if url.contains("ab67616d00001e02") {
+            candidates.push(url.replace("ab67616d00001e02", "ab67616d0000b273"));
+        }
+    }
+
+    if !candidates.iter().any(|c| c == url) {
+        candidates.push(url.to_string());
+    }
+    candidates
+}
+
+/// Rewrite the size token in a YouTube thumbnail URL (`.../vi/<id>/<name>.jpg`).
+fn replace_youtube_thumb_name(url: &str, name: &str) -> Option<String> {
+    let (prefix, rest) = url.split_once("/vi/")?;
+    let (id, _file) = rest.split_once('/')?;
+    Some(format!("{prefix}/vi/{id}/{name}.jpg"))
+}
+
+/// Replace or append the `=w<W>-h<H>` size suffix on a Google-hosted image URL.
+fn bump_google_image_size(url: &str, size: u32) -> Option<String> {
+    let base = url.split_once('=').map(|(b, _)| b).unwrap_or(url);
+    Some(format!("{base}=w{size}-h{size}-l90-rj"))
+}
+
+/// Rewrite the trailing `-<size>.<ext>` token on a SoundCloud artwork URL.
+fn replace_soundcloud_size(url: &str, size: &str) -> Option<String> {
+    let (path, ext) = url.rsplit_once('.')?;
+    let (base, _token) = path.rsplit_once('-')?;
+    Some(format!("{base}-{size}.{ext}"))
+}
+
 pub struct DownloadService {
     track_service: Arc<TrackService>,
     album_service: Arc<AlbumService>,
@@ -36,6 +264,522 @@ pub struct DownloadService {
 
 // TODO: manage "to validate" tracks
 impl DownloadService {
+    /// Persist live progress for a maintenance backfill task. No-op when there is
+    /// no backing task row (e.g. an internal call).
+    #[allow(clippy::too_many_arguments)]
+    fn report_backfill(
+        &self,
+        conn: &mut SqliteConnection,
+        task_id: Option<i32>,
+        kind: &str,
+        processed: usize,
+        total: usize,
+        ok: i32,
+        skipped: i32,
+        errors: i32,
+    ) {
+        let Some(tid) = task_id else {
+            return;
+        };
+        let _ = self
+            .task_service
+            .update_progress(conn, tid, processed as i32, total as i32);
+        let stats = shared::models::TaskStats {
+            backfill: Some(shared::models::BackfillProgress {
+                kind: kind.to_string(),
+                ok,
+                skipped,
+                errors,
+            }),
+            ..Default::default()
+        };
+        let _ = self.task_service.update_stats(conn, tid, &stats);
+    }
+
+    /// One-shot maintenance pass: embed cover art into every library file that
+    /// can resolve one, so the collection keeps its artwork offline. Non-
+    /// destructive — it only (re)writes tags on the existing file in place and
+    /// fills a missing `cover` URL in the DB; it never re-downloads audio.
+    pub async fn backfill_artwork(
+        &self,
+        conn: &mut SqliteConnection,
+        task_id: Option<i32>,
+    ) -> SoundgnomeResult<ArtworkBackfillSummary> {
+        let tracks = self.track_service.get_all_finalized(conn)?;
+        let total = tracks.len();
+        let mut s = ArtworkBackfillSummary {
+            total,
+            ..Default::default()
+        };
+        tracing::info!("Artwork backfill: starting over {} tracks", total);
+        self.report_backfill(conn, task_id, "artwork", 0, total, 0, 0, 0);
+
+        for (i, mut track) in tracks.into_iter().enumerate() {
+            self.report_backfill(
+                conn,
+                task_id,
+                "artwork",
+                i,
+                total,
+                s.embedded as i32,
+                (s.no_art + s.no_file + s.missing_file) as i32,
+                s.errors as i32,
+            );
+            let Some(path) = track.file_path.clone() else {
+                s.no_file += 1;
+                continue;
+            };
+            if !path.exists() {
+                s.missing_file += 1;
+                continue;
+            }
+
+            let cover_url = match &track.cover {
+                Some(u) => Some(u.clone()),
+                None => resolve_cover_url(&track).await,
+            };
+            let Some(url) = cover_url else {
+                // No external artwork URL, but the file itself may carry embedded
+                // art (common for locally-ingested files). Point `cover` at the
+                // on-demand endpoint instead of re-embedding what is already there.
+                if tagger::file::read_cover_from_path(&path).is_some() {
+                    if let Some(id) = track.id {
+                        track.cover = Some(embedded_cover_url(id));
+                        match self.track_service.update(conn, id, &track) {
+                            Ok(_) => s.embedded += 1,
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Backfill: could not persist embedded cover for {}: {}",
+                                    id,
+                                    e
+                                );
+                                s.errors += 1;
+                            }
+                        }
+                        continue;
+                    }
+                }
+                s.no_art += 1;
+                continue;
+            };
+
+            // If the file already carries embedded art (downloads embed it, and
+            // many local imports have it too), there is nothing to fetch or
+            // rewrite - just ensure `cover` points at something displayable. This
+            // keeps the backfill cheap and idempotent instead of re-encoding
+            // every file in the library on every run.
+            if tagger::file::read_cover_from_path(&path).is_some() {
+                if track.cover.is_none() {
+                    if let Some(id) = track.id {
+                        track.cover = Some(url);
+                        if let Err(e) = self.track_service.update(conn, id, &track) {
+                            tracing::warn!("Backfill: could not persist cover for {}: {}", id, e);
+                        }
+                    }
+                }
+                s.embedded += 1;
+                continue;
+            }
+
+            let Some(bytes) = fetch_cover_bytes(url.clone()).await else {
+                s.errors += 1;
+                continue;
+            };
+
+            match tagger::file::tag_file_with_track_and_cover(&path, &track, Some(&bytes)) {
+                Ok(()) => {
+                    if track.cover.is_none() {
+                        if let Some(id) = track.id {
+                            track.cover = Some(url);
+                            if let Err(e) = self.track_service.update(conn, id, &track) {
+                                tracing::warn!(
+                                    "Backfill: could not persist cover for {}: {}",
+                                    id,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    s.embedded += 1;
+                }
+                Err(e) => {
+                    tracing::warn!("Backfill: failed to embed art into {:?}: {}", path, e);
+                    s.errors += 1;
+                }
+            }
+
+            if (i + 1) % 50 == 0 {
+                tracing::info!(
+                    "Artwork backfill: {}/{} processed ({} embedded)",
+                    i + 1,
+                    total,
+                    s.embedded
+                );
+            }
+        }
+
+        self.report_backfill(
+            conn,
+            task_id,
+            "artwork",
+            total,
+            total,
+            s.embedded as i32,
+            (s.no_art + s.no_file + s.missing_file) as i32,
+            s.errors as i32,
+        );
+
+        tracing::info!(
+            "Artwork backfill complete: {} embedded, {} no-art, {} missing-file, {} no-path, {} errors (of {})",
+            s.embedded, s.no_art, s.missing_file, s.no_file, s.errors, total
+        );
+        Ok(s)
+    }
+
+    /// One-shot acoustic-fingerprint backfill: compute and store a Chromaprint
+    /// fingerprint for every finalized library track that lacks one, so the acoustic
+    /// dedup tier can recognize re-uploads of songs already in the library (which
+    /// predate fingerprinting).
+    pub async fn backfill_fingerprints(
+        &self,
+        conn: &mut SqliteConnection,
+        task_id: Option<i32>,
+    ) -> SoundgnomeResult<FingerprintBackfillSummary> {
+        let tracks = self.track_service.get_all_finalized(conn)?;
+        let total = tracks.len();
+        let mut s = FingerprintBackfillSummary {
+            total,
+            ..Default::default()
+        };
+        tracing::info!("Fingerprint backfill: starting over {} tracks", total);
+        self.report_backfill(conn, task_id, "fingerprint", 0, total, 0, 0, 0);
+
+        for (i, track) in tracks.into_iter().enumerate() {
+            self.report_backfill(
+                conn,
+                task_id,
+                "fingerprint",
+                i,
+                total,
+                s.fingerprinted as i32,
+                (s.already_had + s.no_file) as i32,
+                s.errors as i32,
+            );
+            let Some(id) = track.id else {
+                continue;
+            };
+            let already = track.references.iter().any(|r| {
+                r.external_url
+                    .as_deref()
+                    .is_some_and(|u| u.starts_with(CHROMAPRINT_PREFIX))
+            });
+            if already {
+                s.already_had += 1;
+                continue;
+            }
+            let Some(path) = track.file_path.clone() else {
+                s.no_file += 1;
+                continue;
+            };
+            if !path.exists() {
+                s.no_file += 1;
+                continue;
+            }
+
+            match compute_fingerprint(&path) {
+                Ok(fp) => {
+                    let reference = Reference {
+                        id: None,
+                        ref_type: ReferenceType::Metadata,
+                        platform: Platform::Unknown,
+                        external_id: None,
+                        external_url: Some(format!(
+                            "{CHROMAPRINT_PREFIX}{}",
+                            encode_fingerprint(&fp)
+                        )),
+                    };
+                    if let Err(e) = self.track_service.add_reference(conn, id, reference) {
+                        tracing::warn!("Fingerprint backfill: could not store fp for {id}: {e}");
+                        s.errors += 1;
+                    } else {
+                        s.fingerprinted += 1;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Fingerprint backfill: failed for {path:?}: {e}");
+                    s.errors += 1;
+                }
+            }
+
+            if (i + 1) % 50 == 0 {
+                tracing::info!(
+                    "Fingerprint backfill: {}/{} processed ({} fingerprinted)",
+                    i + 1,
+                    total,
+                    s.fingerprinted
+                );
+            }
+        }
+
+        self.report_backfill(
+            conn,
+            task_id,
+            "fingerprint",
+            total,
+            total,
+            s.fingerprinted as i32,
+            (s.already_had + s.no_file) as i32,
+            s.errors as i32,
+        );
+
+        tracing::info!(
+            "Fingerprint backfill complete: {} fingerprinted, {} already had, {} no-file, {} errors (of {})",
+            s.fingerprinted,
+            s.already_had,
+            s.no_file,
+            s.errors,
+            total
+        );
+        Ok(s)
+    }
+
+    /// Library-wide acoustic dedup. Groups tracks by normalized title+artist, then
+    /// within each group clusters the copies that acoustically match (Chromaprint
+    /// overlap) - so only genuine same-recording copies are merged, never different
+    /// versions that merely share a title. For each cluster it keeps the best
+    /// COMPLETE copy (finalized, full-length, then highest audio quality) and, when
+    /// `apply` is set, deletes the rest (file + row), transferring a like/dislike to
+    /// the keeper if it had none. `apply=false` only reports the plan.
+    pub fn dedupe_library(
+        &self,
+        conn: &mut SqliteConnection,
+        apply: bool,
+        loose: bool,
+    ) -> SoundgnomeResult<DedupeReport> {
+        use std::collections::HashMap;
+
+        // Stored fingerprints, keyed by track id (one query for the whole library).
+        let mut fps: HashMap<i32, Vec<u32>> = HashMap::new();
+        for (id, encoded) in self
+            .track_service
+            .fingerprint_candidates(conn, i32::MIN, i32::MAX)?
+        {
+            if let Some(fp) = encoded
+                .strip_prefix(CHROMAPRINT_PREFIX)
+                .and_then(decode_fingerprint)
+            {
+                fps.insert(id, fp);
+            }
+        }
+
+        // Ratings, keyed by track id, so a like/dislike survives merging.
+        let ratings: HashMap<i32, shared::models::Rating> =
+            self.track_service.get_ratings(conn)?.into_iter().collect();
+
+        let mut report = DedupeReport {
+            applied: apply,
+            groups_examined: 0,
+            clusters: Vec::new(),
+            tracks_removed: 0,
+            bytes_freed: 0,
+        };
+
+        // ---- Cluster tracks that are the same recording ----
+        // The acoustic fingerprint is the primary, metadata-independent signal: a
+        // curly vs straight apostrophe, a different album, or a "feat." difference
+        // can't hide a duplicate. Fingerprints only confirm the same master, so a
+        // second (loose) pass also merges same-(title, artist) copies within a tight
+        // duration window - an album track vs the same song on a sampler, mastered
+        // differently - gated by metadata so unrelated same-length songs never merge.
+        let all: Vec<Track> = self.track_service.get_all(conn)?;
+        let n = all.len();
+        let mut parent: Vec<usize> = (0..n).collect();
+
+        // Pass 1 (always): acoustic, metadata-independent. An all-pairs alignment is
+        // far too slow, so build an inverted index over subfingerprint values and
+        // only run the expensive alignment on real candidates - tracks that share
+        // several *discriminative* subfingerprints. Over-common values (silence,
+        // common patterns) carry no signal and are skipped; a shared rare 32-bit
+        // subfingerprint is astronomically unlikely between unrelated recordings, so
+        // very few false candidates reach the matcher.
+        let fp_vecs: Vec<Option<&Vec<u32>>> = (0..n)
+            .map(|i| all[i].id.and_then(|id| fps.get(&id)))
+            .collect();
+        let distinct: Vec<Vec<u32>> = fp_vecs
+            .iter()
+            .map(|o| match o {
+                Some(v) => {
+                    let mut s: Vec<u32> = v.iter().copied().collect();
+                    s.sort_unstable();
+                    s.dedup();
+                    s
+                }
+                None => Vec::new(),
+            })
+            .collect();
+        let mut df: HashMap<u32, u32> = HashMap::new();
+        for d in &distinct {
+            for &v in d {
+                *df.entry(v).or_default() += 1;
+            }
+        }
+        let mut index: HashMap<u32, Vec<usize>> = HashMap::new();
+        for (i, d) in distinct.iter().enumerate() {
+            for &v in d {
+                if (df[&v] as usize) <= FINGERPRINT_INDEX_MAX_DF {
+                    index.entry(v).or_default().push(i);
+                }
+            }
+        }
+        let mut shared: HashMap<(usize, usize), u32> = HashMap::new();
+        for bucket in index.values() {
+            for a in 0..bucket.len() {
+                for b in (a + 1)..bucket.len() {
+                    *shared.entry((bucket[a], bucket[b])).or_default() += 1;
+                }
+            }
+        }
+        for (&(i, j), &cnt) in &shared {
+            if cnt < FINGERPRINT_INDEX_MIN_SHARED {
+                continue;
+            }
+            if same_recording(fp_vecs[i], fp_vecs[j], all[i].duration, all[j].duration) {
+                let (ri, rj) = (uf_find(&mut parent, i), uf_find(&mut parent, j));
+                if ri != rj {
+                    parent[ri] = rj;
+                }
+            }
+        }
+
+        // Pass 2 (loose only): merge same-song copies the fingerprint can't confirm
+        // (a different master - e.g. an OGG and a FLAC from different sources), gated
+        // by normalized (title, artists). The artist key is split-agnostic so one
+        // row listing "A, B, C" as a single artist matches four separate A/B/C rows.
+        // A wider duration window than Pass 1 is safe here because title+artist
+        // already pins identity; it catches masters that differ by trailing content.
+        if loose {
+            let mut meta: HashMap<(String, Vec<String>), Vec<usize>> = HashMap::new();
+            for i in 0..n {
+                meta.entry((normalize_key(&all[i].title), artist_key(&all[i].artists)))
+                    .or_default()
+                    .push(i);
+            }
+            for idxs in meta.values() {
+                for a in 0..idxs.len() {
+                    for b in (a + 1)..idxs.len() {
+                        let (i, j) = (idxs[a], idxs[b]);
+                        if let (Some(di), Some(dj)) = (all[i].duration, all[j].duration) {
+                            if (di - dj).abs() <= METADATA_DEDUP_DURATION_SECS {
+                                let (ri, rj) = (uf_find(&mut parent, i), uf_find(&mut parent, j));
+                                if ri != rj {
+                                    parent[ri] = rj;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Gather clusters (union-find components with 2+ members).
+        let mut clusters_map: HashMap<usize, Vec<usize>> = HashMap::new();
+        for i in 0..n {
+            let root = uf_find(&mut parent, i);
+            clusters_map.entry(root).or_default().push(i);
+        }
+
+        for cluster in clusters_map.into_values() {
+            if cluster.len() < 2 {
+                continue;
+            }
+            report.groups_examined += 1;
+
+            let max_dur = cluster
+                .iter()
+                .filter_map(|&i| all[i].duration)
+                .max()
+                .unwrap_or(0);
+            // Rank: finalized > complete (not truncated) > quality > organized > newest.
+            let scored: Vec<(
+                usize,
+                (bool, bool, Option<shared::models::AudioQuality>, bool, i32),
+            )> = cluster
+                .iter()
+                .map(|&i| {
+                    let t = &all[i];
+                    let complete = match t.duration {
+                        Some(d) => max_dur == 0 || d as f64 >= 0.9 * max_dur as f64,
+                        None => true,
+                    };
+                    let organized = t
+                        .file_path
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().contains("library/"))
+                        .unwrap_or(false);
+                    (
+                        i,
+                        (
+                            !t.needs_validation,
+                            complete,
+                            t.audio_quality(),
+                            organized,
+                            t.id.unwrap_or(0),
+                        ),
+                    )
+                })
+                .collect();
+            let keeper_i = scored
+                .iter()
+                .max_by(|a, b| a.1.cmp(&b.1))
+                .map(|s| s.0)
+                .unwrap();
+            let keeper = &all[keeper_i];
+            let keeper_id = keeper.id;
+            let mut keeper_rating = keeper.id.and_then(|id| ratings.get(&id).cloned());
+
+            let mut removed = Vec::new();
+            for &li in cluster.iter().filter(|&&i| i != keeper_i) {
+                let loser = &all[li];
+                let loser_rating = loser.id.and_then(|id| ratings.get(&id).cloned());
+                removed.push(dedupe_track_summary(loser, loser_rating.clone()));
+                if let Some(p) = loser.file_path.as_ref() {
+                    report.bytes_freed += std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+                }
+                report.tracks_removed += 1;
+
+                if apply {
+                    // Preserve a like/dislike on the keeper if it had none.
+                    if keeper_rating.is_none() {
+                        if let (Some(kid), Some(r)) = (keeper_id, loser_rating) {
+                            let _ = self.track_service.set_rating(conn, kid, Some(r.clone()));
+                            keeper_rating = Some(r);
+                        }
+                    }
+                    self.track_service
+                        .delete_track_file_if_unreferenced(conn, loser);
+                    if let Some(lid) = loser.id {
+                        self.track_service.delete_by_id(conn, lid)?;
+                    }
+                }
+            }
+
+            report.clusters.push(DedupeCluster {
+                keeper: dedupe_track_summary(keeper, keeper_rating),
+                removed,
+            });
+        }
+
+        tracing::info!(
+            "Library dedup ({}): {} groups, {} clusters, {} tracks removed, {} bytes",
+            if apply { "applied" } else { "dry-run" },
+            report.groups_examined,
+            report.clusters.len(),
+            report.tracks_removed,
+            report.bytes_freed
+        );
+        Ok(report)
+    }
+
     pub fn new(
         track_service: Arc<TrackService>,
         album_service: Arc<AlbumService>,
@@ -57,7 +801,7 @@ impl DownloadService {
         &self,
         url: &str,
         conn: &mut SqliteConnection,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         // Strip tracking/share query params (e.g. `si`, `utm_*`) so two submissions
         // of the same link that only differ by tracking noise dedupe correctly
         // against the `external_url` check right below.
@@ -66,9 +810,14 @@ impl DownloadService {
 
         tracing::info!("===========\nDownloading track from {:?}\n------", url);
 
-        // Check if track already exists in DB
-        if let Some(t) = self.track_service.get_by_url(conn, url) {
-            return Err(Error::TrackExists(t.display()));
+        // Already owned tracks are refused, unless the source can now supply
+        // better audio. The quality comparison later in the pipeline decides
+        // whether the new file actually replaces the old one.
+        if let Some(existing) = self.track_service.get_by_url(conn, url) {
+            if !self.should_upgrade(&existing, url, None).await {
+                return Err(Error::TrackExists(existing.display()));
+            }
+            tracing::info!("Refetching {} for a quality upgrade", existing.display());
         }
 
         let fetcher = Fetcher::new().await;
@@ -87,6 +836,103 @@ impl DownloadService {
         Ok(final_track)
     }
 
+    /// Whether an already-owned track is worth downloading again.
+    ///
+    /// Only SoundCloud is considered: it is the one source that hands out
+    /// lossless originals, and only to authenticated clients, so a track first
+    /// grabbed without a session (or before the downloader accepted WAV) is
+    /// often stored well below what the source can give.
+    ///
+    /// `original_available` is the source's own answer, which arrives free with
+    /// the listing. When it is known, no request is made at all. Only an
+    /// unknown answer falls back to asking yt-dlp, because doing that per track
+    /// across a whole library trips SoundCloud's rate limiter (it starts
+    /// answering 403 after roughly seventy requests).
+    async fn should_upgrade(
+        &self,
+        existing: &Track,
+        url: &str,
+        original_available: Option<bool>,
+    ) -> bool {
+        // A missing or unreadable file always warrants a re-download regardless of
+        // source platform or the `upgrade_existing` setting: restoring a lost file
+        // is a repair, not an optional quality upgrade.
+        let Some(stored) = existing.audio_quality() else {
+            tracing::info!("Refetch: {} has no readable file", existing.display());
+            return true;
+        };
+
+        let config = Config::get();
+        if !config.downloader.upgrade_existing {
+            return false;
+        }
+
+        if existing.get_source_platform() != shared::models::Platform::SoundCloud {
+            return false;
+        }
+
+        // Already lossless: SoundCloud has nothing better than the original.
+        if stored.lossless {
+            return false;
+        }
+
+        match original_available {
+            Some(false) => false,
+            Some(true) => {
+                tracing::info!(
+                    "Upgrade: {} is {} kbps lossy and the source offers an original",
+                    existing.display(),
+                    stored.bitrate_bps / 1000
+                );
+                true
+            }
+            None => self.probe_for_upgrade(existing, url, stored).await,
+        }
+    }
+
+    /// Ask yt-dlp what the source would serve. One request, so this is only for
+    /// single-track downloads, never a whole sync.
+    async fn probe_for_upgrade(
+        &self,
+        existing: &Track,
+        url: &str,
+        stored: shared::models::AudioQuality,
+    ) -> bool {
+        let available = match downloader::probe_available_quality(url).await {
+            Ok(available) => available,
+            // A failed probe is not evidence of a better source. Leave the file
+            // alone rather than churn on a rate limit or a flaky network.
+            Err(e) => {
+                tracing::warn!("Upgrade probe failed for {}: {}", url, e);
+                return false;
+            }
+        };
+
+        if available.lossless {
+            tracing::info!(
+                "Upgrade: {} is {} kbps lossy, source offers a lossless original",
+                existing.display(),
+                stored.bitrate_bps / 1000
+            );
+            return true;
+        }
+
+        let stored_kbps = stored.bitrate_bps as f32 / 1000.0;
+        let margin = Config::get().downloader.upgrade_bitrate_margin;
+        match available.bitrate_kbps {
+            Some(available_kbps) if available_kbps as f32 > stored_kbps * margin => {
+                tracing::info!(
+                    "Upgrade: {} is {:.0} kbps, source offers {} kbps",
+                    existing.display(),
+                    stored_kbps,
+                    available_kbps
+                );
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Main entry point for downloading a playlist from a given URL (from any supported platform).
     /// `task_id` is optional; when provided, progress is persisted to the task table in real-time.
     pub async fn sync_playlist_from_url(
@@ -95,7 +941,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         task_id: Option<i32>,
         cancel_flag: Option<Arc<AtomicBool>>,
-    ) -> SoundomeResult<Vec<Track>> {
+    ) -> SoundgnomeResult<Vec<Track>> {
         // Strip tracking/share query params so two syncs of "the same" playlist
         // link (e.g. with vs without `?si=...&utm_source=...`) curate to the same
         // `source_url` instead of `PlaylistService::upsert` creating a duplicate
@@ -172,11 +1018,29 @@ impl DownloadService {
                 .unwrap_or_else(|| "unknown".to_string());
             let position = pt.position.map(|p| p as i32);
             if let Some(existing) = self.track_service.get_by_url(conn, &track_url) {
+                let track_id = existing.id.expect("persisted track must have an id");
+
+                // Already owned, but the source may now offer better audio. The
+                // download path below re-runs the quality comparison and only
+                // replaces the file when the new one really is better.
+                if self
+                    .should_upgrade(&existing, &track_url, pt.original_available)
+                    .await
+                {
+                    if let Err(e) =
+                        self.playlist_service
+                            .add_track(conn, playlist_id, track_id, position)
+                    {
+                        tracing::error!("Failed to link track {} to playlist: {}", track_id, e);
+                    }
+                    new_tracks.push((position, track.clone()));
+                    continue;
+                }
+
                 tracing::warn!(
                     "   -> Track already exists in DB, linking to playlist: {}",
                     track.display()
                 );
-                let track_id = existing.id.expect("persisted track must have an id");
                 if let Err(e) =
                     self.playlist_service
                         .add_track(conn, playlist_id, track_id, position)
@@ -314,7 +1178,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         task_id: Option<i32>,
         cancel_flag: Option<Arc<AtomicBool>>,
-    ) -> SoundomeResult<Vec<Track>> {
+    ) -> SoundgnomeResult<Vec<Track>> {
         // Strip tracking/share query params for consistency with the other
         // `*_from_url` entry points (see `sync_playlist_from_url`).
         let curated_url = curate_source_url(url);
@@ -474,7 +1338,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         task_id: Option<i32>,
         cancel_flag: Option<Arc<AtomicBool>>,
-    ) -> SoundomeResult<Vec<Track>> {
+    ) -> SoundgnomeResult<Vec<Track>> {
         // Strip tracking/share query params for consistency with the other
         // `*_from_url` entry points (see `sync_playlist_from_url`).
         let curated_url = curate_source_url(url);
@@ -638,8 +1502,14 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         ingest_dir: &Path,
         task_id: i32,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<usize> {
         let audio_extensions = ["mp3", "flac", "m4a", "mp4", "aac", "ogg", "opus", "wav"];
+
+        // When ingesting the shared server dir, skip the `_uploads` staging subtree:
+        // those belong to browser uploads and are ingested via their own session
+        // dir. When `ingest_dir` is itself a session dir (already under `_uploads`),
+        // this exclusion is inert and its files are ingested normally.
+        let root_is_upload = ingest_dir.components().any(|c| c.as_os_str() == "_uploads");
 
         // Collect all audio files first so we know the total upfront.
         let files: Vec<PathBuf> = walkdir::WalkDir::new(ingest_dir)
@@ -648,11 +1518,22 @@ impl DownloadService {
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
             .filter(|e| {
+                root_is_upload || !e.path().components().any(|c| c.as_os_str() == "_uploads")
+            })
+            .filter(|e| {
                 e.path()
                     .extension()
                     .and_then(|x| x.to_str())
                     .map(|x| audio_extensions.contains(&x.to_lowercase().as_str()))
                     .unwrap_or(false)
+            })
+            .filter(|e| {
+                // Skip partial-download artifacts (e.g. "Song.temp.m4a"): incomplete
+                // files with no decodable audio.
+                !e.file_name()
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .contains(".temp.")
             })
             .map(|e| e.path().to_path_buf())
             .collect();
@@ -660,14 +1541,59 @@ impl DownloadService {
         let total = files.len() as i32;
         tracing::info!("Ingest dir {:?}: found {} audio files", ingest_dir, total);
 
+        let concurrency = ingest_concurrency();
+        tracing::info!(
+            "Ingest: preparing files with up to {} parallel workers",
+            concurrency
+        );
+
         let mut stats = shared::models::TaskStats::default();
 
-        for (i, file_path) in files.iter().enumerate() {
+        // Prepare (tag-read + hash + fingerprint) runs in parallel on blocking
+        // threads; the DB commit stays serial on the single connection. A sliding
+        // window keeps `concurrency` files decoding ahead of the commit so the
+        // expensive ffmpeg decode is overlapped instead of paid one-at-a-time.
+        let mut inflight: std::collections::VecDeque<(
+            usize,
+            PathBuf,
+            tokio::task::JoinHandle<SoundgnomeResult<PreparedIngest>>,
+        )> = std::collections::VecDeque::new();
+        let mut next_idx = 0usize;
+        while next_idx < files.len() && inflight.len() < concurrency {
+            let p = files[next_idx].clone();
+            inflight.push_back((
+                next_idx,
+                p.clone(),
+                tokio::task::spawn_blocking(move || prepare_ingest_file(&p)),
+            ));
+            next_idx += 1;
+        }
+
+        while let Some((i, file_path, handle)) = inflight.pop_front() {
+            // Keep the window full while we commit this file (DB work is serial).
+            if next_idx < files.len() {
+                let p = files[next_idx].clone();
+                inflight.push_back((
+                    next_idx,
+                    p.clone(),
+                    tokio::task::spawn_blocking(move || prepare_ingest_file(&p)),
+                ));
+                next_idx += 1;
+            }
+
             tracing::info!("Ingesting [{}/{}]: {:?}", i + 1, total, file_path);
 
-            match self.ingest_local_file(conn, file_path).await {
-                Ok(t) => {
-                    if t.needs_validation {
+            let commit_result = match handle.await {
+                Ok(Ok(prepared)) => self.commit_ingest(conn, prepared).await,
+                Ok(Err(e)) => Err(e),
+                Err(join_err) => Err(Error::Custom(format!(
+                    "ingest prepare task failed: {join_err}"
+                ))),
+            };
+
+            match commit_result {
+                Ok((t, outcome)) => match outcome {
+                    IngestOutcome::NeedsValidation => {
                         stats.to_validate += 1;
                         stats
                             .to_validate_tracks
@@ -676,10 +1602,24 @@ impl DownloadService {
                                 track_id: t.id,
                                 reason: t.validation_reason.clone(),
                             });
-                    } else {
+                    }
+                    IngestOutcome::New => {
                         stats.downloaded += 1;
                     }
-                }
+                    IngestOutcome::Replaced | IngestOutcome::Duplicate => {
+                        stats.skipped += 1;
+                        stats
+                            .skipped_tracks
+                            .push(shared::models::TaskTrackValidation {
+                                track: t.display(),
+                                track_id: t.id,
+                                reason: Some(match outcome {
+                                    IngestOutcome::Replaced => "Upgraded existing copy".to_string(),
+                                    _ => "Already in library".to_string(),
+                                }),
+                            });
+                    }
+                },
                 Err(e) => {
                     tracing::error!("Failed to ingest {:?}: {}", file_path, e);
                     stats.errors.push(shared::models::TaskTrackError {
@@ -712,62 +1652,109 @@ impl DownloadService {
             stats.errors.len()
         );
 
-        Ok(())
+        Ok(stats.errors.len())
     }
 
     // ============================================================================================
     // == Local file ingest
     // ============================================================================================
 
-    /// Ingest a single local audio file into the library.
-    ///
-    /// Workflow (mirrors `docs/workflows/download.md` — "Import a local file"):
-    /// 1. Read tags from the file.
-    /// 2. Evaluate metadata quality; enrich via MusicBrainz when needed.
-    /// 3. If enrichment is partial or absent, persist as `needs_validation = true`.
-    /// 4. Deduplicate by title/artist against existing DB tracks.
-    /// 5. Tag, organise, and persist the winner.
+    /// Ingest a single local audio file into the library. Thin wrapper: prepare
+    /// (pure, off-DB) then commit (DB + network). Batch ingest parallelizes the
+    /// prepare step; see `ingest_local_dir`.
     pub async fn ingest_local_file(
         &self,
         conn: &mut SqliteConnection,
         file_path: &Path,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<(Track, IngestOutcome)> {
+        let prepared = prepare_ingest_file(file_path)?;
+        self.commit_ingest(conn, prepared).await
+    }
+
+    /// Commit a prepared file. All DB/network work lives here so `prepare` stays
+    /// pure and parallelizable.
+    ///
+    /// Workflow (mirrors `docs/workflows/download.md` — "Import a local file"):
+    /// 1. Exact-duplicate short-circuit (content hash).
+    /// 2. Acoustic-fingerprint short-circuit.
+    /// 3. Enrich via MusicBrainz — skipped when the file's tags are already complete.
+    /// 4. Deduplicate by title/artist; stage for validation when enrichment is weak.
+    /// 5. Tag, organise, and persist the winner.
+    async fn commit_ingest(
+        &self,
+        conn: &mut SqliteConnection,
+        prepared: PreparedIngest,
+    ) -> SoundgnomeResult<(Track, IngestOutcome)> {
+        let PreparedIngest {
+            mut track,
+            file_path,
+            content_hash,
+            fingerprint,
+            has_cover,
+        } = prepared;
+
         tracing::info!("===========\nIngesting local file: {:?}\n------", file_path);
-
-        // Step 1: Read tags from the file.
-        let mut track = tagger::file::get_track_from_file(&file_path.to_path_buf())
-            .map_err(|e| Error::Custom(format!("Failed to read audio tags: {e}")))?;
-
-        // Step 1b: If track_number is missing from the tags, try to infer it from
-        // the file name. Many DIY releases use patterns like "08 - Title.flac" or
-        // "08_Title.flac". Having the track number improves match scoring significantly.
-        if track.track_number.is_none() {
-            track.track_number = infer_track_number_from_filename(file_path);
-            if let Some(n) = track.track_number {
-                tracing::debug!("Inferred track_number {} from filename", n);
-            }
-        }
-
         tracing::info!("Read tags from file: {}", track.display());
 
-        // Step 2: Enrich metadata using the ingest-specific provider order (Spotify first).
-        // `enrich_metada` may set `needs_validation` on the track.
-        let (should_validate, existing_track_opt) =
-            self.enrich_metada(conn, &mut track, true).await?;
+        // Step 1: Exact-duplicate short-circuit via the raw-bytes hash.
+        let content_key = format!("soundome:sha256:{content_hash}");
+        if let Some(existing) = self.track_service.get_by_url(conn, &content_key) {
+            tracing::info!(
+                "Ingest: exact duplicate (content hash) of {}, skipping",
+                existing.display()
+            );
+            return Ok((existing, IngestOutcome::Duplicate));
+        }
+        track.references.push(Reference {
+            id: None,
+            ref_type: ReferenceType::Metadata,
+            platform: Platform::Unknown,
+            external_id: None,
+            external_url: Some(content_key),
+        });
+
+        // Step 2: Acoustic-fingerprint short-circuit (catches re-encodes/rebitrates).
+        if let Some(fp) = &fingerprint {
+            if let Some(existing) = self.dedupe_by_fingerprint(conn, &track, fp).await {
+                tracing::info!("Ingest: acoustic match with {}", existing.display());
+                return self
+                    .resolve_existing_match(conn, existing, &track, &file_path)
+                    .await;
+            }
+            track.references.push(Reference {
+                id: None,
+                ref_type: ReferenceType::Metadata,
+                platform: Platform::Unknown,
+                external_id: None,
+                external_url: Some(format!("{CHROMAPRINT_PREFIX}{}", encode_fingerprint(fp))),
+            });
+        }
+
+        // Step 3: Enrich metadata — but trust already-complete tags and skip the
+        // (rate-limited) network lookup for them.
+        let (should_validate, existing_track_opt) = if tags_complete(&track) {
+            tracing::info!(
+                "Ingest: complete tags, skipping metadata enrichment for {}",
+                track.display()
+            );
+            (false, None)
+        } else {
+            self.enrich_metada(conn, &mut track, true).await?
+        };
 
         if should_validate {
             tracing::warn!(
                 "Ingest: saving for manual validation — reason={:?}",
                 track.validation_reason
             );
-            // Copy the file to the staging dir so it is not moved from its original location yet.
-            let staged_path = self.stage_local_file(file_path)?;
+            let staged_path = self.stage_local_file(&file_path)?;
             track.file_path = Some(staged_path);
-            let saved = self.save_track(conn, &track).await?;
-            return Ok(saved);
+            let mut saved = self.save_track(conn, &track).await?;
+            self.set_embedded_cover_if_missing(conn, &mut saved, has_cover);
+            return Ok((saved, IngestOutcome::NeedsValidation));
         }
 
-        // Step 3: Deduplication.
+        // Step 4: Deduplication by title/artist.
         let existing_track = if existing_track_opt.is_some() {
             existing_track_opt
         } else {
@@ -775,49 +1762,39 @@ impl DownloadService {
         };
 
         match existing_track {
-            Some(mut existing_track) => {
-                tracing::info!(
-                    "Ingest: existing track found: {}, comparing quality",
-                    existing_track.display()
-                );
-
-                let new_is_better = self
-                    .track_service
-                    .is_better_quality(&existing_track, &track);
-
-                if new_is_better {
-                    tracing::info!("Ingest: new file has better quality, replacing");
-
-                    let mut track_for_merge = track.clone();
-                    normalize_album_and_artist_refs_as_metadata(&mut track_for_merge);
-                    existing_track.transpose_refs(&track_for_merge);
-                    apply_source_provider_replacement(&mut existing_track, &track);
-
-                    self.process_track_file(&mut existing_track, file_path)
-                        .await?;
-                    let updated = self.save_track(conn, &existing_track).await?;
-                    Ok(updated)
-                } else {
-                    tracing::info!(
-                        "Ingest: existing file is equal or better quality, skipping file move"
-                    );
-
-                    // Keep existing audio; merge useful metadata from the ingested file.
-                    let mut track_for_merge = track.clone();
-                    normalize_album_and_artist_refs_as_metadata(&mut track_for_merge);
-                    demote_track_source_and_provider_to_metadata(&mut track_for_merge);
-                    existing_track.transpose_refs(&track_for_merge);
-
-                    let updated = self.save_track(conn, &existing_track).await?;
-                    Ok(updated)
-                }
+            Some(existing_track) => {
+                self.resolve_existing_match(conn, existing_track, &track, &file_path)
+                    .await
             }
             None => {
                 tracing::info!("Ingest: no existing track, finalising");
-                self.process_track_file(&mut track, file_path).await?;
-                let inserted = self.save_track(conn, &track).await?;
-                Ok(inserted)
+                self.process_track_file(&mut track, &file_path).await?;
+                let mut inserted = self.save_track(conn, &track).await?;
+                self.set_embedded_cover_if_missing(conn, &mut inserted, has_cover);
+                Ok((inserted, IngestOutcome::New))
             }
+        }
+    }
+
+    /// When a freshly-ingested file carries embedded cover art but has no `cover`
+    /// URL (local files rarely reference external artwork), point `cover` at the
+    /// on-demand endpoint that serves the file's embedded picture. The art already
+    /// lives in the file, so nothing is copied. Best-effort: a failed DB update
+    /// leaves the track without artwork rather than failing the ingest.
+    fn set_embedded_cover_if_missing(
+        &self,
+        conn: &mut SqliteConnection,
+        track: &mut Track,
+        has_embedded_cover: bool,
+    ) {
+        if !has_embedded_cover || track.cover.is_some() {
+            return;
+        }
+        let Some(id) = track.id else { return };
+        track.cover = Some(embedded_cover_url(id));
+        if let Err(e) = self.track_service.update(conn, id, track) {
+            tracing::warn!("Ingest: could not persist embedded cover for {}: {}", id, e);
+            track.cover = None;
         }
     }
 
@@ -827,7 +1804,7 @@ impl DownloadService {
     /// The staged filename is prefixed with a UUID to guarantee uniqueness even when
     /// multiple files share the same original name (e.g. two different `track.mp3`
     /// from different ingest sessions).
-    fn stage_local_file(&self, source: &Path) -> SoundomeResult<PathBuf> {
+    fn stage_local_file(&self, source: &Path) -> SoundgnomeResult<PathBuf> {
         let staging_dir = PathBuf::from(&Config::get().general.temp_download_dir);
         std::fs::create_dir_all(&staging_dir)
             .map_err(|e| Error::Custom(format!("Could not create staging dir: {e}")))?;
@@ -857,7 +1834,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> SoundomeResult<Vec<tagger::enricher::MatchCandidate>> {
+    ) -> SoundgnomeResult<Vec<tagger::enricher::MatchCandidate>> {
         let track = self.track_service.get_by_id(conn, id)?;
         let candidates = tagger::enricher::get_candidates_for_track(&track).await;
         Ok(candidates)
@@ -873,7 +1850,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         id: i32,
         patch: ValidationPatch,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         // 1. Load current track from DB
         let mut track = self.track_service.get_by_id(conn, id)?;
 
@@ -932,7 +1909,23 @@ impl DownloadService {
         // 3. Resolve the audio file path: use the staged file if present, otherwise
         //    download from the provider URL supplied by the user (DRM fallback).
         let file_path = if let Some(staged) = track.file_path.clone() {
-            staged
+            // Organized tracks store a library-relative path (e.g. `./library/...`),
+            // staged tracks an absolute temp path. Resolve the relative form against
+            // the library dir, then confirm the audio is actually on disk so a
+            // missing file surfaces a clear message instead of a raw tag-read error.
+            let resolved = if staged.exists() || staged.is_absolute() {
+                staged
+            } else {
+                let base = PathBuf::from(&Config::get().general.base_library_dir);
+                base.join(staged.strip_prefix(&base).unwrap_or(staged.as_path()))
+            };
+            if !resolved.exists() {
+                return Err(Error::Custom(format!(
+                    "The audio file for this track is missing on disk ({}). It may have been moved or deleted. Reject the track, or re-ingest the file.",
+                    resolved.display()
+                )));
+            }
+            resolved
         } else {
             let provider_url = patch.provider_url.as_ref().ok_or_else(|| {
                 Error::Custom(format!(
@@ -970,7 +1963,7 @@ impl DownloadService {
             downloader::download(
                 &source_ref,
                 &provider_ref,
-                &sanitize_filename(&track.title),
+                &staging_name(&track.title),
                 staging_dir,
             )
             .await?
@@ -996,7 +1989,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         id: i32,
-    ) -> SoundomeResult<Vec<tagger::enricher::MatchCandidate>> {
+    ) -> SoundgnomeResult<Vec<tagger::enricher::MatchCandidate>> {
         let track = self.track_service.get_by_id(conn, id)?;
         let results = downloader::search_youtube_candidates(&track).await?;
 
@@ -1041,7 +2034,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         artist_id: i32,
-    ) -> SoundomeResult<Option<Artist>> {
+    ) -> SoundgnomeResult<Option<Artist>> {
         let mut artist = self.artist_service.get_by_id(conn, artist_id)?;
         let fetcher = Fetcher::new().await;
 
@@ -1082,7 +2075,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         album_id: i32,
-    ) -> SoundomeResult<Option<Album>> {
+    ) -> SoundgnomeResult<Option<Album>> {
         let mut album = self.album_service.get_by_id(conn, album_id)?;
         let fetcher = Fetcher::new().await;
 
@@ -1169,7 +2162,7 @@ impl DownloadService {
         &self,
         conn: &mut SqliteConnection,
         track: Track,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         let mut track = track;
 
         // Step 1: Enrich metadata
@@ -1195,18 +2188,69 @@ impl DownloadService {
                         tracing::warn!(
                             "No usable Spotify match — marking for manual YouTube selection"
                         );
-                        if !track.needs_validation {
-                            track.needs_validation = true;
-                            track.validation_reason = Some("soundcloud_drm_protected".to_string());
-                        }
+                        // DRM means there is no downloadable audio at all, which the
+                        // metadata-match tabs cannot resolve (Select there only re-tags an
+                        // existing staged file). It must override any weak-metadata reason
+                        // `enrich_metada` set earlier, so the track lands in the DRM tab where
+                        // the user can pick a YouTube source to actually fetch the audio.
+                        track.needs_validation = true;
+                        track.validation_reason = Some("soundcloud_drm_protected".to_string());
                         None
                     }
                 }
             }
             Err(e) => return Err(e),
         };
+        // Repair path: if this source is already a finalized library track whose
+        // audio file has gone missing, adopt the fresh download into it — keeping
+        // its reviewed metadata and identity — regardless of the enrich/dedup
+        // outcome below (which would otherwise keep the broken, fileless row or
+        // discard the download as "no better quality").
+        if let Some(new_file) = &file_path_opt {
+            if let Some(existing) = self.existing_staged_track(conn, &track) {
+                if !existing.needs_validation && !self.library_file_present(&existing) {
+                    tracing::info!(
+                        "Repairing missing library file for {} from re-download",
+                        existing.display()
+                    );
+                    let mut repaired = existing;
+                    self.process_track_file(&mut repaired, new_file).await?;
+                    return self.save_track(conn, &repaired).await;
+                }
+            }
+        }
 
         if should_validate || file_path_opt.is_none() {
+            if let Some(existing) = self.existing_staged_track(conn, &track) {
+                if !existing.needs_validation {
+                    // Already finalized and reviewed (any missing file was repaired
+                    // above). A re-sync must not re-validate it: discard the freshly
+                    // staged copy and keep the library entry as-is.
+                    tracing::info!(
+                        "Source already finalized as {} — skipping re-validation",
+                        existing.display()
+                    );
+                    if let Some(staged) = &file_path_opt {
+                        if let Err(e) = std::fs::remove_file(staged) {
+                            tracing::warn!(
+                                "Could not remove staging file {}: {}",
+                                staged.display(),
+                                e
+                            );
+                        }
+                    }
+                    return Ok(existing);
+                }
+
+                // Still pending validation: reuse its row so the queue keeps one
+                // entry per track (a second row would orphan a staged file).
+                tracing::warn!(
+                    "Track saved for manual validation — reason={:?}",
+                    track.validation_reason
+                );
+                return self.replace_staged_track(conn, existing, track).await;
+            }
+
             tracing::warn!(
                 "Track saved for manual validation — reason={:?}",
                 track.validation_reason
@@ -1285,7 +2329,7 @@ impl DownloadService {
         conn: &mut SqliteConnection,
         track: &mut Track,
         for_ingest: bool,
-    ) -> SoundomeResult<(bool, Option<Track>)> {
+    ) -> SoundgnomeResult<(bool, Option<Track>)> {
         // Check if album/artists with same source ref url exist in DB and associate them
         let existing_album = track.album.as_ref().and_then(|a| {
             a.get_source()
@@ -1389,7 +2433,7 @@ impl DownloadService {
     /// Returns the downloaded track with updated references and file_path
     /// Searches for the best download URL and downloads the track to the staging folder.
     /// The staging path is stored in `track.file_path`.
-    async fn download_track(&self, track: &mut Track) -> SoundomeResult<PathBuf> {
+    async fn download_track(&self, track: &mut Track) -> SoundgnomeResult<PathBuf> {
         // Get the best download URL
         let provider_ref = downloader::search(track).await?;
         tracing::info!(
@@ -1407,7 +2451,7 @@ impl DownloadService {
                 .get_source()
                 .ok_or(Error::Custom("track source not defined".to_string()))?,
             &provider_ref,
-            &sanitize_filename(&track.title),
+            &staging_name(&track.title),
             staging_dir,
         )
         .await?;
@@ -1424,7 +2468,7 @@ impl DownloadService {
     /// `Platform::Spotify` branch) instead of immediately requiring manual YouTube selection.
     ///
     /// The track's `Source` reference is left untouched — SoundCloud is still where the user
-    /// asked Soundome to import from. Only the resolved `Provider` reference and staged
+    /// asked Soundgnome to import from. Only the resolved `Provider` reference and staged
     /// `file_path` are attached, and only on success.
     ///
     /// Returns `Some(path)` when the fallback download succeeded. Returns `None` when there is
@@ -1479,7 +2523,7 @@ impl DownloadService {
         match downloader::download(
             &source_ref,
             &provider_ref,
-            &sanitize_filename(&track.title),
+            &staging_name(&track.title),
             staging_dir,
         )
         .await
@@ -1514,38 +2558,157 @@ impl DownloadService {
         }
     }
 
+    /// Acoustic (Chromaprint) deduplication: compare `new_fp` against the stored
+    /// fingerprints of tracks with a comparable duration and return the first that
+    /// overlaps strongly enough to be the same recording. Catches re-encodes and
+    /// format changes that the exact-hash and title/artist tiers miss.
+    async fn dedupe_by_fingerprint(
+        &self,
+        conn: &mut SqliteConnection,
+        track: &Track,
+        new_fp: &[u32],
+    ) -> Option<Track> {
+        let (min_secs, max_secs) = match track.duration {
+            Some(d) => (
+                d - FINGERPRINT_DURATION_TOLERANCE_SECS,
+                d + FINGERPRINT_DURATION_TOLERANCE_SECS,
+            ),
+            None => (i32::MIN, i32::MAX),
+        };
+
+        let candidates = self
+            .track_service
+            .fingerprint_candidates(conn, min_secs, max_secs)
+            .unwrap_or_else(|e| {
+                tracing::warn!("Ingest: fingerprint candidate lookup failed: {e}");
+                Vec::new()
+            });
+
+        for (track_id, encoded) in candidates {
+            let Some(cand_fp) = encoded
+                .strip_prefix(CHROMAPRINT_PREFIX)
+                .and_then(decode_fingerprint)
+            else {
+                continue;
+            };
+            let overlap = matched_overlap_secs(new_fp, &cand_fp);
+            let is_match = match track.duration {
+                Some(d) if d > 0 => overlap >= FINGERPRINT_MIN_COVERAGE * d as f32,
+                _ => overlap >= FINGERPRINT_MIN_ABS_MATCH_SECS,
+            };
+            if is_match {
+                tracing::info!(
+                    "Ingest: acoustic fingerprint match (track_id={}, overlap={:.1}s)",
+                    track_id,
+                    overlap
+                );
+                if let Ok(existing) = self.track_service.get_by_id(conn, track_id) {
+                    return Some(existing);
+                }
+            } else if overlap > 0.0 {
+                tracing::debug!(
+                    "Ingest: fingerprint near-miss (track_id={}, overlap={:.1}s)",
+                    track_id,
+                    overlap
+                );
+            }
+        }
+        None
+    }
+
+    /// Resolve an ingested file against an already-known duplicate (found by
+    /// acoustic fingerprint or by title/artist): keep whichever copy is higher
+    /// quality. When the incoming file wins, it replaces the existing audio (and
+    /// the lower-quality original is deleted); otherwise the existing audio is kept
+    /// and only useful metadata is merged in. Either way the library ends with a
+    /// single, best-quality copy.
+    async fn resolve_existing_match(
+        &self,
+        conn: &mut SqliteConnection,
+        mut existing_track: Track,
+        track: &Track,
+        file_path: &Path,
+    ) -> SoundgnomeResult<(Track, IngestOutcome)> {
+        tracing::info!(
+            "Ingest: duplicate of existing track {}, comparing quality",
+            existing_track.display()
+        );
+
+        let new_is_better = self.track_service.is_better_quality(&existing_track, track);
+
+        if new_is_better {
+            tracing::info!("Ingest: uploaded file is higher quality, replacing existing copy");
+
+            // Remember the current library file so it can be discarded once the
+            // higher-quality upload is organized into place (the new file may land
+            // at a different path when the format/extension differs).
+            let old_path = existing_track.file_path.clone();
+
+            let mut track_for_merge = track.clone();
+            normalize_album_and_artist_refs_as_metadata(&mut track_for_merge);
+            existing_track.transpose_refs(&track_for_merge);
+            apply_source_provider_replacement(&mut existing_track, track);
+
+            self.process_track_file(&mut existing_track, file_path)
+                .await?;
+            let updated = self.save_track(conn, &existing_track).await?;
+
+            if let Some(old) = old_path {
+                if existing_track.file_path.as_ref() != Some(&old) && old.exists() {
+                    if let Err(e) = std::fs::remove_file(&old) {
+                        tracing::warn!("Ingest: could not remove superseded file {old:?}: {e}");
+                    }
+                }
+            }
+            Ok((updated, IngestOutcome::Replaced))
+        } else {
+            tracing::info!("Ingest: existing copy is equal or higher quality, keeping it");
+
+            // Keep existing audio; merge useful metadata from the ingested file.
+            let mut track_for_merge = track.clone();
+            normalize_album_and_artist_refs_as_metadata(&mut track_for_merge);
+            demote_track_source_and_provider_to_metadata(&mut track_for_merge);
+            existing_track.transpose_refs(&track_for_merge);
+
+            let updated = self.save_track(conn, &existing_track).await?;
+            Ok((updated, IngestOutcome::Duplicate))
+        }
+    }
+
     /// Tag the downloaded file with the track metadata, then move it to the correct location
-    async fn process_track_file(&self, track: &mut Track, file_path: &Path) -> SoundomeResult<()> {
+    async fn process_track_file(
+        &self,
+        track: &mut Track,
+        file_path: &Path,
+    ) -> SoundgnomeResult<()> {
         // Assign a SOUNDOME_ID if the track does not already have one.
         if track.soundome_id.is_none() {
             track.soundome_id = Some(Uuid::new_v4().to_string());
             tracing::debug!("Assigned SOUNDOME_ID: {:?}", track.soundome_id);
         }
 
-        // Ensure file_path is set on the track — required by the organizer.
-        // In the URL-download path this is already set by `download_track`; in the
-        // local-ingest path the track comes from tag reading and has no path yet.
-        if track.file_path.is_none() {
-            track.file_path = Some(file_path.to_path_buf());
+        // The `file_path` argument is the file that was just downloaded/staged and
+        // must be tagged and moved into the library. Always adopt it as the track's
+        // path so the organizer moves *this* file. In the dedup-replace path the
+        // track carries a stale existing-library path; honoring that instead fails
+        // the move with ENOENT (the old file may be gone or in a different folder).
+        track.file_path = Some(file_path.to_path_buf());
+
+        // When the source metadata carried no cover, derive one from the track's
+        // references so the artwork gets embedded into the file at tag time. This
+        // keeps art in the library offline, instead of resolving it per-play.
+        if track.cover.is_none() {
+            if let Some(url) = resolve_cover_url(track).await {
+                tracing::info!("Resolved cover art for '{}' from references", track.title);
+                track.cover = Some(url);
+            }
         }
 
-        // Best-effort: download cover art from its URL and embed it in the file.
-        let cover_url_opt = track.cover.clone();
-        let cover_bytes: Option<Vec<u8>> = if let Some(url) = cover_url_opt {
-            tokio::task::spawn_blocking(move || {
-                reqwest::blocking::get(&url)
-                    .and_then(|resp| resp.error_for_status())
-                    .and_then(|resp| resp.bytes().map(|b| b.to_vec()))
-                    .map_err(|e| {
-                        tracing::warn!("Could not download cover art from {}: {}", url, e);
-                        e
-                    })
-                    .ok()
-            })
-            .await
-            .unwrap_or(None)
-        } else {
-            None
+        // Best-effort: download cover art (highest available resolution) and
+        // embed it in the file.
+        let cover_bytes: Option<Vec<u8>> = match track.cover.clone() {
+            Some(url) => fetch_cover_bytes(url).await,
+            None => None,
         };
 
         tagger::file::tag_file_with_track_and_cover(
@@ -1570,7 +2733,7 @@ impl DownloadService {
         &self,
         old_track: &Track,
         new_track: &mut Track,
-    ) -> SoundomeResult<bool> {
+    ) -> SoundgnomeResult<bool> {
         // Check if the track has a file to update
         let mut file_path = match &old_track.file_path {
             Some(path) => path.clone(),
@@ -1656,12 +2819,97 @@ impl DownloadService {
         }
     }
 
+    /// Resolve a possibly-relative library `file_path` against `base_library_dir`,
+    /// mirroring [`Self::update_track_file_metadata`]'s resolution rules.
+    fn resolve_library_path(&self, file_path: &Path) -> PathBuf {
+        if file_path.is_absolute() {
+            return file_path.to_path_buf();
+        }
+        let base = PathBuf::from(&Config::get().general.base_library_dir);
+        if file_path
+            .to_string_lossy()
+            .starts_with(base.to_string_lossy().as_ref())
+        {
+            file_path.to_path_buf()
+        } else {
+            base.join(file_path)
+        }
+    }
+
+    /// Whether the track's audio file exists on disk (resolving relative paths).
+    pub fn library_file_present(&self, track: &Track) -> bool {
+        track
+            .file_path
+            .as_ref()
+            .is_some_and(|fp| self.resolve_library_path(fp).exists())
+    }
+
+    /// Finalized library tracks whose audio file is missing on disk. A track with a
+    /// `soundome_id` was organized into the library; if its file is gone it is a
+    /// broken, resyncable entry rather than a validation candidate. Staged
+    /// (`needs_validation`) rows and rows still pointing at cleaned-up staging
+    /// files are excluded.
+    pub fn list_missing_files(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Track>> {
+        Ok(self
+            .track_service
+            .get_all_finalized(conn)?
+            .into_iter()
+            .filter(|t| t.soundome_id.is_some() && !t.needs_validation)
+            .filter(|t| !self.library_file_present(t))
+            .collect())
+    }
+
+    /// The row already holding this source URL, if any.
+    fn existing_staged_track(&self, conn: &mut SqliteConnection, track: &Track) -> Option<Track> {
+        let url = track.get_source().and_then(|s| s.external_url)?;
+        self.track_service.get_by_url(conn, &url)
+    }
+
+    /// Fold a freshly downloaded copy into the row that already exists, keeping
+    /// whichever file is better and deleting the other.
+    async fn replace_staged_track(
+        &self,
+        conn: &mut SqliteConnection,
+        existing: Track,
+        mut track: Track,
+    ) -> SoundgnomeResult<Track> {
+        let new_is_better = self.track_service.is_better_quality(&existing, &track);
+
+        let discarded = if new_is_better {
+            tracing::info!(
+                "Replacing staged file for {} with the better download",
+                existing.display()
+            );
+            existing.file_path.clone()
+        } else {
+            tracing::info!(
+                "Keeping the existing file for {}, the new download is not better",
+                existing.display()
+            );
+            let new_file = track.file_path.clone();
+            track.file_path = existing.file_path.clone();
+            new_file
+        };
+
+        if let Some(path) = discarded {
+            if Some(&path) != track.file_path.as_ref() {
+                if let Err(e) = std::fs::remove_file(&path) {
+                    tracing::warn!("Could not remove {}: {}", path.display(), e);
+                }
+            }
+        }
+
+        // Same row, so the validation queue keeps one entry per track.
+        track.id = existing.id;
+        self.save_track(conn, &track).await
+    }
+
     /// Save the track in the database
     async fn save_track(
         &self,
         conn: &mut SqliteConnection,
         track: &Track,
-    ) -> SoundomeResult<Track> {
+    ) -> SoundgnomeResult<Track> {
         let inserted_track = self.track_service.create_or_update(conn, track)?;
         tracing::info!("Saved track in the database");
         Ok(inserted_track)
@@ -1683,6 +2931,338 @@ impl DownloadService {
                 e
             ),
         }
+    }
+}
+
+/// Stream a file through SHA-256 and return the lowercase hex digest. Used to
+/// detect byte-identical re-uploads during ingest.
+fn sha256_file(path: &Path) -> SoundgnomeResult<String> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| Error::Custom(format!("Failed to open {path:?}: {e}")))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)
+        .map_err(|e| Error::Custom(format!("Failed to hash {path:?}: {e}")))?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// URL prefix under which a track's Chromaprint acoustic fingerprint is stored as a
+/// Metadata reference. MUST match the LIKE pattern in
+/// `DieselTrackRepository::fingerprint_candidates`.
+const CHROMAPRINT_PREFIX: &str = "soundome:chromaprint:";
+
+/// Cap acoustic-fingerprint decoding to the opening of each track. Chromaprint
+/// matches on the first couple of minutes, so decoding whole files is wasted work.
+const FINGERPRINT_MAX_SECS: &str = "120";
+
+/// Everything needed to commit one ingested file, computed off the DB/network so
+/// it can run on a blocking thread in parallel (see `ingest_local_dir`).
+struct PreparedIngest {
+    track: Track,
+    file_path: PathBuf,
+    /// Hex SHA-256 of the raw bytes (exact-duplicate key).
+    content_hash: String,
+    /// Acoustic fingerprint, or `None` when decoding failed (best-effort).
+    fingerprint: Option<Vec<u32>>,
+    /// Whether the source file carries embedded cover art.
+    has_cover: bool,
+}
+
+/// Pure, blocking per-file work: read tags, infer the track number, hash the raw
+/// bytes, and compute the acoustic fingerprint. No DB, no network — safe to run
+/// on a blocking thread so many files decode at once.
+fn prepare_ingest_file(file_path: &Path) -> SoundgnomeResult<PreparedIngest> {
+    let mut track = tagger::file::get_track_from_file(&file_path.to_path_buf())
+        .map_err(|e| Error::Custom(format!("Failed to read audio tags: {e}")))?;
+    if track.track_number.is_none() {
+        track.track_number = infer_track_number_from_filename(file_path);
+    }
+    track.file_path = Some(file_path.to_path_buf());
+    let content_hash = sha256_file(file_path)?;
+    let fingerprint = match compute_fingerprint(file_path) {
+        Ok(fp) => Some(fp),
+        Err(e) => {
+            tracing::warn!("Ingest: fingerprint unavailable for {file_path:?}: {e}");
+            None
+        }
+    };
+    let has_cover = tagger::file::read_cover_from_path(file_path).is_some();
+    Ok(PreparedIngest {
+        track,
+        file_path: file_path.to_path_buf(),
+        content_hash,
+        fingerprint,
+        has_cover,
+    })
+}
+
+/// True when a file's own tags are complete enough to trust without a metadata
+/// provider lookup: a non-empty title, at least one named artist, and an album.
+fn tags_complete(track: &Track) -> bool {
+    !track.title.trim().is_empty()
+        && track.artists.iter().any(|a| !a.name.trim().is_empty())
+        && track
+            .album
+            .as_ref()
+            .is_some_and(|a| !a.title.trim().is_empty())
+}
+
+/// Parallel-prepare width for batch ingest. `general.ingest_concurrency` overrides;
+/// 0 = auto (CPU count, clamped to a sane range). The DB commit stays serial.
+fn ingest_concurrency() -> usize {
+    let configured = Config::get().general.ingest_concurrency;
+    if configured > 0 {
+        return configured;
+    }
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(2, 8)
+}
+
+/// Duration window (seconds) for narrowing acoustic dedup candidates: only tracks
+/// whose length is within this many seconds of the incoming file are compared.
+/// Kept wide enough to still catch re-encodes with slightly different trailing
+/// silence; the fingerprint overlap check is the real identity gate.
+const FINGERPRINT_DURATION_TOLERANCE_SECS: i32 = 30;
+
+/// A matched segment counts toward coverage only when its alignment score is at or
+/// below this. Chromaprint scores are Hamming-distance based (0 = identical), so
+/// re-encodes of the same master score very low while unrelated audio scores high.
+const FINGERPRINT_MAX_SEGMENT_SCORE: f64 = 8.0;
+
+/// Acoustic candidate index: a subfingerprint present in more than this many tracks
+/// is non-discriminative (silence, common patterns) and is skipped when pairing.
+const FINGERPRINT_INDEX_MAX_DF: usize = 8;
+
+/// Two tracks become an acoustic candidate (worth the expensive alignment) only
+/// when they share at least this many discriminative subfingerprints. Unrelated
+/// 32-bit fingerprints practically never collide this often.
+const FINGERPRINT_INDEX_MIN_SHARED: u32 = 3;
+
+/// Fraction of the *longer* track that aligned overlap must cover for two
+/// fingerprints to be treated as the same recording in the library dedup. High
+/// enough that a different song sharing a riff or sample never qualifies.
+const FINGERPRINT_SAME_MASTER_COVERAGE: f32 = 0.70;
+
+/// Fraction of the incoming track that low-score matched segments must cover for
+/// the two recordings to be treated as the same.
+const FINGERPRINT_MIN_COVERAGE: f32 = 0.50;
+
+/// Absolute matched seconds required when the incoming track's duration is unknown
+/// (so coverage-by-fraction cannot be computed).
+const FINGERPRINT_MIN_ABS_MATCH_SECS: f32 = 45.0;
+
+/// Max length difference for the acoustic pass to treat two fingerprints as the
+/// same master. Tight on purpose: same-master copies differ only by trailing
+/// silence, so anything larger is a different edit and is left to the metadata pass.
+const LOOSE_DURATION_SECS: i32 = 5;
+
+/// Max length difference for the metadata pass to merge same (title, artists)
+/// copies the fingerprint could not confirm - a different master of the same song.
+/// Wider than the acoustic gate because title + artists already pin identity.
+const METADATA_DEDUP_DURATION_SECS: i32 = 20;
+
+/// Decode `path` to 44.1 kHz stereo PCM via ffmpeg and compute its Chromaprint
+/// acoustic fingerprint. Decoding leans on the ffmpeg binary already required for
+/// downloads, so every ingestable format (opus, m4a, ...) is handled uniformly.
+fn compute_fingerprint(path: &Path) -> SoundgnomeResult<Vec<u32>> {
+    let output = std::process::Command::new("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-t",
+            FINGERPRINT_MAX_SECS,
+            "-i",
+        ])
+        .arg(path)
+        .args(["-f", "s16le", "-ac", "2", "-ar", "44100", "-"])
+        .output()
+        .map_err(|e| Error::Custom(format!("ffmpeg spawn failed for {path:?}: {e}")))?;
+
+    if !output.status.success() {
+        return Err(Error::Custom(format!(
+            "ffmpeg decode failed for {path:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+
+    let samples: Vec<i16> = output
+        .stdout
+        .chunks_exact(2)
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect();
+
+    let config = Configuration::preset_test2();
+    let mut printer = Fingerprinter::new(&config);
+    printer
+        .start(44100, 2)
+        .map_err(|e| Error::Custom(format!("fingerprinter init failed: {e:?}")))?;
+    printer.consume(&samples);
+    printer.finish();
+
+    let fp = printer.fingerprint().to_vec();
+    if fp.is_empty() {
+        return Err(Error::Custom(format!("empty fingerprint for {path:?}")));
+    }
+    Ok(fp)
+}
+
+/// Encode a fingerprint as fixed-width hex (8 chars per `u32`) for storage in a
+/// reference URL. Zero-dependency and round-trips exactly.
+fn encode_fingerprint(fp: &[u32]) -> String {
+    let mut s = String::with_capacity(fp.len() * 8);
+    for v in fp {
+        s.push_str(&format!("{v:08x}"));
+    }
+    s
+}
+
+/// Inverse of [`encode_fingerprint`]. Returns `None` on any malformed input.
+fn decode_fingerprint(encoded: &str) -> Option<Vec<u32>> {
+    if encoded.is_empty() || !encoded.len().is_multiple_of(8) {
+        return None;
+    }
+    (0..encoded.len())
+        .step_by(8)
+        .map(|i| u32::from_str_radix(&encoded[i..i + 8], 16).ok())
+        .collect()
+}
+
+/// Seconds of well-aligned (low-score) overlap between two fingerprints. Zero when
+/// they do not match.
+fn matched_overlap_secs(fp_a: &[u32], fp_b: &[u32]) -> f32 {
+    let config = Configuration::preset_test2();
+    let Ok(segments) = match_fingerprints(fp_a, fp_b, &config) else {
+        return 0.0;
+    };
+    segments
+        .iter()
+        .filter(|s| s.score <= FINGERPRINT_MAX_SEGMENT_SCORE)
+        .map(|s| s.duration(&config))
+        .sum()
+}
+/// Iterative union-find root with path halving.
+fn uf_find(parent: &mut [usize], mut x: usize) -> usize {
+    while parent[x] != x {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+    }
+    x
+}
+
+/// Normalize a title or artist name for dedup grouping: trim, lowercase, fold
+/// common typographic punctuation (curly quotes/apostrophes, en/em dashes) to
+/// ASCII, and collapse internal whitespace. Without this, "If You Can't Hang"
+/// (straight quote) and "If You Can\u{2019}t Hang" (curly quote) hash to
+/// different groups and never dedup.
+fn normalize_key(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_space = false;
+    for ch in s.trim().chars() {
+        let mapped = match ch {
+            '\u{2018}' | '\u{2019}' | '\u{02BC}' | '`' => '\'',
+            '\u{201C}' | '\u{201D}' => '"',
+            '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' => '-',
+            c => c,
+        };
+        if mapped.is_whitespace() {
+            if !prev_space {
+                out.push(' ');
+                prev_space = true;
+            }
+        } else {
+            for lc in mapped.to_lowercase() {
+                out.push(lc);
+            }
+            prev_space = false;
+        }
+    }
+    out
+}
+
+/// Whether two tracks are the same *master*: both fingerprinted, near-identical
+/// length (within Pass 1's tight window), and their aligned overlap covers most of
+/// the longer one. Both gates matter: the coverage rejects a different song that
+/// merely shares a section, and the length gate rejects a different edit (e.g. an
+/// "Official Video" with a long outro) that happens to overlap enough. Different
+/// masters of the same song (an OGG vs a FLAC a few seconds apart) are left to the
+/// metadata pass, which knows they are the same track from title + artists.
+fn same_recording(
+    a: Option<&Vec<u32>>,
+    b: Option<&Vec<u32>>,
+    da: Option<i32>,
+    db: Option<i32>,
+) -> bool {
+    let (Some(a), Some(b)) = (a, b) else {
+        return false;
+    };
+    let (Some(da), Some(db)) = (da, db) else {
+        return false;
+    };
+    if (da - db).abs() > LOOSE_DURATION_SECS {
+        return false;
+    }
+    let longer = da.max(db).max(1) as f32;
+    matched_overlap_secs(a, b) >= FINGERPRINT_SAME_MASTER_COVERAGE * longer
+}
+
+/// A split-agnostic artist key: flatten every artist name, split on separators, and
+/// normalize each part, then sort+dedup. So a single row listing "Benny Jamz, Gilli,
+/// KESI, B.O.C" as one artist yields the same key as four separate artist rows.
+fn artist_key(artists: &[shared::models::Artist]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for a in artists {
+        for part in a.name.split([',', '&', ';', '/']) {
+            let k = normalize_key(part);
+            if !k.is_empty() {
+                names.push(k);
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Human-readable quality string for a dedup report entry, e.g. "FLAC 1580kbps lossless".
+fn quality_label(track: &Track) -> String {
+    let ext = track
+        .file_path
+        .as_ref()
+        .and_then(|p| p.extension())
+        .and_then(|e| e.to_str())
+        .unwrap_or("?")
+        .to_uppercase();
+    match track.audio_quality() {
+        Some(q) => format!(
+            "{} {}kbps{}",
+            ext,
+            q.bitrate_bps / 1000,
+            if q.lossless { " lossless" } else { "" }
+        ),
+        None => ext,
+    }
+}
+
+fn dedupe_track_summary(track: &Track, rating: Option<shared::models::Rating>) -> DedupeTrack {
+    DedupeTrack {
+        id: track.id.unwrap_or(0),
+        title: track.title.clone(),
+        artist: track
+            .artists
+            .iter()
+            .map(|a| a.name.clone())
+            .collect::<Vec<_>>()
+            .join(", "),
+        duration: track.duration,
+        quality: quality_label(track),
+        needs_validation: track.needs_validation,
+        rating: rating.map(|r| format!("{r:?}").to_lowercase()),
+        file_path: track
+            .file_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
     }
 }
 

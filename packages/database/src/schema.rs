@@ -128,6 +128,7 @@ diesel::table! {
         needs_validation -> Bool,
         validation_reason -> Nullable<Text>,
         soundome_id -> Nullable<Text>,
+        rating -> Nullable<Text>,
     }
 }
 

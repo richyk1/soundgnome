@@ -56,7 +56,7 @@
 
             if [[ ! -d data ]]; then
               mkdir -p ./data
-              if [[ ! -f ./data/soundome.db ]]; then
+              if [[ ! -f ./data/soundgnome.db ]]; then
                 cargo install diesel_cli --no-default-features --features sqlite
                 diesel setup
                 diesel migration run

@@ -1,10 +1,10 @@
 # Playlists
 
-Soundome can sync entire playlists from Spotify, SoundCloud, and YouTube Music, keep them up to date automatically, and export them as standard M3U8 files for use in any music player.
+Soundgnome can sync entire playlists from Spotify, SoundCloud, and YouTube Music, keep them up to date automatically, and export them as standard M3U8 files for use in any music player.
 
 ## Syncing a playlist
 
-Paste a playlist URL in the **Download** field and press Enter. Soundome detects the URL type automatically and starts a background sync task.
+Paste a playlist URL in the **Download** field and press Enter. Soundgnome detects the URL type automatically and starts a background sync task.
 
 **Supported playlist URL formats:**
 
@@ -14,13 +14,13 @@ Paste a playlist URL in the **Download** field and press Enter. Soundome detects
 | SoundCloud | `soundcloud.com/<artist>/sets/<playlist>` |
 | YouTube Music | `music.youtube.com/playlist?list=...` |
 
-Soundome curates the submitted link before syncing: tracking/share query parameters such as `?si=...`, `utm_source=...`, `utm_medium=...`, or `utm_campaign=...` are stripped automatically (while parameters a platform actually needs, like YouTube's `v`/`list`, are kept). This means pasting the "same" playlist link with or without those parameters is recognized as the same playlist and re-syncs the existing entry instead of creating a duplicate.
+Soundgnome curates the submitted link before syncing: tracking/share query parameters such as `?si=...`, `utm_source=...`, `utm_medium=...`, or `utm_campaign=...` are stripped automatically (while parameters a platform actually needs, like YouTube's `v`/`list`, are kept). This means pasting the "same" playlist link with or without those parameters is recognized as the same playlist and re-syncs the existing entry instead of creating a duplicate.
 
 The sync runs in the background. You can monitor progress in the **Tasks** tab: it shows the number of tracks downloaded, skipped (already in library), flagged for validation, and any errors.
 
 ## What happens during sync
 
-For each track in the playlist, Soundome runs the full download workflow:
+For each track in the playlist, Soundgnome runs the full download workflow:
 
 1. Check if the track is already in your library by URL — if so, it is linked to the playlist and skipped
 2. Fetch metadata from the source
@@ -36,7 +36,7 @@ Open the **Tasks** tab and click **Cancel** on the running task. The sync stops 
 
 ## Retrying a failed sync
 
-If a sync task fails or is cancelled mid-way, open the **Tasks** tab and click **Retry**. Soundome restarts the sync from scratch, but tracks already in the library are skipped at the URL-dedup step so they are not re-downloaded.
+If a sync task fails or is cancelled mid-way, open the **Tasks** tab and click **Retry**. Soundgnome restarts the sync from scratch, but tracks already in the library are skipped at the URL-dedup step so they are not re-downloaded.
 
 ## Albums and artist discographies
 
@@ -100,7 +100,7 @@ POST /api/sync-schedules/:id/trigger
 
 ## M3U8 playlist export
 
-After every playlist sync, Soundome writes a `.m3u8` file so that Navidrome, Jellyfin, mpd, and other players can discover your playlists without needing Soundome at runtime.
+After every playlist sync, Soundgnome writes a `.m3u8` file so that Navidrome, Jellyfin, mpd, and other players can discover your playlists without needing Soundgnome at runtime.
 
 ### File location
 
@@ -120,7 +120,7 @@ m3u8_dir = "/mnt/music/Playlists"
 Or:
 
 ```
-SOUNDOME__PLAYLISTS__M3U8_DIR=/mnt/music/Playlists
+SOUNDGNOME__PLAYLISTS__M3U8_DIR=/mnt/music/Playlists
 ```
 
 ### File format
@@ -148,7 +148,7 @@ This regenerates the M3U8 from the current database state. Useful after editing 
 
 ### Stale M3U8 files
 
-M3U8 files are not deleted automatically when a playlist is removed from Soundome. If you delete a playlist, remove the corresponding `.m3u8` file from the playlists directory manually.
+M3U8 files are not deleted automatically when a playlist is removed from Soundgnome. If you delete a playlist, remove the corresponding `.m3u8` file from the playlists directory manually.
 
 ## Troubleshooting
 
@@ -156,7 +156,7 @@ M3U8 files are not deleted automatically when a playlist is removed from Soundom
 → Open the task details. Common causes: SoundCloud DRM-protected tracks (expected), enrichment failures for unusual or very new tracks (will appear in the validation queue), or network issues mid-sync (retry the task).
 
 **New tracks added to the playlist are not appearing**
-→ Re-trigger the sync manually or wait for the scheduled run. Soundome does not watch for changes in real time; it syncs when asked.
+→ Re-trigger the sync manually or wait for the scheduled run. Soundgnome does not watch for changes in real time; it syncs when asked.
 
 **The M3U8 file is missing some tracks**
 → Tracks with `needs_validation = true` are excluded from the export. Approve them in the Validations tab and then re-export.

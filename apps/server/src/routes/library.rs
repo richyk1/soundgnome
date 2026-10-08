@@ -1,16 +1,22 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::{Component, Path, PathBuf},
+    sync::Arc,
+};
 
 use config::Config;
 use domain::services::{scan_service::ScanReport, ServiceLayer};
-use rocket::{get, post, serde::json::Json};
+use rocket::{data::ToByteUnit, get, http::Status, post, serde::json::Json, Data};
 use rocket_okapi::openapi;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use shared::models::Track;
 use tokio::runtime::Handle;
 use walkdir::WalkDir;
 
 use crate::utils::{
-    cancellation::CancellationRegistry, database::Db, error::Error, task_executor::TaskExecutor,
+    cancellation::CancellationRegistry, database::Db, error::CustomError, error::Error,
+    task_executor::TaskExecutor,
 };
 
 // ================================================================================================
@@ -24,6 +30,36 @@ pub struct ScanRequest {
     /// When `true`, no mutations are applied to the database.
     #[serde(default)]
     pub dry_run: bool,
+}
+
+/// A finalized library track whose audio file is missing on disk. Unlike the
+/// library list DTO this never probes the (absent) file for quality.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct MissingTrackDto {
+    pub id: Option<i32>,
+    pub title: String,
+    pub artists: Vec<String>,
+    pub album: Option<String>,
+    /// The recorded (now-missing) file path.
+    pub file_path: Option<String>,
+    /// Source URL a resync would re-download from, if known.
+    pub source_url: Option<String>,
+}
+
+impl MissingTrackDto {
+    fn from_track(t: &Track) -> Self {
+        Self {
+            id: t.id,
+            title: t.title.clone(),
+            artists: t.artists.iter().map(|a| a.name.clone()).collect(),
+            album: t.album.as_ref().map(|a| a.title.clone()),
+            file_path: t
+                .file_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string()),
+            source_url: t.get_source().and_then(|s| s.external_url),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -115,6 +151,86 @@ pub async fn scan(
     Ok(Json(report))
 }
 
+/// Finalized library tracks whose audio file is missing on disk (deleted or moved
+/// away). Each can be repaired with `POST /library/tracks/<id>/resync`.
+#[openapi(tag = "library")]
+#[get("/library/missing")]
+pub async fn missing_files(
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<Json<Vec<MissingTrackDto>>, Error> {
+    let services = Arc::clone(services);
+    let tracks = db
+        .run(move |conn| services.download_service.list_missing_files(conn))
+        .await
+        .map_err(Error::from)?;
+    Ok(Json(
+        tracks.iter().map(MissingTrackDto::from_track).collect(),
+    ))
+}
+
+/// Re-download a library track from its original source and re-file it in place,
+/// keeping its identity. Repairs a track whose audio file went missing.
+#[openapi(tag = "library")]
+#[post("/library/tracks/<id>/resync")]
+pub async fn resync_track(
+    id: i32,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+    executor: &rocket::State<Arc<TaskExecutor>>,
+) -> Result<Json<MissingTrackDto>, Error> {
+    let svc = Arc::clone(services);
+    let svc_check = Arc::clone(services);
+    let track = db
+        .run(move |conn| svc.track_service.get_by_id(conn, id))
+        .await
+        .map_err(Error::from)?;
+
+    let url = track
+        .get_source()
+        .and_then(|s| s.external_url)
+        .ok_or_else(|| {
+            Error::Custom(CustomError {
+                status: Status::UnprocessableEntity,
+                code: "NoSource".to_string(),
+                message: "This track has no source URL to re-sync from.".to_string(),
+            })
+        })?;
+
+    let repaired = executor
+        .enqueue_single_track(url)
+        .await
+        .map_err(|_| {
+            Error::Custom(CustomError {
+                status: Status::InternalServerError,
+                code: "TaskExecutorClosed".to_string(),
+                message: "Task executor dropped the request before completion".to_string(),
+            })
+        })?
+        .map_err(|err| {
+            Error::Custom(CustomError {
+                status: Status::InternalServerError,
+                code: "ResyncFailed".to_string(),
+                message: err.to_string(),
+            })
+        })?;
+
+    // A re-download that could not retrieve audio (e.g. DRM-protected or dead
+    // source) leaves the finalized row unchanged, so the file is still missing.
+    // Surface that as a failure instead of a misleading success.
+    if !svc_check.download_service.library_file_present(&repaired) {
+        return Err(Error::Custom(CustomError {
+            status: Status::UnprocessableEntity,
+            code: "ResyncFailed".to_string(),
+            message: "Re-downloaded, but no audio could be retrieved. The source may be \
+                      DRM-protected or no longer available."
+                .to_string(),
+        }));
+    }
+
+    Ok(Json(MissingTrackDto::from_track(&repaired)))
+}
+
 /// Ingest a single local audio file into the library.
 ///
 /// Reads the embedded tags, enriches via MusicBrainz, deduplicates against existing
@@ -142,7 +258,7 @@ pub async fn ingest(
         PathBuf::from(&Config::get().general.ingest_dir).join(raw)
     };
 
-    let track = db
+    let (track, _outcome) = db
         .run(move |conn| {
             tokio::task::block_in_place(|| {
                 Handle::current().block_on(
@@ -293,6 +409,215 @@ pub async fn ingest_all(
     let _cancel_flag = registry.register(task_id);
 
     executor.enqueue_ingest_dir(task_id, PathBuf::from(ingest_dir));
+
+    Ok(Json(serde_json::json!({ "task_id": task_id })))
+}
+
+/// One-shot maintenance: (re)embed cover art into every library file in place so
+/// artwork survives offline, and fill any missing `cover` in the DB. Derives art
+/// from each track's references (YouTube thumbnail / Spotify oEmbed) when the
+/// stored cover is absent. Runs in the background on the serial task queue; never
+/// re-downloads audio.
+#[openapi(tag = "library")]
+#[post("/library/embed-artwork")]
+pub async fn embed_artwork(
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+    executor: &rocket::State<Arc<TaskExecutor>>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let services = Arc::clone(services);
+    let executor = Arc::clone(executor);
+    let task = db
+        .run(move |conn| {
+            services.task_service.create_backfill(
+                conn,
+                shared::models::TaskType::EmbedArtworkBackfill,
+                "Embed artwork",
+            )
+        })
+        .await
+        .map_err(Error::from)?;
+    let task_id = task.id.expect("created task must have an id");
+    executor.enqueue_embed_artwork(task_id);
+    Ok(Json(serde_json::json!({ "task_id": task_id })))
+}
+
+/// Compute and store a Chromaprint acoustic fingerprint for every library file
+/// that lacks one. This lets acoustic dedup recognize re-uploads of songs already
+/// in the library (which predate fingerprinting). Runs in the background on the
+/// serial task queue; never re-downloads or moves audio.
+#[openapi(tag = "library")]
+#[post("/library/backfill-fingerprints")]
+pub async fn backfill_fingerprints(
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+    executor: &rocket::State<Arc<TaskExecutor>>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let services = Arc::clone(services);
+    let executor = Arc::clone(executor);
+    let task = db
+        .run(move |conn| {
+            services.task_service.create_backfill(
+                conn,
+                shared::models::TaskType::FingerprintBackfill,
+                "Fingerprint library",
+            )
+        })
+        .await
+        .map_err(Error::from)?;
+    let task_id = task.id.expect("created task must have an id");
+    executor.enqueue_backfill_fingerprints(task_id);
+    Ok(Json(serde_json::json!({ "task_id": task_id })))
+}
+
+/// Library-wide acoustic dedup: for each song, keep the best COMPLETE copy and
+/// remove the rest. `apply=false` (the default) returns the plan without deleting
+/// anything - always dry-run it first and review the removals. Runs synchronously
+/// (uses stored fingerprints; no re-decoding).
+#[post("/library/dedupe?<apply>&<loose>")]
+pub async fn dedupe(
+    apply: Option<bool>,
+    loose: Option<bool>,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<Json<domain::services::download_service::DedupeReport>, Error> {
+    let services = Arc::clone(services);
+    let apply = apply.unwrap_or(false);
+    let loose = loose.unwrap_or(false);
+    db.run(move |conn| services.download_service.dedupe_library(conn, apply, loose))
+        .await
+        .map(Json)
+        .map_err(Error::from)
+}
+
+// ================================================================================================
+// Upload (browser -> ingest dir)
+// ================================================================================================
+
+/// Build a server error carrying a human-readable message for the client.
+fn err(msg: impl Into<String>) -> Error {
+    Error::from(shared::errors::Error::Custom(msg.into()))
+}
+
+/// Root under `ingest_dir` where browser uploads are staged, isolated per session.
+fn uploads_root() -> PathBuf {
+    PathBuf::from(&Config::get().general.ingest_dir).join("_uploads")
+}
+
+/// Validate a session id: short, ASCII alnum/dash/underscore only (used as a folder name).
+fn safe_session(session: &str) -> Result<String, Error> {
+    let ok = !session.is_empty()
+        && session.len() <= 64
+        && session
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    ok.then(|| session.to_string())
+        .ok_or_else(|| err("Invalid upload session id"))
+}
+
+/// Turn a client-supplied relative path into safe components (rejects traversal,
+/// absolute paths, and prefixes). Sub-folders are preserved.
+fn safe_relative(path: &str) -> Result<PathBuf, Error> {
+    let mut out = PathBuf::new();
+    for comp in Path::new(path).components() {
+        match comp {
+            Component::Normal(c) => out.push(c),
+            _ => return Err(err("Invalid upload path")),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        return Err(err("Empty upload path"));
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct UploadResponse {
+    /// Absolute path where the file was stored on the server.
+    pub stored_path: String,
+    /// Number of bytes written.
+    pub size_bytes: u64,
+}
+
+/// Stream one uploaded audio file into a per-session folder under
+/// `ingest_dir/_uploads/<session>/`. The raw request body is the file bytes;
+/// `session` scopes the batch and `path` is the client's relative path (sub-folders
+/// preserved). Both are sanitized against path traversal. Ingest is triggered
+/// separately via `POST /library/ingest/session`.
+#[openapi(tag = "library")]
+#[post("/library/upload?<session>&<path>", data = "<data>")]
+pub async fn upload(
+    session: String,
+    path: String,
+    data: Data<'_>,
+) -> Result<Json<UploadResponse>, Error> {
+    let session = safe_session(&session)?;
+    let rel = safe_relative(&path)?;
+    let dest = uploads_root().join(&session).join(&rel);
+
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| err(format!("Could not create upload dir: {e}")))?;
+    }
+
+    // Stream straight to disk; never buffer the whole file in memory.
+    let capped = data
+        .open(1.gibibytes())
+        .into_file(&dest)
+        .await
+        .map_err(|e| err(format!("Upload failed: {e}")))?;
+
+    if !capped.is_complete() {
+        let _ = fs::remove_file(&dest);
+        return Err(err("File exceeds the 1 GiB per-file upload limit"));
+    }
+
+    Ok(Json(UploadResponse {
+        stored_path: dest.to_string_lossy().to_string(),
+        size_bytes: capped.n.written,
+    }))
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct IngestSessionRequest {
+    /// The upload session id whose files should be ingested.
+    pub session: String,
+}
+
+/// Ingest every audio file uploaded under `session`. Returns a `task_id` to poll
+/// (`GET /api/tasks/:id`) for live progress and per-category results.
+#[openapi(tag = "library")]
+#[post("/library/ingest/session", format = "json", data = "<body>")]
+pub async fn ingest_session(
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+    registry: &rocket::State<Arc<CancellationRegistry>>,
+    executor: &rocket::State<Arc<TaskExecutor>>,
+    body: Json<IngestSessionRequest>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let session = safe_session(&body.session)?;
+    let session_dir = uploads_root().join(&session);
+    if !session_dir.is_dir() {
+        return Err(err("Upload session not found"));
+    }
+
+    let services = Arc::clone(services);
+    let registry = Arc::clone(registry);
+    let executor = Arc::clone(executor);
+
+    let services_for_db = services.clone();
+    let session_dir_str = session_dir.to_string_lossy().to_string();
+    let task = db
+        .run(move |conn| {
+            services_for_db
+                .task_service
+                .create_ingest_dir(conn, &session_dir_str)
+        })
+        .await
+        .map_err(Error::from)?;
+
+    let task_id = task.id.expect("created task must have an id");
+    let _cancel_flag = registry.register(task_id);
+    executor.enqueue_ingest_dir(task_id, session_dir);
 
     Ok(Json(serde_json::json!({ "task_id": task_id })))
 }

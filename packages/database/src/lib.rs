@@ -15,7 +15,7 @@ pub mod mappers;
 pub mod repositories;
 pub mod schema;
 
-const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
+pub(crate) const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 /// Initialize the SQLite database at the given URL.
 /// Creates the file and parent directories if they don't exist, then runs all pending migrations.

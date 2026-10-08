@@ -2,6 +2,9 @@
   import { lib } from './store.svelte';
   import TrackTable from './TrackTable.svelte';
   import SortDropdown from './SortDropdown.svelte';
+  import AlbumGrid from './AlbumGrid.svelte';
+  import LibraryOptions from './LibraryOptions.svelte';
+  import { runNavigation } from '../navigation-motion';
 
   const albumSortOptions = [
     { value: 'title', label: 'Title' },
@@ -57,8 +60,11 @@
 
 <!-- ── ALBUMS LIST / GRID ────────────────────────────────────────────────── -->
 {:else}
-  <div class="toolbar">
-    <input class="search" placeholder="Search albums or artists… (S)" bind:value={lib.albumSearch} />
+  <LibraryOptions>
+    {#snippet search()}
+      <input class="search" aria-label="Search albums or artists" placeholder="Search albums or artists…" bind:value={lib.albumSearch} />
+    {/snippet}
+    {#snippet children()}
     <button
       class="btn-similar"
       class:active={lib.albumSimilarFilterActive}
@@ -97,7 +103,8 @@
       </button>
     </div>
     <span class="count">{lib.filteredAlbums.length} album{lib.filteredAlbums.length !== 1 ? 's' : ''}</span>
-  </div>
+    {/snippet}
+  </LibraryOptions>
 
   {#if lib.albumsView === 'list'}
     <div class="table-wrap">
@@ -122,8 +129,8 @@
             >
               <td class="muted">{a.id}</td>
               <td>
-                <span class="title-link" class:muted={dimmed} onclick={(e) => { if (!lib.albumMergePicking && !e.shiftKey) lib.drillIntoAlbum(a); }} role="button" tabindex="0"
-                  onkeydown={(e) => e.key === 'Enter' && lib.drillIntoAlbum(a)}>{a.title}</span>
+                <span class="title-link" class:muted={dimmed} onclick={(e) => { if (!lib.albumMergePicking && !e.shiftKey) runNavigation(() => lib.drillIntoAlbum(a)); }} role="button" tabindex="0"
+                  onkeydown={(e) => e.key === 'Enter' && runNavigation(() => lib.drillIntoAlbum(a))}>{a.title}</span>
                 {#if sel}<span class="badge-sel">✓</span>{/if}
               </td>
               <td class="muted">{a.artists.map(x => x.name).join(', ') || '\u2014'}</td>
@@ -131,6 +138,7 @@
               <td class="muted">{a.date ?? '\u2014'}</td>
               <td class="actions">
                 {#if !lib.albumMergePicking}
+                  <button class="btn-select" aria-pressed={sel} onclick={(e) => { e.stopPropagation(); lib.toggleAlbumSelection(a.id); }}>{sel ? 'Selected' : 'Select'}</button>
                   <button class="btn-edit" onclick={(e) => { e.stopPropagation(); lib.startEditAlbum(a); }}>Edit</button>
                   <button class="btn-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeleteAlbum(a.id); }}>Delete</button>
                 {/if}
@@ -141,47 +149,7 @@
       </table>
     </div>
   {:else}
-    <div class="card-grid">
-      {#each lib.filteredAlbums as a (a.id)}
-        {@const sel = lib.selectedAlbumIds.has(a.id)}
-        {@const dimmed = lib.albumSimilarFilterActive && !lib.similarAlbumIds.has(a.id)}
-        {@const pickable = lib.albumMergePicking && sel}
-        <div class="card"
-          class:clickable={!lib.albumMergePicking}
-          class:card-selected={sel}
-          class:card-dimmed={dimmed}
-          class:card-pickable={pickable}
-          style={lib.albumMergePicking && !sel ? 'opacity:0.3;pointer-events:none' : ''}
-          onmouseenter={() => (lib.hoveredItem = { type: 'album', id: a.id })}
-          onmouseleave={() => (lib.hoveredItem = null)}
-          onclick={(e) => {
-            if (lib.albumMergePicking) { if (sel) lib.pickAlbumMergeTarget(a.id); }
-            else if (e.shiftKey) { e.preventDefault(); lib.toggleAlbumSelection(a.id); }
-            else { lib.drillIntoAlbum(a); }
-          }}
-          role="button" tabindex="0"
-          onkeydown={(e) => {
-            if (e.key === 'Enter') {
-              if (lib.albumMergePicking && sel) lib.pickAlbumMergeTarget(a.id);
-              else if (!lib.albumMergePicking) lib.drillIntoAlbum(a);
-            } else if (e.key === ' ') { e.preventDefault(); lib.toggleAlbumSelection(a.id); }
-          }}>
-          {@render coverWrap(a.cover, a.title)}
-          <div class="card-body">
-            <div class="card-title" title={a.title}>{a.title}</div>
-            <div class="card-sub">{a.artists.map(x => x.name).join(', ') || '\u2014'}</div>
-            {#if a.date}<div class="card-meta">{a.date.slice(0, 4)}</div>{/if}
-          </div>
-          {#if sel}<span class="card-sel-badge">✓</span>{/if}
-          {#if !lib.albumMergePicking}
-            <div class="card-hover-actions">
-              <button class="btn-edit" onclick={(e) => { e.stopPropagation(); lib.startEditAlbum(a); }}>Edit</button>
-              <button class="btn-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeleteAlbum(a.id); }}>Delete</button>
-            </div>
-          {/if}
-        </div>
-      {/each}
-    </div>
+    <AlbumGrid cover={coverWrap} />
   {/if}
   {#if lib.filteredAlbums.length === 0}<p class="status">No albums found.</p>{/if}
 
@@ -210,7 +178,7 @@
 
 <style>
   h2 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.35rem; }
-  .detail-hero { display: flex; align-items: center; gap: 1.5rem; padding: 1.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .detail-hero { display: flex; align-items: center; gap: 1.5rem; padding: 1.5rem; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-sm); margin-bottom: 1.5rem; flex-wrap: wrap; }
   .detail-cover { width: 110px; height: 110px; flex-shrink: 0; border-radius: 6px; overflow: hidden; }
   .detail-cover :global(.cover-wrap) { width: 100%; height: 100%; }
   .detail-info { flex: 1; min-width: 180px; }
@@ -227,34 +195,20 @@
     background: var(--surface-2); color: var(--muted); cursor: pointer; font-size: 0.8rem; font-family: inherit;
   }
   .btn-similar:hover { color: var(--text); }
-  .btn-similar.active { background: color-mix(in srgb, #f59e0b 12%, var(--surface)); color: #f59e0b; border-color: color-mix(in srgb, #f59e0b 40%, transparent); }
-  .similar-badge { background: #f59e0b; color: #000; border-radius: 999px; padding: 0 0.35rem; font-size: 0.7rem; font-weight: 700; }
+  .btn-similar.active { background: color-mix(in srgb, var(--warning) 12%, var(--surface)); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 40%, transparent); }
+  .similar-badge { background: var(--warning); color: var(--on-warning); border-radius: 999px; padding: 0 0.35rem; font-size: 0.7rem; font-weight: 700; }
 
   /* Row selection */
   tr.row-selected td { background: color-mix(in srgb, var(--accent) 9%, transparent); }
   tr.row-dimmed { opacity: 0.2; }
   tr.row-pickable { cursor: pointer; }
-  tr.row-pickable:hover td { background: color-mix(in srgb, #22c55e 14%, transparent) !important; }
+  tr.row-pickable:hover td { background: color-mix(in srgb, var(--success) 14%, transparent) !important; }
   .badge-sel {
     display: inline-block; margin-left: 0.35rem; vertical-align: middle;
-    background: var(--accent); color: #fff; border-radius: 3px;
+    background: var(--accent); color: var(--on-accent); border-radius: 3px;
     padding: 0 0.28rem; font-size: 0.66rem; font-weight: 700;
   }
-  tr.row-pickable .badge-sel { background: #22c55e; }
-
-  /* Card selection */
-  .card { position: relative; }
-  .card-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .card-dimmed { opacity: 0.2; }
-  .card-pickable { cursor: pointer; }
-  .card-pickable:hover { outline-color: #22c55e !important; background: color-mix(in srgb, #22c55e 10%, var(--surface)); }
-  .card-sel-badge {
-    position: absolute; top: 0.3rem; right: 0.3rem; z-index: 2;
-    background: var(--accent); color: #fff; border-radius: 50%;
-    width: 1.2rem; height: 1.2rem; font-size: 0.65rem; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .card-pickable .card-sel-badge { background: #22c55e; }
+  tr.row-pickable .badge-sel { background: var(--success); color: var(--on-success); }
 
   /* Floating merge button */
   .merge-fab {
@@ -262,25 +216,39 @@
     display: flex; align-items: center; gap: 0.5rem; white-space: nowrap;
     padding: 0.55rem 0.9rem;
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: 999px; box-shadow: 0 4px 22px rgba(0,0,0,0.35);
+    border-radius: 999px; box-shadow: var(--shadow);
     z-index: 200; font-size: 0.875rem;
   }
   .merge-fab.fab-picking {
-    background: color-mix(in srgb, #22c55e 12%, var(--surface));
-    border-color: color-mix(in srgb, #22c55e 50%, transparent);
+    background: color-mix(in srgb, var(--success) 12%, var(--surface));
+    border-color: color-mix(in srgb, var(--success) 50%, transparent);
   }
-  .fab-count { background: var(--accent); color: #fff; border-radius: 999px; padding: 0.05rem 0.55rem; font-size: 0.75rem; font-weight: 700; }
+  .fab-count { background: var(--accent); color: var(--on-accent); border-radius: 999px; padding: 0.05rem 0.55rem; font-size: 0.75rem; font-weight: 700; }
   .fab-btn-merge {
     padding: 0.35rem 1rem; border-radius: 999px; border: none; cursor: pointer;
-    background: var(--accent); color: #fff; font-weight: 600; font-family: inherit; font-size: 0.875rem;
+    background: var(--accent); color: var(--on-accent); font-weight: 600; font-family: inherit; font-size: 0.875rem;
   }
   .fab-btn-merge:hover:not(:disabled) { filter: brightness(1.12); }
   .fab-btn-merge:disabled { opacity: 0.5; cursor: not-allowed; }
-  .fab-hint { display: flex; align-items: center; gap: 0.4rem; color: #22c55e; font-weight: 600; }
+  .fab-hint { display: flex; align-items: center; gap: 0.4rem; color: var(--success); font-weight: 600; }
   .fab-btn-cancel {
     padding: 0.3rem 0.65rem; border-radius: 999px; border: 1px solid var(--border);
     background: none; color: var(--muted); cursor: pointer; font-family: inherit; font-size: 0.8rem;
   }
   .fab-btn-cancel:hover { color: var(--text); background: var(--surface-2); }
   .fab-btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .merge-fab { bottom: auto; top: calc(var(--app-top, 0px) + var(--app-height, 100dvh) - var(--app-bottom-clearance, 144px)); transform: translate(-50%, -100%); max-height: calc(var(--app-height, 100dvh) - var(--app-bottom-clearance, 144px) - 2rem); overflow-y: auto; max-width: calc(100vw - 2rem); box-sizing: border-box; flex-wrap: wrap; justify-content: center; white-space: normal; }
+  .merge-fab { width: max-content; }
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    button { min-height: 44px; min-width: 44px; }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 16px; min-height: 44px; }
+    .table-wrap { max-width: 100%; overflow-x: auto; }
+    .detail-hero { padding: 1rem; gap: 1rem; }
+    .detail-info { min-width: 0; flex-basis: 100%; }
+    .detail-info h2 { overflow-wrap: anywhere; }
+    .detail-actions { flex-wrap: wrap; }
+  }
+  .btn-select { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font: inherit; padding: 0.3rem 0.6rem; }
+  .btn-select[aria-pressed="true"] { color: var(--accent-2); border-color: var(--accent); }
 </style>

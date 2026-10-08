@@ -2,7 +2,7 @@
 
 ## Overview
 
-Soundome exposes a shared proxy layer for HTTP clients built through `shared::libs::http::HttpClientBuilder`. It is useful when running behind corporate proxies, routing traffic through residential proxies, or working around geo-restrictions.
+Soundgnome exposes a shared proxy layer for HTTP clients built through `shared::libs::http::HttpClientBuilder`. It is useful when running behind corporate proxies, routing traffic through residential proxies, or working around geo-restrictions.
 
 The proxy rotator is initialized globally by `shared::init_globals()`, which is already called by the server boot path.
 
@@ -85,7 +85,7 @@ no_proxy = ["localhost", "127.0.0.1", "internal.company.com"]
 
 ## Current limitations
 
-Proxy support is only guaranteed when code uses the shared HTTP builder. Several third-party libraries used by Soundome still manage their own network stack and therefore may ignore the repository-level proxy configuration.
+Proxy support is only guaranteed when code uses the shared HTTP builder. Several third-party libraries used by Soundgnome still manage their own network stack and therefore may ignore the repository-level proxy configuration.
 
 Known examples include adapters for Spotify, SoundCloud, YouTube Music, MusicBrainz, and some provider-specific clients.
 

@@ -8,4 +8,9 @@ data/
 README.md
 library/
 temp/
+ingest/
+.env*
+config.toml
+cookies.txt
+omp-session-*.html
 

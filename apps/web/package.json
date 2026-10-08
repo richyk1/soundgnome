@@ -1,7 +1,7 @@
 {
-  "name": "@soundome/web",
+  "name": "@soundgnome/web",
   "private": true,
-  "version": "0.2.8",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "pnpm run generate-icons && vite",

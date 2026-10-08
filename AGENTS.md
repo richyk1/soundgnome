@@ -1,4 +1,4 @@
-# Soundome
+# Soundgnome
 
 Rust monorepo for a personal music library manager — centralizes, downloads, enriches, tags, and organizes music from Spotify, SoundCloud, YouTube, and YouTube Music.
 
@@ -43,7 +43,7 @@ Rust monorepo for a personal music library manager — centralizes, downloads, e
 
 ## Code conventions
 
-- Use `shared::types::SoundomeResult<T>` and `shared::errors::Error` for errors
+- Use `shared::types::SoundgnomeResult<T>` and `shared::errors::Error` for errors
 - Use `tracing::{info,warn,error,debug}` for logging
 - Avoid `unwrap()`/`expect()` outside boot/init code
 - Prefer `shared::libs::http::HttpClientBuilder` over ad hoc `reqwest::Client`
@@ -53,7 +53,7 @@ Rust monorepo for a personal music library manager — centralizes, downloads, e
 
 ## Config & runtime
 
-- Config: `packages/config` loads `config.toml`, supports `SOUNDOME_CONFIG_PATH` and `SOUNDOME__...` overrides
+- Config: `packages/config` loads `config.toml`, supports `SOUNDGNOME_CONFIG_PATH` and `SOUNDGNOME__...` overrides
 - Global init via `shared::init_globals()`
 - `.env` file expected (dotenvy with `required = true`)
 - Rocket DB config in `Rocket.toml`

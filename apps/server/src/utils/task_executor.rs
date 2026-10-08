@@ -2,7 +2,7 @@
 //!
 //! The executor owns a single worker thread that pulls `QueuedJob`s from a FIFO
 //! channel and runs them one at a time. Its purpose is to guarantee that
-//! Soundome only ever runs **one** heavy job at a time, which:
+//! Soundgnome only ever runs **one** heavy job at a time, which:
 //!
 //! - avoids SQLite `database is locked` errors caused by two writers racing
 //!   for the exclusive database lock on concurrent playlist syncs,
@@ -30,7 +30,7 @@ use config::Config;
 use domain::services::ServiceLayer;
 use shared::errors::Error;
 use shared::models::Track;
-use shared::types::SoundomeResult;
+use shared::types::SoundgnomeResult;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 
@@ -65,7 +65,16 @@ pub enum QueuedJob {
     /// caller blocks on the response.
     SingleTrack {
         url: String,
-        responder: oneshot::Sender<SoundomeResult<Track>>,
+        responder: oneshot::Sender<SoundgnomeResult<Track>>,
+    },
+    /// One-shot: (re)embed cover art into every library file in place.
+    EmbedArtwork {
+        task_id: i32,
+    },
+    /// One-shot: compute and store a Chromaprint fingerprint for every library file
+    /// that lacks one, so acoustic dedup can recognize re-uploads.
+    BackfillFingerprints {
+        task_id: i32,
     },
 }
 
@@ -88,7 +97,7 @@ impl TaskExecutor {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<QueuedJob>();
 
         std::thread::Builder::new()
-            .name("soundome-task-executor".to_string())
+            .name("soundgnome-task-executor".to_string())
             .spawn(move || {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -140,10 +149,20 @@ impl TaskExecutor {
     /// resolves once the worker has processed the job. Awaiting this receiver
     /// naturally blocks the HTTP handler until the queue reaches this job,
     /// which is the intended behavior — no download ever bypasses the queue.
-    pub fn enqueue_single_track(&self, url: String) -> oneshot::Receiver<SoundomeResult<Track>> {
+    pub fn enqueue_single_track(&self, url: String) -> oneshot::Receiver<SoundgnomeResult<Track>> {
         let (responder, rx) = oneshot::channel();
         self.send(QueuedJob::SingleTrack { url, responder });
         rx
+    }
+    /// Enqueue a one-shot artwork backfill (tracked by `task_id`). Non-blocking.
+    pub fn enqueue_embed_artwork(&self, task_id: i32) {
+        self.send(QueuedJob::EmbedArtwork { task_id });
+    }
+
+    /// Enqueue a one-shot acoustic-fingerprint backfill (tracked by `task_id`).
+    /// Non-blocking.
+    pub fn enqueue_backfill_fingerprints(&self, task_id: i32) {
+        self.send(QueuedJob::BackfillFingerprints { task_id });
     }
 
     fn send(&self, job: QueuedJob) {
@@ -223,7 +242,26 @@ async fn run_job(
                 .download_service
                 .ingest_local_dir(conn, &ingest_dir, task_id)
                 .await;
-            finalize_task(services, registry, conn, task_id, result);
+            // Browser uploads are staged under `<ingest_dir>/_uploads/<session>/`.
+            // Once ingested they are redundant copies, so remove the session dir on
+            // success. The shared server ingest dir (never under `_uploads`) is left
+            // untouched so manual ingest stays non-destructive.
+            let had_errors = matches!(&result, Ok(n) if *n > 0);
+            if result.is_ok()
+                && !had_errors
+                && ingest_dir.components().any(|c| c.as_os_str() == "_uploads")
+                && ingest_dir.file_name().is_some_and(|n| n != "_uploads")
+            {
+                if let Err(e) = std::fs::remove_dir_all(&ingest_dir) {
+                    tracing::warn!("Failed to clean upload session dir {:?}: {}", ingest_dir, e);
+                }
+            } else if had_errors {
+                tracing::warn!(
+                    "Ingest of {:?} finished with errors; keeping the upload session so the failed files can be retried",
+                    ingest_dir
+                );
+            }
+            finalize_task(services, registry, conn, task_id, result.map(|_| ()));
         }
         QueuedJob::SingleTrack { url, responder } => {
             let result = services
@@ -233,6 +271,28 @@ async fn run_job(
             // Ignore send errors: the caller may have already given up (client
             // dropped the connection). Nothing else to do.
             let _ = responder.send(result);
+        }
+        QueuedJob::EmbedArtwork { task_id } => {
+            mark_running(services, conn, task_id);
+            let result = services
+                .download_service
+                .backfill_artwork(conn, Some(task_id))
+                .await;
+            if let Ok(summary) = &result {
+                tracing::info!("Artwork backfill finished: {:?}", summary);
+            }
+            finalize_task(services, registry, conn, task_id, result.map(|_| ()));
+        }
+        QueuedJob::BackfillFingerprints { task_id } => {
+            mark_running(services, conn, task_id);
+            let result = services
+                .download_service
+                .backfill_fingerprints(conn, Some(task_id))
+                .await;
+            if let Ok(summary) = &result {
+                tracing::info!("Fingerprint backfill finished: {:?}", summary);
+            }
+            finalize_task(services, registry, conn, task_id, result.map(|_| ()));
         }
     }
 }
@@ -248,7 +308,7 @@ fn finalize_task(
     registry: &Arc<CancellationRegistry>,
     conn: &mut diesel::SqliteConnection,
     task_id: i32,
-    result: SoundomeResult<()>,
+    result: SoundgnomeResult<()>,
 ) {
     match result {
         Ok(()) => {

@@ -3,10 +3,11 @@ address = "0.0.0.0"
 port = 8000
 
 [default.limits]
-file = "10 MiB"
+file = "2 GiB"
+data-form = "2 GiB"
 form = "10 MiB"
 
 [global.databases.sqlite]
-# url = "data/soundome.db"
+# url = "data/soundgnome.db"
 pool_size = 10
 timeout = 5

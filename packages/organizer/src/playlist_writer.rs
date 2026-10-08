@@ -6,7 +6,7 @@ use std::{
 use shared::{
     errors::Error,
     models::{Playlist, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
     utils::fs::sanitize_filename as sanitize_name,
 };
 
@@ -23,7 +23,7 @@ pub fn write_m3u8(
     playlist: &Playlist,
     tracks: &[Track],
     output_dir: &Path,
-) -> SoundomeResult<PathBuf> {
+) -> SoundgnomeResult<PathBuf> {
     std::fs::create_dir_all(output_dir).map_err(|e| {
         Error::Custom(format!(
             "Failed to create M3U8 output directory {:?}: {}",

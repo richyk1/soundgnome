@@ -1,4 +1,4 @@
-# Soundome documentation
+# Soundgnome documentation
 
 This directory is the main documentation hub for the repository. The content is organized by purpose so it is easier to navigate from onboarding to architecture, workflows, and operations.
 
@@ -22,7 +22,7 @@ This directory is the main documentation hub for the repository. The content is 
 ### Guides
 
 - [guides/README.md](guides/README.md): guide index.
-- [guides/spotify.md](guides/spotify.md): activate Spotify, obtain credentials, what Spotify unlocks.
+- [guides/spotify.md](guides/spotify.md): connect Spotify (one Premium login), what it unlocks.
 - [guides/soundcloud.md](guides/soundcloud.md): SoundCloud specifics — noisy metadata, DRM tracks, AI cleanup.
 - [guides/ai-metadata.md](guides/ai-metadata.md): configure Ollama or OpenRouter to clean SoundCloud metadata automatically.
 - [guides/playlists.md](guides/playlists.md): sync playlists, schedule automatic updates, export M3U8 files.

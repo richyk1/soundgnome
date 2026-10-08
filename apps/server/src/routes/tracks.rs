@@ -1,12 +1,21 @@
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 
 use domain::services::ServiceLayer;
 use rocket::fs::NamedFile;
-use rocket::{delete, get, http::Status, patch, post, serde::json::Json};
+use rocket::{
+    delete, get,
+    http::{ContentType, Header, Status},
+    patch, post, put,
+    serde::json::Json,
+    Responder,
+};
 use rocket_okapi::openapi;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use shared::models::{Album, Artist, Platform, Reference, ReferenceType, Track};
+use shared::models::{Album, Artist, Platform, Rating, Reference, ReferenceType, Track};
 
 use crate::utils::{database::Db, error::CustomError, response::Success};
 
@@ -47,6 +56,24 @@ pub fn reference_to_dto(r: Reference) -> ReferenceDto {
         external_id: r.external_id,
         external_url: r.external_url,
     }
+}
+
+/// True for internal bookkeeping references (acoustic fingerprint, content hash)
+/// stored under the `soundome:` URL scheme. They are dedup metadata, not
+/// user-facing links, and the fingerprint blob is large (~8 KB each), so they are
+/// excluded from API responses.
+pub fn is_internal_reference(r: &Reference) -> bool {
+    r.external_url
+        .as_deref()
+        .is_some_and(|u| u.starts_with("soundome:"))
+}
+
+/// Map a track's references to DTOs, dropping internal bookkeeping references.
+pub fn references_to_dto(refs: Vec<Reference>) -> Vec<ReferenceDto> {
+    refs.into_iter()
+        .filter(|r| !is_internal_reference(r))
+        .map(reference_to_dto)
+        .collect()
 }
 
 /// Body for manually adding a reference to any entity.
@@ -119,11 +146,80 @@ pub struct TrackDto {
     pub label: Option<String>,
     pub file_path: Option<String>,
     pub needs_validation: bool,
+    /// Probed audio quality, absent when there is no local file or it cannot
+    /// be read.
+    pub quality: Option<TrackQualityDto>,
     pub references: Vec<ReferenceDto>,
+    pub rating: Option<Rating>,
+}
+
+/// Measured properties of the audio file backing a track.
+///
+/// Probed from disk on read rather than stored: a re-tagged or replaced file
+/// then reports its real quality instead of a stale row. The probe only reads
+/// container headers, so it is cheap enough to do per response.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct TrackQualityDto {
+    /// Short codec label, e.g. "FLAC", "AAC", "MP3".
+    pub format: String,
+    pub bitrate_kbps: u32,
+    pub lossless: bool,
+}
+
+impl TrackQualityDto {
+    fn probe(track: &Track) -> Option<Self> {
+        let quality = crate::utils::quality_cache::probe(track)?;
+        let extension = track
+            .file_path
+            .as_ref()
+            .and_then(|p| p.extension())
+            .and_then(|e| e.to_str())
+            .unwrap_or_default()
+            .to_lowercase();
+
+        // An m4a holds either AAC or ALAC, and only the lossless flag tells
+        // them apart, so the label is derived from both.
+        let format = match extension.as_str() {
+            "m4a" | "mp4" | "aac" => {
+                if quality.lossless {
+                    "ALAC"
+                } else {
+                    "AAC"
+                }
+            }
+            "mp3" => "MP3",
+            "flac" => "FLAC",
+            "opus" => "OPUS",
+            "ogg" => {
+                if quality.lossless {
+                    "PCM"
+                } else {
+                    "VORBIS"
+                }
+            }
+            "wav" | "wave" => "WAV",
+            _ => {
+                if quality.lossless {
+                    "PCM"
+                } else {
+                    "LOSSY"
+                }
+            }
+        };
+
+        Some(Self {
+            format: format.to_string(),
+            bitrate_kbps: quality.bitrate_bps / 1000,
+            lossless: quality.lossless,
+        })
+    }
 }
 
 impl TrackDto {
     fn from_track(track: Track) -> Option<Self> {
+        // Probe before the struct is torn apart: it needs `file_path`.
+        let quality = TrackQualityDto::probe(&track);
+
         Some(Self {
             id: track.id?,
             title: track.title,
@@ -150,7 +246,9 @@ impl TrackDto {
                 .file_path
                 .and_then(|p| p.to_str().map(|s| s.to_string())),
             needs_validation: track.needs_validation,
-            references: track.references.into_iter().map(reference_to_dto).collect(),
+            quality,
+            references: references_to_dto(track.references),
+            rating: None,
         })
     }
 }
@@ -168,6 +266,12 @@ pub struct UpdateTrackBody {
     pub cover: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SetRatingBody {
+    /// New rating, or null to clear it.
+    pub rating: Option<Rating>,
+}
+
 // ================================================================================================
 // Routes
 // ================================================================================================
@@ -179,23 +283,35 @@ pub async fn get_all(
     services: &rocket::State<Arc<ServiceLayer>>,
 ) -> Result<Json<Vec<TrackDto>>, crate::utils::error::Error> {
     let services = Arc::clone(services);
-    db.run(move |conn| services.track_service.get_all(conn))
-        .await
-        .map(|tracks| {
-            Json(
-                tracks
-                    .into_iter()
-                    .filter_map(TrackDto::from_track)
-                    .collect(),
-            )
+    db.run(
+        move |conn| -> shared::types::SoundgnomeResult<(Vec<Track>, Vec<(i32, Rating)>)> {
+            let tracks = services.track_service.get_all(conn)?;
+            let ratings = services.track_service.get_ratings(conn)?;
+            Ok((tracks, ratings))
+        },
+    )
+    .await
+    .map(|(tracks, ratings)| {
+        let ratings: std::collections::HashMap<i32, Rating> = ratings.into_iter().collect();
+        Json(
+            tracks
+                .into_iter()
+                .filter_map(|t| {
+                    let id = t.id?;
+                    let mut dto = TrackDto::from_track(t)?;
+                    dto.rating = ratings.get(&id).copied();
+                    Some(dto)
+                })
+                .collect(),
+        )
+    })
+    .map_err(|err| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::InternalServerError,
+            code: "Internal".to_string(),
+            message: err.to_string(),
         })
-        .map_err(|err| {
-            crate::utils::error::Error::Custom(CustomError {
-                status: Status::InternalServerError,
-                code: "Internal".to_string(),
-                message: err.to_string(),
-            })
-        })
+    })
 }
 
 #[openapi]
@@ -206,20 +322,33 @@ pub async fn get(
     services: &rocket::State<Arc<ServiceLayer>>,
 ) -> Result<Json<TrackDto>, crate::utils::error::Error> {
     let services = Arc::clone(services);
-    db.run(move |conn| services.track_service.get_by_id(conn, id))
-        .await
-        .and_then(|track| {
-            TrackDto::from_track(track)
-                .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))
+    db.run(
+        move |conn| -> shared::types::SoundgnomeResult<(Track, Option<Rating>)> {
+            let track = services.track_service.get_by_id(conn, id)?;
+            let rating = services
+                .track_service
+                .get_ratings(conn)?
+                .into_iter()
+                .find(|(tid, _)| *tid == id)
+                .map(|(_, r)| r);
+            Ok((track, rating))
+        },
+    )
+    .await
+    .and_then(|(track, rating)| {
+        let mut dto = TrackDto::from_track(track)
+            .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))?;
+        dto.rating = rating;
+        Ok(dto)
+    })
+    .map(Json)
+    .map_err(|err| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::NotFound,
+            code: "NotFound".to_string(),
+            message: err.to_string(),
         })
-        .map(Json)
-        .map_err(|err| {
-            crate::utils::error::Error::Custom(CustomError {
-                status: Status::NotFound,
-                code: "NotFound".to_string(),
-                message: err.to_string(),
-            })
-        })
+    })
 }
 
 #[openapi]
@@ -233,7 +362,7 @@ pub async fn update(
     let services = Arc::clone(services);
     let body = body.into_inner();
 
-    db.run(move |conn| -> shared::types::SoundomeResult<Track> {
+    db.run(move |conn| -> shared::types::SoundgnomeResult<Track> {
         let old_track = services.track_service.get_by_id(conn, id)?;
         let mut track = old_track.clone();
 
@@ -335,6 +464,130 @@ pub async fn update(
     })
 }
 
+/// Request body for AI metadata cleanup: the current (possibly edited) title and
+/// artist names to clean.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AiCleanBody {
+    pub title: String,
+    #[serde(default)]
+    pub artists: Vec<String>,
+}
+
+/// Cleaned metadata suggestion. Not persisted; the client reviews it and then
+/// saves via the normal update route.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct AiCleanDto {
+    pub title: String,
+    pub artists: Vec<String>,
+}
+
+/// Clean and standardize a track's title and artists via the configured AI
+/// backend. Returns a suggestion for review; nothing is persisted.
+#[openapi]
+#[post("/tracks/<id>/ai-clean", format = "application/json", data = "<body>")]
+pub async fn ai_clean(
+    id: i32,
+    body: Json<AiCleanBody>,
+) -> Result<Json<AiCleanDto>, crate::utils::error::Error> {
+    let body = body.into_inner();
+    let input = shared::models::SimplifiedTrack {
+        id: id.to_string(),
+        title: body.title,
+        artists: body.artists,
+    };
+    let cleaned = ai::clean_track_metadata(input).await.map_err(|err| {
+        let status = match &err {
+            shared::errors::Error::Config(_) | shared::errors::Error::NoAIBackend => {
+                Status::ServiceUnavailable
+            }
+            _ => Status::InternalServerError,
+        };
+        crate::utils::error::Error::Custom(CustomError {
+            status,
+            code: "AiCleanFailed".to_string(),
+            message: err.to_string(),
+        })
+    })?;
+    Ok(Json(AiCleanDto {
+        title: cleaned.title,
+        artists: cleaned.artists,
+    }))
+}
+
+#[openapi]
+#[put("/tracks/<id>/rating", format = "application/json", data = "<body>")]
+pub async fn set_rating(
+    id: i32,
+    body: Json<SetRatingBody>,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<Json<TrackDto>, crate::utils::error::Error> {
+    let services = Arc::clone(services);
+    let rating = body.into_inner().rating;
+    let result = db
+        .run(move |conn| -> shared::types::SoundgnomeResult<Track> {
+            services.track_service.set_rating(conn, id, rating)?;
+            services.track_service.get_by_id(conn, id)
+        })
+        .await;
+
+    // Best-effort: mirror the like to Last.fm loved tracks when a session is
+    // connected. Detached so it never delays or fails the rating write.
+    if let Ok(track) = &result {
+        sync_lastfm_love(track, rating);
+    }
+
+    result
+        .and_then(|track| {
+            let mut dto = TrackDto::from_track(track)
+                .ok_or_else(|| shared::errors::Error::Database("Track has no id".to_string()))?;
+            dto.rating = rating;
+            Ok(dto)
+        })
+        .map(Json)
+        .map_err(|err| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: Status::InternalServerError,
+                code: "Internal".to_string(),
+                message: err.to_string(),
+            })
+        })
+}
+
+/// Reflect a rating change onto the connected Last.fm account's loved tracks.
+/// `liked` loves the track; a dislike or a cleared rating unloves it. No-op
+/// unless a Last.fm session is connected; runs detached and never fails the
+/// request. Artists are joined the same way the scrobbler formats them so the
+/// love attaches to the same track Last.fm already knows from scrobbles.
+fn sync_lastfm_love(track: &Track, rating: Option<Rating>) {
+    use crate::utils::lastfm;
+
+    if lastfm::stored_session().is_none() {
+        return;
+    }
+    let artist = track
+        .artists
+        .iter()
+        .map(|a| a.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if artist.is_empty() {
+        return;
+    }
+    let title = track.title.clone();
+    let liked = matches!(rating, Some(Rating::Liked));
+    rocket::tokio::spawn(async move {
+        let result = if liked {
+            lastfm::love(&artist, &title).await
+        } else {
+            lastfm::unlove(&artist, &title).await
+        };
+        if let Err(e) = result {
+            tracing::warn!("Last.fm love update for '{artist} - {title}' failed: {e}");
+        }
+    });
+}
+
 #[openapi]
 #[delete("/tracks/<id>")]
 pub async fn delete(
@@ -353,6 +606,148 @@ pub async fn delete(
                 message: err.to_string(),
             })
         })
+}
+
+/// Cover art for a track's embedded picture. Serves a small cached JPEG
+/// thumbnail by default (`?size=thumb`, 128px) so lists load a few KB instead of
+/// the multi-megabyte raw artwork; `?size=large` (512px) is for the full-screen
+/// now-playing art, and `?size=full` returns the raw embedded original. Cached
+/// thumbnails live beside the waveform cache, keyed by file mtime. Responds 404
+/// when the file is missing or carries no embedded picture. Not part of the
+/// OpenAPI surface (returns a raw image).
+#[get("/tracks/<id>/cover?<size>")]
+pub async fn cover(
+    id: i32,
+    size: Option<String>,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<CachedImage, crate::utils::error::Error> {
+    let services = Arc::clone(services);
+    let track = db
+        .run(move |conn| services.track_service.get_by_id(conn, id))
+        .await
+        .map_err(|e| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: Status::NotFound,
+                code: "NotFound".to_string(),
+                message: e.to_string(),
+            })
+        })?;
+
+    let path = track.file_path.ok_or_else(|| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::NotFound,
+            code: "NoCover".to_string(),
+            message: "Track has no local file".to_string(),
+        })
+    })?;
+
+    // Which size: default to the small list thumbnail.
+    let px = match size.as_deref() {
+        Some("full") | Some("orig") => None,
+        Some("large") => Some(COVER_LARGE_PX),
+        _ => Some(COVER_THUMB_PX),
+    };
+
+    // Reading and resizing embedded art is blocking; keep it off async workers.
+    let result = rocket::tokio::task::spawn_blocking(move || match px {
+        Some(px) => cover_cached(id, &path, px),
+        None => tagger::file::read_cover_from_path(&path),
+    })
+    .await
+    .map_err(|e| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::InternalServerError,
+            code: "CoverJoin".to_string(),
+            message: e.to_string(),
+        })
+    })?;
+
+    let (bytes, mime) = result.ok_or_else(|| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::NotFound,
+            code: "NoCover".to_string(),
+            message: "No embedded cover art".to_string(),
+        })
+    })?;
+
+    let content_type = ContentType::parse_flexible(&mime).unwrap_or(ContentType::JPEG);
+    Ok(CachedImage {
+        inner: (content_type, bytes),
+        cache_control: Header::new("Cache-Control", "public, max-age=86400"),
+    })
+}
+
+/// A raw image response plus a long cache header, so the browser holds cover
+/// thumbnails; the `/api` scope is exempt from the app-wide no-cache fairing.
+#[derive(Responder)]
+pub struct CachedImage {
+    inner: (ContentType, Vec<u8>),
+    cache_control: Header<'static>,
+}
+
+/// Cover thumbnail sizes (px, long edge). Thumb serves lists and the small
+/// player-bar art; large serves the full-screen now-playing art.
+pub const COVER_THUMB_PX: u32 = 128;
+const COVER_LARGE_PX: u32 = 512;
+
+/// Directory holding precomputed cover thumbnails, beside the waveform cache so
+/// it lands on the same mounted volume in Docker.
+fn cover_cache_dir() -> PathBuf {
+    PathBuf::from("data/covers")
+}
+
+/// Cache file for `id` at audio-file mtime `mtime` and size `px`. The mtime is in
+/// the name so a re-tagged/replaced file misses the cache without any parsing.
+fn cover_cache_path(id: i32, mtime: u64, px: u32) -> PathBuf {
+    cover_cache_dir().join(format!("{id}-{mtime}-{px}.jpg"))
+}
+
+/// Whether a fresh thumbnail for `id`/`path` at `px` is already on disk. Used by
+/// the startup backfill to skip already-cached tracks cheaply.
+pub fn cover_is_cached(id: i32, path: &Path, px: u32) -> bool {
+    file_mtime_secs(path)
+        .map(|mtime| cover_cache_path(id, mtime, px).exists())
+        .unwrap_or(false)
+}
+
+/// Return a cached JPEG thumbnail for `id`/`path` at `px`, computing and
+/// persisting it on a miss. `None` when the file has no decodable embedded art.
+pub fn cover_cached(id: i32, path: &Path, px: u32) -> Option<(Vec<u8>, String)> {
+    let mtime = file_mtime_secs(path).ok()?;
+    let cache_path = cover_cache_path(id, mtime, px);
+
+    if let Ok(bytes) = std::fs::read(&cache_path) {
+        if !bytes.is_empty() {
+            return Some((bytes, "image/jpeg".to_string()));
+        }
+    }
+
+    let (raw, _mime) = tagger::file::read_cover_from_path(path)?;
+    let thumb = tagger::file::make_thumbnail(&raw, px)?;
+
+    let _ = std::fs::create_dir_all(cover_cache_dir());
+    if std::fs::write(&cache_path, &thumb).is_ok() {
+        remove_stale_covers(id, mtime);
+    }
+
+    Some((thumb, "image/jpeg".to_string()))
+}
+
+/// Drop any older thumbnails for this track (previous mtimes) after a fresh
+/// write, keeping every size for the current mtime.
+fn remove_stale_covers(id: i32, keep_mtime: u64) {
+    let prefix = format!("{id}-");
+    let keep = format!("{id}-{keep_mtime}-");
+    if let Ok(entries) = std::fs::read_dir(cover_cache_dir()) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(&prefix) && !name.starts_with(&keep) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
 }
 
 /// Download the audio file for a track.
@@ -397,6 +792,388 @@ pub async fn download_file(
 }
 
 // ================================================================================================
+// Waveform peaks (server-precomputed, cached)
+// ================================================================================================
+
+/// Downsampled amplitude peaks for the scrubber, matching the client's
+/// `PeaksPayload`: `samples` run 0..=`height` and the client normalises by
+/// `height`. Precomputing these server-side (and caching them) means the browser
+/// never fetches and decodes the whole audio file just to draw the scrubber.
+#[derive(Serialize)]
+pub struct WaveformDto {
+    pub width: usize,
+    pub height: u16,
+    pub samples: Vec<u16>,
+}
+
+/// `WaveformDto` plus a long cache header. Peaks are immutable for a given audio
+/// file (the on-disk cache is keyed by file mtime), so the browser may hold onto
+/// them; the `/api` scope is exempt from the app-wide no-cache fairing.
+#[derive(Responder)]
+pub struct CachedWaveform {
+    inner: Json<WaveformDto>,
+    cache_control: Header<'static>,
+}
+
+/// Number of amplitude bars and the fixed vertical scale of the peaks.
+const WAVEFORM_BARS: usize = 900;
+const WAVEFORM_HEIGHT: u16 = 1000;
+
+/// Precomputed waveform peaks for a track's audio file. Cheap for the client:
+/// a ~2 KB JSON instead of fetching and decoding megabytes of audio.
+#[get("/tracks/<id>/waveform")]
+pub async fn waveform(
+    id: i32,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<CachedWaveform, crate::utils::error::Error> {
+    let services = Arc::clone(services);
+
+    let track = db
+        .run(move |conn| services.track_service.get_by_id(conn, id))
+        .await
+        .map_err(|err| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: match err {
+                    shared::errors::Error::NotFound(_) => Status::NotFound,
+                    _ => Status::InternalServerError,
+                },
+                code: "NotFound".to_string(),
+                message: err.to_string(),
+            })
+        })?;
+
+    let file_path = track.file_path.ok_or_else(|| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::NotFound,
+            code: "NoFile".to_string(),
+            message: "Track has no local file".to_string(),
+        })
+    })?;
+
+    // ffmpeg decode is blocking; keep it off the async workers.
+    let samples =
+        rocket::tokio::task::spawn_blocking(move || waveform_peaks_cached(id, &file_path))
+            .await
+            .map_err(|e| {
+                crate::utils::error::Error::Custom(CustomError {
+                    status: Status::InternalServerError,
+                    code: "WaveformJoin".to_string(),
+                    message: e.to_string(),
+                })
+            })?
+            .map_err(|e| {
+                crate::utils::error::Error::Custom(CustomError {
+                    status: Status::InternalServerError,
+                    code: "WaveformFailed".to_string(),
+                    message: e,
+                })
+            })?;
+
+    Ok(CachedWaveform {
+        inner: Json(WaveformDto {
+            width: samples.len(),
+            height: WAVEFORM_HEIGHT,
+            samples,
+        }),
+        cache_control: Header::new("Cache-Control", "public, max-age=86400"),
+    })
+}
+
+/// Target integrated loudness for playback normalization (the streaming standard).
+const LOUDNESS_TARGET_LUFS: f64 = -14.0;
+/// Clamp the applied gain so a very quiet track is not boosted into heavy clipping
+/// (a limiter on the client is the final guard) and a very loud one is not
+/// over-attenuated into a whisper.
+const LOUDNESS_MAX_GAIN_DB: f64 = 12.0;
+
+#[derive(Serialize)]
+pub struct LoudnessDto {
+    /// Measured integrated loudness in LUFS; null when it could not be measured.
+    pub lufs: Option<f64>,
+    /// Gain to apply for normalization, in dB: target minus measured, clamped.
+    pub gain_db: f64,
+}
+
+/// `LoudnessDto` plus a long cache header. Loudness is immutable for a given file
+/// (cache keyed by mtime), so the browser may hold onto it.
+#[derive(Responder)]
+pub struct CachedLoudness {
+    inner: Json<LoudnessDto>,
+    cache_control: Header<'static>,
+}
+
+/// A track's integrated loudness for playback normalization: one number measured
+/// once with ffmpeg's `ebur128` filter and cached by file mtime. The player uses
+/// `gain_db` to bring every track toward a common level without touching the file.
+#[get("/tracks/<id>/loudness")]
+pub async fn loudness(
+    id: i32,
+    db: Db,
+    services: &rocket::State<Arc<ServiceLayer>>,
+) -> Result<CachedLoudness, crate::utils::error::Error> {
+    let services = Arc::clone(services);
+    let track = db
+        .run(move |conn| services.track_service.get_by_id(conn, id))
+        .await
+        .map_err(|err| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: match err {
+                    shared::errors::Error::NotFound(_) => Status::NotFound,
+                    _ => Status::InternalServerError,
+                },
+                code: "NotFound".to_string(),
+                message: err.to_string(),
+            })
+        })?;
+
+    let file_path = track.file_path.ok_or_else(|| {
+        crate::utils::error::Error::Custom(CustomError {
+            status: Status::NotFound,
+            code: "NoFile".to_string(),
+            message: "Track has no local file".to_string(),
+        })
+    })?;
+
+    // ffmpeg decode is blocking; keep it off the async workers.
+    let lufs = rocket::tokio::task::spawn_blocking(move || loudness_cached(id, &file_path))
+        .await
+        .map_err(|e| {
+            crate::utils::error::Error::Custom(CustomError {
+                status: Status::InternalServerError,
+                code: "LoudnessJoin".to_string(),
+                message: e.to_string(),
+            })
+        })?;
+
+    Ok(CachedLoudness {
+        inner: Json(LoudnessDto {
+            lufs,
+            gain_db: loudness_gain_db(lufs),
+        }),
+        cache_control: Header::new("Cache-Control", "public, max-age=86400"),
+    })
+}
+
+/// Gain (dB) to reach the target from a measured loudness, clamped. Tracks that
+/// couldn't be measured (silence, decode failure) get 0 dB, i.e. no change.
+fn loudness_gain_db(lufs: Option<f64>) -> f64 {
+    match lufs {
+        Some(l) if l.is_finite() && l > -70.0 => {
+            (LOUDNESS_TARGET_LUFS - l).clamp(-LOUDNESS_MAX_GAIN_DB, LOUDNESS_MAX_GAIN_DB)
+        }
+        _ => 0.0,
+    }
+}
+
+/// Directory holding cached loudness measurements, beside the other caches.
+fn loudness_cache_dir() -> PathBuf {
+    PathBuf::from("data/loudness")
+}
+
+/// Cache file for `id` at audio-file mtime `mtime`; the mtime invalidates a
+/// re-tagged/replaced file without any parsing.
+fn loudness_cache_path(id: i32, mtime: u64) -> PathBuf {
+    loudness_cache_dir().join(format!("{id}-{mtime}.txt"))
+}
+
+/// Whether a measurement for `id`/`path` is already on disk. Used by the backfill.
+pub fn loudness_is_cached(id: i32, path: &Path) -> bool {
+    file_mtime_secs(path)
+        .map(|mtime| loudness_cache_path(id, mtime).exists())
+        .unwrap_or(false)
+}
+
+/// Measured integrated loudness for `id`/`path`, computing and caching on a miss.
+/// `None` when it could not be measured. A failed/silent read is cached too, so a
+/// bad file is not re-decoded on every play.
+pub fn loudness_cached(id: i32, path: &Path) -> Option<f64> {
+    let mtime = file_mtime_secs(path).ok()?;
+    let cache_path = loudness_cache_path(id, mtime);
+
+    if let Ok(s) = std::fs::read_to_string(&cache_path) {
+        return s.trim().parse::<f64>().ok().filter(|v: &f64| v.is_finite());
+    }
+
+    let measured = measure_loudness_lufs(path).filter(|v| v.is_finite());
+
+    let _ = std::fs::create_dir_all(loudness_cache_dir());
+    let to_store = measured
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "nan".to_string());
+    if std::fs::write(&cache_path, to_store).is_ok() {
+        remove_stale_loudness(id, mtime);
+    }
+
+    measured
+}
+
+/// Drop older measurements for this track after a fresh write.
+fn remove_stale_loudness(id: i32, keep_mtime: u64) {
+    let prefix = format!("{id}-");
+    let keep = format!("{id}-{keep_mtime}.txt");
+    if let Ok(entries) = std::fs::read_dir(loudness_cache_dir()) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(&prefix) && name != keep {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+/// Measure integrated loudness (LUFS) with ffmpeg's `ebur128` filter. Returns the
+/// last reported integrated value (the summary), or `None` on failure.
+fn measure_loudness_lufs(path: &Path) -> Option<f64> {
+    let output = Command::new("ffmpeg")
+        .args(["-hide_banner", "-nostats", "-i"])
+        .arg(path)
+        .args(["-af", "ebur128", "-f", "null", "-"])
+        .output()
+        .ok()?;
+
+    let text = String::from_utf8_lossy(&output.stderr);
+    let mut last: Option<f64> = None;
+    for line in text.lines() {
+        // Lines look like "... I: -9.9 LUFS ..." (per-frame and the final summary);
+        // the last one is the integrated loudness for the whole file.
+        if let Some(after) = line.split_once("I:").map(|(_, r)| r) {
+            if let Some((num, _)) = after.trim_start().split_once("LUFS") {
+                if let Ok(v) = num.trim().parse::<f64>() {
+                    last = Some(v);
+                }
+            }
+        }
+    }
+    last
+}
+
+/// Directory holding precomputed waveform peaks, beside the database and web
+/// assets so it lands on the same mounted volume in Docker.
+fn waveform_cache_dir() -> PathBuf {
+    PathBuf::from("data/waveforms")
+}
+
+/// Cache file for `id` at audio-file mtime `mtime`. The mtime is in the name so a
+/// re-tagged/replaced file misses the cache without any parsing.
+fn waveform_cache_path(id: i32, mtime: u64) -> PathBuf {
+    waveform_cache_dir().join(format!("{id}-{mtime}.json"))
+}
+
+/// Whether fresh peaks for `id`/`path` are already on disk (no decode needed).
+/// Used by the startup backfill to skip already-cached tracks cheaply.
+pub fn waveform_is_cached(id: i32, path: &Path) -> bool {
+    file_mtime_secs(path)
+        .map(|mtime| waveform_cache_path(id, mtime).exists())
+        .unwrap_or(false)
+}
+
+/// Return cached peaks for `id`/`path`, computing and persisting them on a miss.
+pub fn waveform_peaks_cached(id: i32, path: &Path) -> Result<Vec<u16>, String> {
+    let mtime = file_mtime_secs(path)?;
+    let cache_path = waveform_cache_path(id, mtime);
+
+    if let Ok(bytes) = std::fs::read(&cache_path) {
+        if let Ok(samples) = serde_json::from_slice::<Vec<u16>>(&bytes) {
+            if !samples.is_empty() {
+                return Ok(samples);
+            }
+        }
+    }
+
+    let samples = compute_waveform_peaks(path)?;
+
+    let _ = std::fs::create_dir_all(waveform_cache_dir());
+    if let Ok(bytes) = serde_json::to_vec(&samples) {
+        if std::fs::write(&cache_path, bytes).is_ok() {
+            remove_stale_waveforms(id, mtime);
+        }
+    }
+
+    Ok(samples)
+}
+
+/// Drop any older cache files for this track (previous mtimes) after a fresh
+/// write, so re-tagging does not leak stale peaks files indefinitely.
+fn remove_stale_waveforms(id: i32, keep_mtime: u64) {
+    let prefix = format!("{id}-");
+    let keep = format!("{id}-{keep_mtime}.json");
+    if let Ok(entries) = std::fs::read_dir(waveform_cache_dir()) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(&prefix) && name != keep {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+/// Audio file modification time as whole seconds since the Unix epoch.
+fn file_mtime_secs(path: &Path) -> Result<u64, String> {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .map_err(|e| format!("stat failed for {path:?}: {e}"))?
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .map_err(|e| format!("bad mtime for {path:?}: {e}"))
+}
+
+/// Decode `path` to mono 8 kHz PCM via ffmpeg and reduce it to [`WAVEFORM_BARS`]
+/// amplitude peaks (max abs per bucket), normalised to 0..=[`WAVEFORM_HEIGHT`].
+/// 8 kHz is ample for a bar overview and far cheaper than a full-rate decode.
+pub fn compute_waveform_peaks(path: &Path) -> Result<Vec<u16>, String> {
+    let output = Command::new("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error", "-i"])
+        .arg(path)
+        .args(["-ac", "1", "-ar", "8000", "-f", "f32le", "-"])
+        .output()
+        .map_err(|e| format!("ffmpeg spawn failed for {path:?}: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "ffmpeg decode failed for {path:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let samples: Vec<f32> = output
+        .stdout
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect();
+    if samples.is_empty() {
+        return Err(format!("no audio samples decoded for {path:?}"));
+    }
+
+    let len = samples.len();
+    let mut peaks = vec![0f32; WAVEFORM_BARS];
+    for (i, peak) in peaks.iter_mut().enumerate() {
+        let start = i * len / WAVEFORM_BARS;
+        let end = ((i + 1) * len / WAVEFORM_BARS).max(start + 1).min(len);
+        let mut max = 0f32;
+        for &s in &samples[start..end] {
+            let a = s.abs();
+            if a > max {
+                max = a;
+            }
+        }
+        *peak = max;
+    }
+
+    let scale = peaks.iter().copied().fold(0f32, f32::max).max(f32::EPSILON);
+    Ok(peaks
+        .iter()
+        .map(|&p| {
+            ((p / scale) * f32::from(WAVEFORM_HEIGHT))
+                .round()
+                .clamp(0.0, f32::from(WAVEFORM_HEIGHT)) as u16
+        })
+        .collect())
+}
+
+// ================================================================================================
 // Reference sub-resource
 // ================================================================================================
 
@@ -411,7 +1188,7 @@ pub async fn get_references(
     let services = Arc::clone(services);
     db.run(move |conn| services.track_service.get_by_id(conn, id))
         .await
-        .map(|track| Json(track.references.into_iter().map(reference_to_dto).collect()))
+        .map(|track| Json(references_to_dto(track.references)))
         .map_err(|err| {
             crate::utils::error::Error::Custom(CustomError {
                 status: Status::NotFound,
@@ -439,7 +1216,7 @@ pub async fn add_reference(
 
     db.run(move |conn| services.track_service.add_reference(conn, id, reference))
         .await
-        .map(|refs| Json(refs.into_iter().map(reference_to_dto).collect()))
+        .map(|refs| Json(references_to_dto(refs)))
         .map_err(|err| {
             crate::utils::error::Error::Custom(CustomError {
                 status: Status::InternalServerError,

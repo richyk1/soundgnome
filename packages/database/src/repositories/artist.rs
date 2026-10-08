@@ -3,7 +3,7 @@ use domain::ports::repositories::ArtistRepository;
 use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl, SqliteConnection};
 use shared::{
     models::{Artist, Reference},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 
 use crate::{
@@ -31,7 +31,7 @@ impl ArtistRepository for DieselArtistRepository {
     // Custom
     // =================================================================================
 
-    fn get_by_url(&self, conn: &mut SqliteConnection, url: &str) -> SoundomeResult<Artist> {
+    fn get_by_url(&self, conn: &mut SqliteConnection, url: &str) -> SoundgnomeResult<Artist> {
         let artist_ref = schema::artist_ref::table
             .filter(schema::artist_ref::external_url.eq(url))
             .first::<ArtistRefEntity>(conn)
@@ -47,7 +47,7 @@ impl ArtistRepository for DieselArtistRepository {
         conn: &mut SqliteConnection,
         artist_id: i32,
         references: &[Reference],
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         for reference in references {
             let new_artist_ref = NewArtistRefEntity::convert_from_domain(reference, artist_id);
 
@@ -69,7 +69,7 @@ impl ArtistRepository for DieselArtistRepository {
         conn: &mut SqliteConnection,
         artist_id: i32,
         references: &[Reference],
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         // Merge semantics: keep existing rows (and their ids), only insert missing refs.
         if references.is_empty() {
             return Ok(());
@@ -122,7 +122,7 @@ impl ArtistRepository for DieselArtistRepository {
         conn: &mut SqliteConnection,
         artist_id: i32,
         track_id: i32,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         let artist_track = ArtistTrackEntity {
             track_id,
             artist_id,
@@ -145,7 +145,7 @@ impl ArtistRepository for DieselArtistRepository {
         conn: &mut SqliteConnection,
         track_id: i32,
         artist_ids: &[i32],
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         // clear existing
         diesel::delete(
             schema::artist_tracks::table.filter(schema::artist_tracks::track_id.eq(track_id)),
@@ -188,7 +188,7 @@ impl ArtistRepository for DieselArtistRepository {
         conn: &mut SqliteConnection,
         artist_id: i32,
         album_id: i32,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         let artist_album = ArtistAlbumEntity {
             album_id,
             artist_id,
@@ -211,7 +211,7 @@ impl ArtistRepository for DieselArtistRepository {
         conn: &mut SqliteConnection,
         album_id: i32,
         artist_ids: &[i32],
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         // clear existing
         diesel::delete(
             schema::artist_albums::table.filter(schema::artist_albums::album_id.eq(album_id)),
@@ -250,7 +250,7 @@ impl ArtistRepository for DieselArtistRepository {
         &self,
         conn: &mut SqliteConnection,
         artist: &Artist,
-    ) -> SoundomeResult<Artist> {
+    ) -> SoundgnomeResult<Artist> {
         // If artist already has an ID, return it as-is
         if let Some(id) = artist.id {
             return self.get_by_id(conn, id);
@@ -292,7 +292,7 @@ impl ArtistRepository for DieselArtistRepository {
         self.get_by_id(conn, artist_id)
     }
 
-    // fn find_by_unique_fields(&self, conn: &mut SqliteConnection, artist: &Artist) -> SoundomeResult<Option<Artist>> {
+    // fn find_by_unique_fields(&self, conn: &mut SqliteConnection, artist: &Artist) -> SoundgnomeResult<Option<Artist>> {
     //     use diesel::prelude::*;
     //     use crate::schema;
     //     use crate::schema::artist::dsl::*;
@@ -316,7 +316,7 @@ impl ArtistRepository for DieselArtistRepository {
     // CRUD
     // =================================================================================
 
-    fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<Artist> {
+    fn get_by_id(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<Artist> {
         let artist: ArtistEntity = schema::artist::table
             .filter(schema::artist::id.eq(id))
             .first(conn)
@@ -334,7 +334,7 @@ impl ArtistRepository for DieselArtistRepository {
         Ok(ArtistEntity::convert_to_domain(artist, references))
     }
 
-    fn get_all(&self, conn: &mut SqliteConnection) -> SoundomeResult<Vec<Artist>> {
+    fn get_all(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<Vec<Artist>> {
         let artists: Vec<ArtistEntity> = schema::artist::table.load(conn).map_err(|err| {
             shared::errors::Error::Database(format!("Failed to get all resources: {}", err))
         })?;
@@ -352,7 +352,7 @@ impl ArtistRepository for DieselArtistRepository {
             .collect())
     }
 
-    fn create(&self, conn: &mut SqliteConnection, new_artist: &Artist) -> SoundomeResult<Artist> {
+    fn create(&self, conn: &mut SqliteConnection, new_artist: &Artist) -> SoundgnomeResult<Artist> {
         let new_artist_entity = NewArtistEntity::convert_from_domain(new_artist);
         let inserted_artist = diesel::insert_into(schema::artist::table)
             .values(&new_artist_entity)
@@ -374,7 +374,7 @@ impl ArtistRepository for DieselArtistRepository {
         conn: &mut SqliteConnection,
         id: i32,
         updated_artist: &Artist,
-    ) -> SoundomeResult<Artist> {
+    ) -> SoundgnomeResult<Artist> {
         let updated_artist_entity = UpdateArtistEntity::convert_from_domain(updated_artist);
         let updated_artist =
             diesel::update(schema::artist::table.filter(schema::artist::id.eq(id)))
@@ -392,7 +392,7 @@ impl ArtistRepository for DieselArtistRepository {
         Ok(ArtistEntity::convert_to_domain(updated_artist, vec![]))
     }
 
-    fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundomeResult<()> {
+    fn delete(&self, conn: &mut SqliteConnection, id: i32) -> SoundgnomeResult<()> {
         delete_with_relations!(
             conn,
             id,
@@ -427,7 +427,7 @@ impl ArtistRepository for DieselArtistRepository {
         conn: &mut SqliteConnection,
         source_ids: &[i32],
         target_id: i32,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         use diesel::Connection as _;
         conn.transaction(|conn| {
             // --- Re-point artist_tracks -------------------------------------------------
@@ -545,7 +545,7 @@ impl ArtistRepository for DieselArtistRepository {
         })
     }
 
-    fn count(&self, conn: &mut SqliteConnection) -> SoundomeResult<i64> {
+    fn count(&self, conn: &mut SqliteConnection) -> SoundgnomeResult<i64> {
         schema::artist::table
             .count()
             .get_result(conn)
@@ -554,7 +554,7 @@ impl ArtistRepository for DieselArtistRepository {
             })
     }
 
-    fn count_tracks(&self, conn: &mut SqliteConnection, artist_id: i32) -> SoundomeResult<i64> {
+    fn count_tracks(&self, conn: &mut SqliteConnection, artist_id: i32) -> SoundgnomeResult<i64> {
         schema::artist_tracks::table
             .filter(schema::artist_tracks::artist_id.eq(artist_id))
             .count()
@@ -567,7 +567,7 @@ impl ArtistRepository for DieselArtistRepository {
             })
     }
 
-    fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundomeResult<()> {
+    fn delete_reference(&self, conn: &mut SqliteConnection, ref_id: i32) -> SoundgnomeResult<()> {
         diesel::delete(schema::artist_ref::table.filter(schema::artist_ref::id.eq(ref_id)))
             .execute(conn)
             .map_err(|err| {

@@ -1,10 +1,10 @@
-# Soundome custom agents
+# Soundgnome custom agents
 
 This directory contains repository-specific custom agents.
 
 ## Current agents
 
-- `Soundome maintainer`: broad implementation and architecture-sensitive work across crates.
+- `Soundgnome maintainer`: broad implementation and architecture-sensitive work across crates.
 - `test`: focused testing and validation work.
 
 ## Selection guidance

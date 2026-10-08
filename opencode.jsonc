@@ -26,9 +26,9 @@
     ".github/instructions/ai.instructions.md"
   ],
   "agent": {
-    "soundome-maintainer": {
-      "description": "Use when: handling a broad Soundome implementation task, cross-crate change, architecture-sensitive refactor, or repository-level bug fix where no narrower skill is sufficient.",
-      "prompt": "{file:.opencode/agents/soundome-maintainer.md}",
+    "soundgnome-maintainer": {
+      "description": "Use when: handling a broad Soundgnome implementation task, cross-crate change, architecture-sensitive refactor, or repository-level bug fix where no narrower skill is sufficient.",
+      "prompt": "{file:.opencode/agents/soundgnome-maintainer.md}",
       "permission": {
         "read": "allow",
         "edit": "allow",
@@ -39,9 +39,9 @@
         "todowrite": "allow"
       }
     },
-    "soundome-tester": {
-      "description": "Focused testing and validation work for Soundome. Write tests, run test suites, validate behavior without implementing features.",
-      "prompt": "You are a testing agent for Soundome. Write and run tests, validate behavior, and report results. Do not implement features or make production code changes.",
+    "soundgnome-tester": {
+      "description": "Focused testing and validation work for Soundgnome. Write tests, run test suites, validate behavior without implementing features.",
+      "prompt": "You are a testing agent for Soundgnome. Write and run tests, validate behavior, and report results. Do not implement features or make production code changes.",
       "permission": {
         "read": "allow",
         "edit": "allow",

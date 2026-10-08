@@ -93,6 +93,19 @@
             onChange={(names) => { lib.trackDraft.artists = names; }}
           />
         </label>
+        <button
+          type="button"
+          class="ai-clean-btn"
+          onclick={() => lib.aiCleanTrack()}
+          disabled={lib.aiCleaning}
+          title="Use AI to clean up the title and extract the real artists"
+        >
+          {#if lib.aiCleaning}
+            <span class="upload-spinner" aria-hidden="true"></span> Cleaning…
+          {:else}
+            Clean title & artists with AI
+          {/if}
+        </button>
         <label class="field-label">Album
           <input value={lib.trackDraft.album_title ?? ''}
             oninput={(e) => { lib.trackDraft.album_title = (e.currentTarget as HTMLInputElement).value || undefined; }}
@@ -302,11 +315,11 @@
 
 <style>
   .edit-dialog {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
     padding: 0; width: min(540px, 92vw); color: var(--text); font-family: inherit;
-    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    box-shadow: var(--shadow);
   }
-  .edit-dialog::backdrop { background: rgba(0,0,0,0.55); backdrop-filter: blur(3px); }
+  .edit-dialog::backdrop { background: var(--overlay); backdrop-filter: blur(3px); }
   .dialog-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 1.1rem 1.4rem 0.8rem; border-bottom: 1px solid var(--border);
@@ -385,7 +398,7 @@
 
   .image-overlay {
     position: absolute; inset: 0;
-    background: rgba(0,0,0,0.5); color: #fff;
+    background: var(--overlay); color: var(--on-accent);
     font-size: 0.75rem; font-weight: 600; letter-spacing: 0.03em;
     display: flex; align-items: center; justify-content: center;
     opacity: 0; transition: opacity 0.15s;
@@ -409,5 +422,42 @@
     width: 20px; height: 20px; border: 2px solid var(--border);
     border-top-color: var(--accent); border-radius: 50%;
     animation: spin 0.7s linear infinite;
+  }
+  .ai-clean-btn {
+    align-self: flex-start;
+    width: fit-content;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: -4px 0 2px;
+    padding: 5px 10px;
+    font-size: 0.8rem;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .ai-clean-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .ai-clean-btn:disabled { opacity: 0.6; cursor: default; }
+
+  .edit-dialog { position: fixed; top: calc(var(--app-top, 0px) + 1rem); bottom: auto; margin: 0 auto; max-height: calc(var(--app-height, 100dvh) - 2rem); overflow-y: auto; box-sizing: border-box; overscroll-behavior: contain; }
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    button { min-height: 44px; min-width: 44px; }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 16px; min-height: 44px; }
+    .dialog-header, .dialog-body, .dialog-footer { padding-left: 1rem; padding-right: 1rem; }
+    .dialog-close { width: 44px; height: 44px; flex-shrink: 0; }
+    .field-row { flex-wrap: wrap; }
+    .field-label.half, .field-label.third { flex: 1 1 120px; min-width: 0; }
+    .dialog-footer { flex-wrap: wrap; }
+    .kbd-hint { flex-basis: 100%; }
+    .image-row { flex-wrap: wrap; }
+    .url-field { flex-basis: 100%; }
+    .url-input-row { flex-wrap: wrap; }
+    .url-input-row input { flex-basis: 100%; }
   }
 </style>

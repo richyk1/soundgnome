@@ -1,13 +1,13 @@
 use std::path::{Path, PathBuf};
 
-use shared::{errors::Error, models::Track, types::SoundomeResult, utils::fs::sanitize_filename};
+use shared::{errors::Error, models::Track, types::SoundgnomeResult, utils::fs::sanitize_filename};
 use std::fs;
 
 pub mod playlist_writer;
 
 /// Attempts to remove empty directories up the tree until a non-empty directory or base is reached.
 /// This is used for cleanup after moving a track file (e.g., removing empty artist/album folders).
-pub fn cleanup_empty_parent_dirs(file_path: &Path, base_library_dir: &str) -> SoundomeResult<()> {
+pub fn cleanup_empty_parent_dirs(file_path: &Path, base_library_dir: &str) -> SoundgnomeResult<()> {
     let base_path = PathBuf::from(base_library_dir);
     let mut current = file_path.parent().map(|p| p.to_path_buf());
 
@@ -49,7 +49,7 @@ pub fn cleanup_empty_parent_dirs(file_path: &Path, base_library_dir: &str) -> So
 /// Moves the track file to the organized library structure based on artist and album.
 /// Updates the track's file_path to the new location.
 /// If the destination file already exists, it will be replaced.
-pub fn move_track_file(track: &mut Track, base_library_dir: &str) -> SoundomeResult<()> {
+pub fn move_track_file(track: &mut Track, base_library_dir: &str) -> SoundgnomeResult<()> {
     tracing::info!("Moving track file: {:?}", track.file_path);
 
     let file_path = track
@@ -84,21 +84,31 @@ pub fn move_track_file(track: &mut Track, base_library_dir: &str) -> SoundomeRes
 
     let destination_path = target_folder.join(new_file_name);
 
-    fs::create_dir_all(&target_folder).unwrap();
-
-    // If destination exists, remove it first to force replace
-    if destination_path.exists() {
-        fs::remove_file(&destination_path)
-            .map_err(|e| Error::Custom(format!("Failed to remove existing file: {}", e)))?;
-    }
+    fs::create_dir_all(&target_folder).map_err(|e| {
+        Error::Custom(format!(
+            "Failed to create library folder {:?}: {}",
+            target_folder, e
+        ))
+    })?;
 
     let old_path = file_path.clone();
-    fs::rename(file_path, &destination_path)
-        .map(|_| {
-            tracing::info!("File moved successfully");
-            track.file_path = Some(destination_path);
-        })
+
+    // The file is already where it belongs. The old force-replace path removed
+    // the destination first, which for a same-path move would delete the only
+    // copy and then fail the rename, losing the file entirely. Nothing to do.
+    if old_path == destination_path {
+        tracing::debug!("File already at destination {:?}", destination_path);
+        track.file_path = Some(destination_path);
+        return Ok(());
+    }
+
+    // `rename` atomically replaces any existing destination on the same
+    // filesystem, so there is no need (and it is unsafe) to delete it first:
+    // deleting up front loses the file if the rename then fails.
+    fs::rename(&old_path, &destination_path)
         .map_err(|e| Error::Custom(format!("Failed to move file: {}", e)))?;
+    tracing::info!("File moved successfully");
+    track.file_path = Some(destination_path);
 
     // Best-effort cleanup: remove empty parent directories from the old location
     if let Err(e) = cleanup_empty_parent_dirs(&old_path, base_library_dir) {

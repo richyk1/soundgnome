@@ -1,11 +1,11 @@
 ---
 name: add-diesel-migration
-description: Use when adding or modifying SQLite schema, Diesel migrations, repository persistence, schema.rs, entities, mappers, or repository implementations. Safely update migrations and keep Soundome reference semantics intact.
+description: Use when adding or modifying SQLite schema, Diesel migrations, repository persistence, schema.rs, entities, mappers, or repository implementations. Safely update migrations and keep Soundgnome reference semantics intact.
 ---
 
 # Add Diesel Migration
 
-Use this skill when you need to add, modify, or debug a Diesel migration in Soundome.
+Use this skill when you need to add, modify, or debug a Diesel migration in Soundgnome.
 
 ## When to use
 

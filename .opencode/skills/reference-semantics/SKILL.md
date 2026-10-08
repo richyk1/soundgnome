@@ -1,11 +1,11 @@
 ---
 name: reference-semantics
-description: Use when changing Track, Album, Artist, Playlist, Reference, ReferenceType, deduplication merge logic, transpose logic, or Diesel repository reference handling in Soundome.
+description: Use when changing Track, Album, Artist, Playlist, Reference, ReferenceType, deduplication merge logic, transpose logic, or Diesel repository reference handling in Soundgnome.
 ---
 
 # Reference Semantics
 
-Use this skill when changes affect how Soundome stores, merges, replaces, or interprets references.
+Use this skill when changes affect how Soundgnome stores, merges, replaces, or interprets references.
 
 ## Core model
 

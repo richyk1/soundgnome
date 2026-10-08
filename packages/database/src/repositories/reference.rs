@@ -10,7 +10,7 @@ impl DieselReferenceRepository {
 
 impl ReferenceRepository for DieselReferenceRepository {
     
-    fn get_by_url(&self, conn: &mut diesel::SqliteConnection, url: &str) -> shared::types::SoundomeResult<shared::models::Reference> {
+    fn get_by_url(&self, conn: &mut diesel::SqliteConnection, url: &str) -> shared::types::SoundgnomeResult<shared::models::Reference> {
         schema::track_ref::table
             .filter(schema::track_ref::url.eq(url))
             .first::<ReferenceEn>(conn)

@@ -1,6 +1,6 @@
 # Web admin interface
 
-Soundome ships a lightweight web admin panel served directly by the Rocket server. It covers the full day-to-day management workflow: submitting downloads, reviewing pending validations, browsing and editing the library, monitoring background tasks, and managing scheduled syncs.
+Soundgnome ships a lightweight web admin panel served directly by the Rocket server. It covers the full day-to-day management workflow: submitting downloads, reviewing pending validations, browsing and editing the library, monitoring background tasks, and managing scheduled syncs.
 
 ## Architecture
 
@@ -22,11 +22,73 @@ pnpm dev
 pnpm web:build
 ```
 
+Build in the checkout whose `data/web/` the running Rocket process serves. Building
+another checkout does not update that server's website.
+
+## Mobile layout and playback
+
+- Phones use one floating glass dock with Home, Search, Library, and **More**.
+  Its compact player row appears only when a track is loaded, including while
+  paused. Tap the artwork/title for full Now Playing controls; the dock keeps
+  Play/Pause and Next within reach. More restores focus to its trigger on close.
+- The selected navigation pill uses an ordinary SVG displacement filter inspired
+  by [Aave's web glass technique](https://aave.com/design/building-glass-for-the-web).
+  `GlassNav.svelte` refracts only a non-interactive decorative navigation copy;
+  `glass-lens.ts` generates a small rounded-lens PNG on geometry changes, not
+  scrolling or selection animation. No page or audio content is duplicated.
+  A single backdrop layer sits on the dock's pseudo-element so the full-screen
+  Now Playing sheet retains its viewport positioning. Reduced transparency uses
+  solid surfaces; forced colors retain a readable native-button selected state.
+- Page spacing, form sizing, and touch targets are shared across the interface;
+  controls are at least 44px tall and text inputs use 16px text to avoid Safari's
+  automatic input zoom.
+- The phone Library keeps four collection tabs in one segmented row, with a
+  **Liked** heart and Refresh icon in the header. Search stays visible; the
+  adjacent **Sort and view options** button reveals secondary controls.
+- Card **…** buttons open an actions sheet with labeled 48px rows for editing,
+  selection, ratings, or deletion as applicable. Sheets mount only when opened,
+  restore focus on close, and close before handing off to the Edit dialog.
+- Navigation uses [same-document view transitions](https://developer.mozilla.org/en-US/docs/Web/API/Document/startViewTransition)
+  when available and a short main-content fade otherwise. Snapshots are clipped
+  above the floating dock so player controls remain visible and interactive.
+  System **Reduce Motion** disables navigation, glass-pill, and sheet movement;
+  scrolling and virtual-card mounts are not animated.
+- The shell and dialogs follow the visible viewport, including Safari toolbar
+  and keyboard changes, and respect device safe-area insets. During keyboard
+  editing, obstructing footer and selection controls are hidden without removing
+  the audio element. Search retains the focused field's scroll position.
+- Album and artist grids render only visible rows plus overscan. Narrow phone
+  grids use two columns, and floating selection actions leave clearance below
+  the results. Hover and selection updates do not reset the scroll position.
+- Themes follow the device's local clock: light from **07:00–18:59**, dark from
+  **19:00–06:59**. The next boundary is scheduled automatically; returning to the
+  page rechecks the clock.
+- iOS uses native audio playback to avoid routing background audio through Web
+  Audio. EQ and volume normalization are unavailable on iOS; saved preferences
+  remain intact, and desktop audio processing is retained. Use device volume
+  controls on iOS.
+- The single app-wide player survives page navigation. [Media Session](https://www.w3.org/TR/mediasession/)
+  supplies title, artist, artwork, playback state, position, and play/pause,
+  previous/next, and seeking actions using the same queue as the website.
+- Start playback in the foreground if Safari requests a user gesture. A blocked
+  play attempt stays paused and offers Play rather than claiming playback started.
+  Calls, other audio, browser eviction, or force-closing the app can still interrupt
+  playback; background and lock-screen behavior must be checked on a real iPhone.
+- Glass rendering and scrolling performance still require verification on an
+  actual iPhone; Chromium with a phone viewport or iPhone user agent is not Safari.
+
+Opening from the home screen uses the same website in standalone mode, without
+Safari's address and navigation bars. It is not a native app and does not bypass
+iOS background restrictions. Local queue/preferences may be separate from Safari.
+Service-worker caching and offline PWA support require HTTPS.
+
+
 ## Pages
 
 ### Download (Home)
 
 - URL input form accepting Spotify, SoundCloud, YouTube, and YouTube Music links
+- On phones, the URL field and primary Download button each have their own full-width row.
 - Track-versus-playlist detection based on URL patterns
 - Inline download result feedback: success banner with track title and artists, or error message
 - Tracks flagged `needs_validation` are highlighted with a `review` badge
@@ -36,7 +98,7 @@ pnpm web:build
 
 Tabbed view for browsing and editing the entire library.
 
-**Tabs:** Artists · Albums · Tracks · Playlists
+**Tabs:** Artists · Albums · Tracks · Playlists, with a **Liked** shortcut.
 
 **Artists tab**
 
@@ -44,16 +106,17 @@ Tabbed view for browsing and editing the entire library.
 - Search by name (`S` to focus)
 - **Similar filter** — highlights artists whose names differ by only a few characters, useful for spotting duplicates
 - Click an artist to drill into their albums and tracks
-- **Multi-select** (`Shift`+click) to select two or more artists; a floating action bar appears to **merge** them into one
+- **Multi-select**: open a card's **…** menu and tap **Select**, or use `Shift`+click. Selecting two or more artists exposes the floating **Merge** action.
 
 **Albums tab**
 
 - Grid or list view; search by title or artist
 - Click an album to see its tracks
+- Open an album card's **…** menu and tap **Select**, or use `Shift`+click, to select albums for merging.
 
 **Tracks tab**
 
-- Filterable by status: All / OK / Pending validation
+- Filterable by status: All / Needs review / Lossless / Liked
 - Search by title or artist
 - Edit or delete individual tracks
 

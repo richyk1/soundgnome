@@ -1,5 +1,8 @@
 pub mod soundcloud;
+pub mod spotify;
 mod utils;
+
+pub use utils::ytdlp::{probe_available_quality, AvailableQuality};
 pub mod youtube;
 pub mod youtube_music;
 
@@ -7,7 +10,7 @@ use async_trait::async_trait;
 use shared::{
     errors::Error,
     models::{Platform, Reference, ReferenceType, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 use std::path::PathBuf;
 
@@ -15,7 +18,7 @@ use std::path::PathBuf;
 #[async_trait]
 pub trait Provider {
     /// Search the best matching download url for the given track
-    async fn search(&self, track: &Track) -> SoundomeResult<Reference>;
+    async fn search(&self, track: &Track) -> SoundgnomeResult<Reference>;
 
     /// Download the track from the given url at the given base directory
     async fn download(
@@ -23,7 +26,7 @@ pub trait Provider {
         url: &str,
         file_name: &str,
         base_library_dir: PathBuf,
-    ) -> SoundomeResult<PathBuf>;
+    ) -> SoundgnomeResult<PathBuf>;
 
     /// Check if the given url is a valid url for the provider
     fn is_valid_url(url: &str) -> bool;
@@ -38,7 +41,7 @@ pub trait Matcher {
 // Exposed functions
 // ==============================
 
-pub async fn search(track: &Track) -> SoundomeResult<Reference> {
+pub async fn search(track: &Track) -> SoundgnomeResult<Reference> {
     // providers
     let youtube = youtube::Youtube::new();
     let youtube_music = youtube_music::YoutubeMusic::new();
@@ -50,6 +53,32 @@ pub async fn search(track: &Track) -> SoundomeResult<Reference> {
 
     match source.platform {
         Platform::Spotify => {
+            // A Spotify track should come from Spotify. librespot handles that
+            // when a Premium session is connected.
+            if spotify::auth::is_connected() {
+                let sp = spotify::Spotify;
+                match sp.search(track).await {
+                    Ok(reference) => return Ok(reference),
+                    Err(e) => tracing::warn!(
+                        "Spotify audio lookup failed for '{}': {}",
+                        track.display(),
+                        e
+                    ),
+                }
+            }
+
+            // Matching the title on YouTube is a different recording at a
+            // different quality, so it is opt-in rather than a silent
+            // substitution.
+            if !config::Config::get().downloader.allow_youtube_for_spotify {
+                return Err(Error::Custom(format!(
+                    "Spotify audio is not connected, so '{}' cannot be downloaded from Spotify. \
+                     Connect it in Tools, then Providers, or set \
+                     downloader.allow_youtube_for_spotify to match it on YouTube instead.",
+                    track.display()
+                )));
+            }
+
             // we first try to search on youtube music
             match youtube_music.search(track).await {
                 Ok(reference) => Ok(reference),
@@ -94,7 +123,7 @@ pub async fn download(
     provider: &Reference,
     track_title: &str,
     output_dir: PathBuf,
-) -> SoundomeResult<PathBuf> {
+) -> SoundgnomeResult<PathBuf> {
     if source.ref_type != ReferenceType::Source {
         return Err(Error::Custom(
             "source reference type must be Source".to_string(),
@@ -114,9 +143,22 @@ pub async fn download(
 
     match source.platform {
         Platform::Spotify => {
-            let mut youtube = youtube::Youtube::new();
-
-            youtube.download(&url, track_title, output_dir).await
+            // A connected librespot session resolves the provider to Spotify
+            // itself; otherwise the provider is a YouTube/YT Music fallback.
+            match provider.platform {
+                Platform::Spotify => {
+                    let mut sp = spotify::Spotify;
+                    sp.download(&url, track_title, output_dir).await
+                }
+                Platform::YoutubeMusic => {
+                    let mut youtube_music = youtube_music::YoutubeMusic::new();
+                    youtube_music.download(&url, track_title, output_dir).await
+                }
+                _ => {
+                    let mut youtube = youtube::Youtube::new();
+                    youtube.download(&url, track_title, output_dir).await
+                }
+            }
         }
         Platform::Youtube => {
             let mut youtube = youtube::Youtube::new();
@@ -150,7 +192,7 @@ pub async fn download(
 /// Search YouTube Music and YouTube for all candidates matching the track.
 /// Returns raw results without similarity filtering so the user can pick manually.
 /// Results from YouTube Music are listed first.
-pub async fn search_youtube_candidates(track: &Track) -> SoundomeResult<Vec<Track>> {
+pub async fn search_youtube_candidates(track: &Track) -> SoundgnomeResult<Vec<Track>> {
     let youtube = youtube::Youtube::new();
     let youtube_music = youtube_music::YoutubeMusic::new();
 

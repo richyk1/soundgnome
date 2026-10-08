@@ -5,10 +5,10 @@ import fs from 'fs/promises'
 import path from 'path'
 
 const publicDir = path.resolve(process.cwd(), 'public')
-const logoPath = path.join(publicDir, 'logo_soundome.png')
+const logoPath = path.join(publicDir, 'logo_soundgnome.png')
 
 async function generateAllIcons() {
-  console.log('Generating all icons from logo_soundome.png...')
+  console.log('Generating all icons from logo_soundgnome.png...')
 
   // Read the logo
   const logoBuffer = await fs.readFile(logoPath)

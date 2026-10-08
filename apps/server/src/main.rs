@@ -10,11 +10,11 @@ use rocket_okapi::{
 };
 
 use shared::{init_globals, utils::logs::init_logger};
-use soundome_server::utils::{
+use soundgnome_server::utils::{
     cancellation::CancellationRegistry, database::Db, task_executor::TaskExecutor,
 };
-use soundome_server::{
-    middlewares::cors::Cors,
+use soundgnome_server::{
+    middlewares::{cache_control::CacheControl, cors::Cors},
     routes::{self, errors},
 };
 
@@ -23,6 +23,144 @@ fn get_docs() -> SwaggerUIConfig {
         url: "../api/openapi.json".to_string(),
         ..Default::default()
     }
+}
+
+/// Precompute and cache waveform peaks for every finalized track not already
+/// cached, so the scrubber is instant on first play. Deliberately gentle: starts
+/// after a delay and decodes one track at a time with a breather between each, so
+/// ffmpeg never contends with foreground audio/waveform requests on a busy or
+/// shared box. Anything played before the backfill reaches it is computed on
+/// demand instead, so a slow warm-up costs nothing.
+fn backfill_waveforms(services: &ServiceLayer, db_url: &str) {
+    use std::time::Duration;
+
+    // Let the server settle: a reload + play right after launch must not compete
+    // with the initial decode work.
+    std::thread::sleep(Duration::from_secs(20));
+
+    let mut conn = database::init_connection(db_url);
+    let tracks = match services.track_service.get_all_finalized(&mut conn) {
+        Ok(tracks) => tracks,
+        Err(e) => {
+            tracing::warn!("Waveform backfill: could not list tracks: {e}");
+            return;
+        }
+    };
+    drop(conn);
+
+    // Only decode what is missing; a stat per track is cheap on later runs.
+    let pending: Vec<(i32, std::path::PathBuf)> = tracks
+        .into_iter()
+        .filter_map(|t| Some((t.id?, t.file_path?)))
+        .filter(|(id, path)| !routes::tracks::waveform_is_cached(*id, path))
+        .collect();
+    if pending.is_empty() {
+        tracing::info!("Waveform backfill: all tracks already cached");
+        return;
+    }
+
+    let total = pending.len();
+    let mut ok = 0usize;
+    for (id, path) in &pending {
+        match routes::tracks::waveform_peaks_cached(*id, path) {
+            Ok(_) => ok += 1,
+            Err(e) => tracing::debug!("Waveform backfill: track {id} failed: {e}"),
+        }
+        // One decode at a time, with a breather, keeps a single ffmpeg well below
+        // saturation and yields the CPU to playback between tracks.
+        std::thread::sleep(Duration::from_millis(150));
+    }
+
+    tracing::info!("Waveform backfill complete: {ok}/{total} newly cached");
+}
+
+/// Precompute and cache the small cover thumbnail for every track with a local
+/// file that carries embedded art, so the Library and Validations lists (which
+/// render hundreds of covers at once) show artwork instantly instead of pulling
+/// the multi-megabyte raw pictures. Gentle like the waveform backfill: a delayed
+/// start and a breather between tracks so image decoding never contends with
+/// foreground requests. Anything viewed first is computed on demand and cached.
+fn backfill_covers(services: &ServiceLayer, db_url: &str) {
+    use std::time::Duration;
+
+    // Start after the waveform backfill has a head start so the two never
+    // saturate the CPU together right after launch.
+    std::thread::sleep(Duration::from_secs(30));
+
+    let mut conn = database::init_connection(db_url);
+    let tracks = match services.track_service.get_all(&mut conn) {
+        Ok(tracks) => tracks,
+        Err(e) => {
+            tracing::warn!("Cover backfill: could not list tracks: {e}");
+            return;
+        }
+    };
+    drop(conn);
+
+    let px = routes::tracks::COVER_THUMB_PX;
+    // Only build what is missing; a stat per track is cheap on later runs.
+    let pending: Vec<(i32, std::path::PathBuf)> = tracks
+        .into_iter()
+        .filter_map(|t| Some((t.id?, t.file_path?)))
+        .filter(|(id, path)| !routes::tracks::cover_is_cached(*id, path, px))
+        .collect();
+    if pending.is_empty() {
+        tracing::info!("Cover backfill: all tracks already cached");
+        return;
+    }
+
+    let total = pending.len();
+    let mut ok = 0usize;
+    for (id, path) in &pending {
+        if routes::tracks::cover_cached(*id, path, px).is_some() {
+            ok += 1;
+        }
+        std::thread::sleep(Duration::from_millis(120));
+    }
+
+    tracing::info!("Cover backfill complete: {ok}/{total} newly cached");
+}
+
+/// Precompute and cache each track's integrated loudness so the player can
+/// normalize volume from the first play instead of decoding the file on demand.
+/// Gentle like the other backfills: a delayed start and a breather between tracks
+/// so ffmpeg never contends with foreground playback.
+fn backfill_loudness(services: &ServiceLayer, db_url: &str) {
+    use std::time::Duration;
+
+    // Start last of the three backfills so they never saturate the CPU together.
+    std::thread::sleep(Duration::from_secs(40));
+
+    let mut conn = database::init_connection(db_url);
+    let tracks = match services.track_service.get_all(&mut conn) {
+        Ok(tracks) => tracks,
+        Err(e) => {
+            tracing::warn!("Loudness backfill: could not list tracks: {e}");
+            return;
+        }
+    };
+    drop(conn);
+
+    let pending: Vec<(i32, std::path::PathBuf)> = tracks
+        .into_iter()
+        .filter_map(|t| Some((t.id?, t.file_path?)))
+        .filter(|(id, path)| !routes::tracks::loudness_is_cached(*id, path))
+        .collect();
+    if pending.is_empty() {
+        tracing::info!("Loudness backfill: all tracks already measured");
+        return;
+    }
+
+    let total = pending.len();
+    let mut ok = 0usize;
+    for (id, path) in &pending {
+        if routes::tracks::loudness_cached(*id, path).is_some() {
+            ok += 1;
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+
+    tracing::info!("Loudness backfill complete: {ok}/{total} newly measured");
 }
 
 #[dotenvy::load(path = "./.env", required = false)]
@@ -36,6 +174,14 @@ fn rocket() -> _ {
     init_logger();
 
     tracing::info!("Starting server...");
+
+    // Mint Spotify Web API tokens from the librespot session instead of a
+    // fragile OAuth refresh token (avoids Spotify revoking it).
+    downloader::spotify::auth::register_token_minter();
+
+    // Read Liked Songs natively via the librespot session (spclient collection)
+    // instead of the throttle-prone /me/tracks Web API.
+    downloader::spotify::register_liked_provider();
 
     // Initialize database and run migrations
     let db_url = Config::get().database.url.clone();
@@ -131,6 +277,54 @@ fn rocket() -> _ {
     }
     */
 
+    // Maintenance backfills (fingerprint / artwork) cannot resume across a restart
+    // and would otherwise wedge their Tools page showing "Running" forever. Mark any
+    // left over from a previous run as failed so the page frees up; both are
+    // idempotent and cheap to re-run from the button.
+    {
+        let db_url = Config::get().database.url.clone();
+        let conn = &mut database::init_connection(&db_url);
+        if let Ok(stale) = services.task_service.get_stale_running(conn) {
+            for task in stale {
+                let is_backfill = matches!(
+                    task.task_type,
+                    shared::models::TaskType::EmbedArtworkBackfill
+                        | shared::models::TaskType::FingerprintBackfill
+                );
+                if is_backfill {
+                    if let Some(id) = task.id {
+                        let _ = services.task_service.set_failed(
+                            conn,
+                            id,
+                            "Interrupted by a server restart",
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Warm the audio-quality cache in the background. The library list probes every
+    // track's file for its format/bitrate; on a cold cache that scales with the
+    // library and is the dominant cost of the first Tracks page load. Doing it here
+    // moves that work off the request path so the page is fast for the user.
+    {
+        let db_url = Config::get().database.url.clone();
+        let services_for_warm = services.clone();
+        std::thread::spawn(move || {
+            let conn = &mut database::init_connection(&db_url);
+            match services_for_warm.track_service.get_all_finalized(conn) {
+                Ok(tracks) => {
+                    for track in &tracks {
+                        let _ = soundgnome_server::utils::quality_cache::probe(track);
+                    }
+                    tracing::info!("Quality cache warmed for {} track(s)", tracks.len());
+                }
+                Err(e) => tracing::warn!("Quality cache warm-up failed: {}", e),
+            }
+        });
+    }
+
     // Spawn the background sync scheduler (checks every 60 seconds)
     {
         let db_url = Config::get().database.url.clone();
@@ -196,36 +390,74 @@ fn rocket() -> _ {
     }
 
     // Rocket — build a figment from the standard Rocket.toml / ROCKET_* sources,
-    // then layer any SOUNDOME__SERVER__* overrides on top.
+    // then layer any SOUNDGNOME__SERVER__* overrides on top.
     let figment = {
-        let soundome_cfg = Config::get();
+        let soundgnome_cfg = Config::get();
         let mut f = rocket::Config::figment();
         // host
-        if let Some(host) = &soundome_cfg.server.host {
+        if let Some(host) = &soundgnome_cfg.server.host {
             f = f.merge(("address", host.as_str()));
         }
         // port
-        if let Some(port) = soundome_cfg.server.port {
+        if let Some(port) = soundgnome_cfg.server.port {
             f = f.merge(("port", port));
         }
         // rocket database
         // let db: rocket::figment::value::Map<_, rocket::figment::value::Value>  = rocket::figment::util::map! {
-        //     "url" => soundome_cfg.database.url.as_str().into(),
+        //     "url" => soundgnome_cfg.database.url.as_str().into(),
         //     "pool_size" => 10.into(),
         //     "timeout" => 5.into(),
         // };
         // f = f.merge(("databases.sqlite", db));
-        f = f.merge(("databases.sqlite.url", soundome_cfg.database.url.as_str()));
+        f = f.merge(("databases.sqlite.url", soundgnome_cfg.database.url.as_str()));
 
         f
     };
 
+    let waveform_services = services.clone();
+    let waveform_db_url = db_url.clone();
+    let cover_services = services.clone();
+    let cover_db_url = db_url.clone();
+    let loudness_services = services.clone();
+    let loudness_db_url = db_url.clone();
+
     rocket::custom(figment)
         .attach(Cors)
+        .attach(CacheControl)
         .attach(Db::fairing())
         .manage(services)
         .manage(cancellation_registry)
         .manage(task_executor)
+        .attach(rocket::fairing::AdHoc::on_liftoff(
+            "waveform-backfill",
+            move |_rocket| {
+                Box::pin(async move {
+                    rocket::tokio::task::spawn_blocking(move || {
+                        backfill_waveforms(&waveform_services, &waveform_db_url);
+                    });
+                })
+            },
+        ))
+        .attach(rocket::fairing::AdHoc::on_liftoff(
+            "cover-backfill",
+            move |_rocket| {
+                Box::pin(async move {
+                    rocket::tokio::task::spawn_blocking(move || {
+                        backfill_covers(&cover_services, &cover_db_url);
+                    });
+                })
+            },
+        ))
+        .attach(rocket::fairing::AdHoc::on_liftoff(
+            "loudness-backfill",
+            move |_rocket| {
+                Box::pin(async move {
+                    rocket::tokio::task::spawn_blocking(move || {
+                        backfill_loudness(&loudness_services, &loudness_db_url);
+                    });
+                })
+            },
+        ))
         .register("/", catchers![errors::default])
         .mount(
             "/api",
@@ -255,6 +487,8 @@ fn rocket() -> _ {
                 routes::tracks::get,
                 routes::tracks::update,
                 routes::tracks::delete,
+                routes::tracks::set_rating,
+                routes::tracks::ai_clean,
                 routes::tracks::download_file,
                 routes::tracks::get_references,
                 routes::tracks::add_reference,
@@ -285,10 +519,32 @@ fn rocket() -> _ {
                 routes::library::ingest,
                 routes::library::list_ingest_files,
                 routes::library::ingest_all,
+                routes::library::upload,
+                routes::library::ingest_session,
+                routes::library::embed_artwork,
+                routes::library::backfill_fingerprints,
+                routes::library::missing_files,
+                routes::library::resync_track,
                 routes::storage::storage_stats,
+                routes::soundcloud::get_status,
+                routes::soundcloud::connect,
+                routes::soundcloud::disconnect,
+                routes::soundcloud::stream_url,
+                routes::spotify::list_likes,
+                routes::spotify_audio::get_status,
+                routes::spotify_audio::login,
+                routes::spotify_audio::callback,
+                routes::spotify_audio::disconnect,
+                routes::lastfm::get_status,
+                routes::lastfm::set_credentials,
+                routes::lastfm::login,
+                routes::lastfm::callback,
+                routes::lastfm::disconnect,
+                routes::lastfm::now_playing,
+                routes::lastfm::scrobble,
+                routes::audio::stream,
             ],
         )
-        // .mount("/api", routes![routes::audio::stream,])
         .mount(
             "/api",
             routes![
@@ -297,6 +553,10 @@ fn rocket() -> _ {
                 routes::images::upload_track_image,
                 routes::images::batch_fetch_artist_icons,
                 routes::images::batch_fetch_album_covers,
+                routes::tracks::waveform,
+                routes::tracks::cover,
+                routes::tracks::loudness,
+                routes::library::dedupe,
             ],
         )
         .mount("/", routes![routes::metrics::metrics])

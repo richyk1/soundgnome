@@ -23,11 +23,6 @@ export async function getPendingValidations(): Promise<PendingValidationDto[]> {
   return res.json();
 }
 
-export async function getPendingCount(): Promise<number> {
-  const tracks = await getPendingValidations();
-  return tracks.length;
-}
-
 export async function approveValidation(
   id: number,
   patch: PatchValidationBody,
@@ -173,12 +168,51 @@ export async function updateTrack(id: number, body: UpdateTrackBody): Promise<Li
   return res.json();
 }
 
+export interface AiCleanResult {
+  title: string;
+  artists: string[];
+}
+
+/** Ask the AI backend to clean/standardize a track's title and artists. Returns
+ * a suggestion for review; does not persist. Throws if AI is not configured. */
+export async function cleanTrackWithAI(
+  id: number,
+  input: { title: string; artists: string[] },
+): Promise<AiCleanResult> {
+  const res = await fetch(`${BASE}/tracks/${id}/ai-clean`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
 export async function deleteTrack(id: number): Promise<void> {
   const res = await fetch(`${BASE}/tracks/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
     throw new Error(err.message ?? res.statusText);
   }
+}
+
+export async function setTrackRating(
+  id: number,
+  rating: 'liked' | 'disliked' | null,
+): Promise<LibraryTrackDto> {
+  const res = await fetch(`${BASE}/tracks/${id}/rating`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
 }
 
 // ================================================================================================
@@ -572,6 +606,67 @@ export async function ingestAll(): Promise<{ task_id: number }> {
   return res.json();
 }
 
+export interface UploadResponse {
+  stored_path: string;
+  size_bytes: number;
+}
+
+/**
+ * Upload one file into a session folder on the server. Uses XHR (not fetch) so
+ * we get real upload progress. Returns a handle whose `promise` resolves when the
+ * file is stored, plus an `abort()` to cancel it.
+ */
+export function uploadFile(
+  session: string,
+  relativePath: string,
+  file: File,
+  onProgress?: (loaded: number, total: number) => void,
+): { promise: Promise<UploadResponse>; abort: () => void } {
+  const xhr = new XMLHttpRequest();
+  const url = `${BASE}/library/upload?session=${encodeURIComponent(session)}&path=${encodeURIComponent(relativePath)}`;
+  const promise = new Promise<UploadResponse>((resolve, reject) => {
+    xhr.open('POST', url);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as UploadResponse);
+        } catch {
+          resolve({ stored_path: '', size_bytes: file.size });
+        }
+      } else {
+        let msg = xhr.statusText;
+        try {
+          msg = JSON.parse(xhr.responseText).message ?? msg;
+        } catch {
+          /* keep statusText */
+        }
+        reject(new Error(msg || `Upload failed (${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.onabort = () => reject(new DOMException('Upload aborted', 'AbortError'));
+    xhr.send(file);
+  });
+  return { promise, abort: () => xhr.abort() };
+}
+
+/** Ingest every file uploaded under `session`. Returns a task_id to poll. */
+export async function ingestSession(session: string): Promise<{ task_id: number }> {
+  const res = await fetch(`${BASE}/library/ingest/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
 // ================================================================================================
 // Storage Stats
 // ================================================================================================
@@ -595,10 +690,273 @@ export async function getStorageStats(): Promise<StorageStatsDto> {
   return res.json();
 }
 
+/** Start a one-shot pass that embeds cover art into every library file. Returns the tracking task id. */
+export async function embedArtwork(): Promise<{ task_id: number }> {
+  const res = await fetch(`${BASE}/library/embed-artwork`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+/**
+ * Start a one-shot pass that computes an acoustic fingerprint for every library
+ * file that lacks one, so re-uploads of songs already in the library are detected.
+ * Returns the tracking task id.
+ */
+export async function backfillFingerprints(): Promise<{ task_id: number }> {
+  const res = await fetch(`${BASE}/library/backfill-fingerprints`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export interface MissingTrackDto {
+  id: number | null;
+  title: string;
+  artists: string[];
+  album: string | null;
+  file_path: string | null;
+  source_url: string | null;
+}
+
+/** Finalized library tracks whose audio file is missing on disk. */
+export async function getMissingTracks(): Promise<MissingTrackDto[]> {
+  const res = await fetch(`${BASE}/library/missing`);
+  if (!res.ok) throw new Error(`Failed to fetch missing tracks: ${res.statusText}`);
+  return res.json();
+}
+
+/** Re-download a library track from its source and re-file it in place. */
+export async function resyncTrack(id: number): Promise<MissingTrackDto> {
+  const res = await fetch(`${BASE}/library/tracks/${id}/resync`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
 export async function getVersion(): Promise<string> {
   const res = await fetch(`${BASE}/version`);
   if (!res.ok) return '';
   const data: { version: string } = await res.json();
   return data.version;
+}
+
+// ================================================================================================
+// Providers: SoundCloud
+// ================================================================================================
+
+export interface SoundcloudStatusDto {
+  connected: boolean;
+  username: string | null;
+}
+
+export async function getSoundcloudStatus(): Promise<SoundcloudStatusDto> {
+  const res = await fetch(`${BASE}/providers/soundcloud`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function connectSoundcloud(token: string): Promise<SoundcloudStatusDto> {
+  const res = await fetch(`${BASE}/providers/soundcloud`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function disconnectSoundcloud(): Promise<SoundcloudStatusDto> {
+  const res = await fetch(`${BASE}/providers/soundcloud`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+// ================================================================================================
+// Providers: Spotify audio (librespot)
+// ================================================================================================
+
+export interface SpotifyAudioStatusDto {
+  connected: boolean;
+  username: string | null;
+}
+
+export async function getSpotifyAudioStatus(): Promise<SpotifyAudioStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify-audio`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+/**
+ * Start the librespot login. Returns the URL to approve. After approving, the
+ * browser lands on the 127.0.0.1:8898 redirect; the user pastes that URL back
+ * to `completeSpotifyAudio`.
+ */
+export async function connectSpotifyAudio(): Promise<string> {
+  const res = await fetch(`${BASE}/providers/spotify-audio/login`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  const body: { authorize_url: string } = await res.json();
+  return body.authorize_url;
+}
+
+/** Finish the librespot login with the redirect URL the user pasted back. */
+export async function completeSpotifyAudio(
+  redirectUrl: string,
+): Promise<SpotifyAudioStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify-audio/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ redirect_url: redirectUrl }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function disconnectSpotifyAudio(): Promise<SpotifyAudioStatusDto> {
+  const res = await fetch(`${BASE}/providers/spotify-audio`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+// ================================================================================================
+// SoundCloud stream
+// ================================================================================================
+
+export interface SoundcloudStreamDto {
+  url: string;
+}
+
+/**
+ * Resolve a signed, directly playable stream URL for one liked track.
+ * The URL expires, so resolve it again when playback fails.
+ */
+export async function getSoundcloudStreamUrl(id: number): Promise<string> {
+  const res = await fetch(`${BASE}/soundcloud/likes/${id}/stream`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(body.message ?? res.statusText);
+  }
+  const data: SoundcloudStreamDto = await res.json();
+  return data.url;
+}
+
+// ── Last.fm ───────────────────────────────────────────────────────────────────
+
+export interface LastfmStatusDto {
+  configured: boolean;
+  connected: boolean;
+  username: string | null;
+}
+
+export async function getLastfmStatus(): Promise<LastfmStatusDto> {
+  const res = await fetch(`${BASE}/providers/lastfm`);
+  if (!res.ok) throw new Error(`Failed to fetch Last.fm status: ${res.statusText}`);
+  return res.json();
+}
+
+export async function setLastfmCredentials(
+  apiKey: string,
+  apiSecret: string,
+): Promise<LastfmStatusDto> {
+  const res = await fetch(`${BASE}/providers/lastfm/credentials`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function lastfmLogin(): Promise<{ url: string; token: string }> {
+  const res = await fetch(`${BASE}/providers/lastfm/login`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function lastfmComplete(token: string): Promise<LastfmStatusDto> {
+  const res = await fetch(`${BASE}/providers/lastfm/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export async function disconnectLastfm(): Promise<LastfmStatusDto> {
+  const res = await fetch(`${BASE}/providers/lastfm`, { method: 'DELETE' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+  return res.json();
+}
+
+export interface ScrobblePayload {
+  artist: string;
+  track: string;
+  album?: string | null;
+  duration_secs?: number | null;
+  timestamp: number;
+}
+
+export async function lastfmNowPlaying(body: Omit<ScrobblePayload, 'timestamp'>): Promise<void> {
+  const res = await fetch(`${BASE}/lastfm/now-playing`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
+}
+
+export async function lastfmScrobble(scrobbles: ScrobblePayload[]): Promise<void> {
+  const res = await fetch(`${BASE}/lastfm/scrobble`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scrobbles }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.message ?? res.statusText);
+  }
 }
 

@@ -159,7 +159,7 @@
     background: none; border: none; color: var(--muted); cursor: pointer;
     font-size: 0.85rem; line-height: 1; padding: 0; display: flex; align-items: center;
   }
-  .chip-remove:hover { color: var(--danger, #e05a5a); }
+  .chip-remove:hover { color: var(--error); }
 
   .chip-input {
     flex: 1; min-width: 6rem; background: none; border: none; outline: none;
@@ -170,7 +170,7 @@
     position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
     list-style: none; margin: 0; padding: 0.25rem;
     background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    box-shadow: var(--shadow);
     max-height: 220px; overflow-y: auto;
   }
   .suggestion-item {
@@ -180,4 +180,10 @@
   }
   .suggestion-item.active, .suggestion-item:hover { background: var(--surface-2); }
   .suggestion-create { color: var(--accent); }
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    button { min-height: 44px; min-width: 44px; }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 16px; min-height: 44px; }
+    .artist-chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; } .chip-input { min-width: 0; flex-basis: 100%; } .chip-remove { min-width: 44px; min-height: 44px; justify-content: center; } .suggestion-item { min-height: 44px; }
+  }
 </style>

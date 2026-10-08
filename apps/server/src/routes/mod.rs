@@ -1,10 +1,15 @@
 /* other */
+pub mod audio;
 pub mod download;
 pub mod errors;
 pub mod images;
+pub mod lastfm;
 pub mod library;
 pub mod metrics;
 pub mod misc;
+pub mod soundcloud;
+pub mod spotify;
+pub mod spotify_audio;
 pub mod storage;
 pub mod sync_schedules;
 pub mod tasks;

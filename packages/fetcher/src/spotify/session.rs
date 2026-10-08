@@ -1,0 +1,632 @@
+//! Spotify user authorization (PKCE).
+//!
+//! App credentials (see `auth`) only reach the public catalogue. Reading a
+//! user's own library needs their consent, which means the authorization code
+//! flow. PKCE is used rather than the classic flow so the client secret never
+//! leaves the server, and so the same code would work if Soundgnome ever shipped
+//! a public client id.
+//!
+//! Written against `reqwest` rather than rspotify's client: rspotify is
+//! compiled here with its blocking backend, and blocking calls inside Rocket's
+//! async runtime stall the worker. rspotify still backs the metadata provider.
+
+use std::fs;
+use std::future::Future;
+use std::io::Write;
+use std::path::Path;
+use std::pin::Pin;
+use std::sync::{LazyLock, Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use config::Config;
+use serde::{Deserialize, Serialize};
+use shared::{errors::Error, http::HttpClientBuilder, types::SoundgnomeResult};
+
+const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
+const ME_URL: &str = "https://api.spotify.com/v1/me";
+
+/// A freshly minted Spotify Web API token.
+pub struct MintedToken {
+    pub access_token: String,
+    /// Seconds until the token expires.
+    pub expires_in: u64,
+}
+
+/// Mints a Web API token from the connected librespot session. Registered by
+/// the downloader at startup, since the fetcher cannot depend on librespot
+/// directly. Using the librespot session as the token source removes the
+/// fragile OAuth refresh token, which Spotify revokes if it is refreshed from
+/// anywhere else.
+type TokenMinter = Box<
+    dyn Fn() -> Pin<Box<dyn Future<Output = SoundgnomeResult<MintedToken>> + Send>> + Send + Sync,
+>;
+
+static MINTER: OnceLock<TokenMinter> = OnceLock::new();
+
+/// Cached minted token and the instant it should be refreshed before.
+static WEB_TOKEN: LazyLock<Mutex<Option<(Instant, String)>>> = LazyLock::new(|| Mutex::new(None));
+
+/// Register the librespot-backed Web API token minter. Idempotent.
+pub fn set_token_minter(minter: TokenMinter) {
+    let _ = MINTER.set(minter);
+}
+
+/// Native liked-songs provider (librespot `spclient` collection), registered
+/// by the downloader. Preferred over the throttled `/me/tracks` Web API since
+/// it uses the session's login5 auth against a different endpoint.
+type LikedProvider = Box<
+    dyn Fn() -> Pin<Box<dyn Future<Output = SoundgnomeResult<Vec<SavedTrack>>> + Send>>
+        + Send
+        + Sync,
+>;
+
+static LIKED_PROVIDER: OnceLock<LikedProvider> = OnceLock::new();
+
+/// Register the librespot-native liked-songs provider. Idempotent.
+pub fn set_liked_provider(provider: LikedProvider) {
+    let _ = LIKED_PROVIDER.set(provider);
+}
+
+/// Total time to spend waiting out 429s before giving up on a fetch. This
+/// account's `/me/tracks` allows roughly one request per minute, so a full
+/// paged listing of a large library can take ~10-15 min of mostly waiting; the
+/// sync is a background task, so allow a generous budget to complete one pass
+/// (the result is then cached by `LIKES_CACHE`).
+const MAX_RATE_LIMIT_WAIT_SECS: u64 = 1200;
+
+/// How long a fetched Liked Songs list stays usable.
+///
+/// Without this every call re-pages the whole library, which is what got the
+/// account rate limited in the first place: 720 likes is 15 requests per call.
+const LIKES_CACHE_TTL: Duration = Duration::from_secs(300);
+
+/// Small delay between saved-tracks pages so a large library does not burst
+/// into Spotify's rate limit.
+const PAGE_SPACING: Duration = Duration::from_millis(300);
+
+/// Refresh this long before the token actually expires, so a sync that starts
+/// just under the wire does not fail halfway.
+const EXPIRY_MARGIN: Duration = Duration::from_secs(60);
+
+/// A usable session.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SpotifySession {
+    pub access_token: String,
+    pub refresh_token: String,
+    /// Unix seconds.
+    pub expires_at: u64,
+    pub user_name: Option<String>,
+    /// Which client the refresh token was issued to.
+    ///
+    /// A refresh must be sent to the same client that minted the token, and
+    /// two different clients can mint one: the app credentials pasted into the
+    /// Providers tab, and Spotify's desktop client used by the librespot login.
+    /// Sending the wrong one fails with `invalid_client` about an hour after
+    /// logging in, which is a miserable thing to debug.
+    ///
+    /// Optional so sessions stored before this field existed still load.
+    #[serde(default)]
+    pub client_id: Option<String>,
+}
+
+impl SpotifySession {
+    fn is_fresh(&self) -> bool {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.expires_at > now + EXPIRY_MARGIN.as_secs()
+    }
+}
+
+fn session_path() -> std::path::PathBuf {
+    Config::get()
+        .spotify_credentials_path()
+        .with_file_name("spotify_session.json")
+}
+
+/// A valid Spotify Web API access token.
+///
+/// Prefers minting from the connected librespot session (the single token
+/// source); falls back to a stored OAuth refresh token when no minter is
+/// registered.
+pub async fn access_token() -> SoundgnomeResult<String> {
+    if let Some(minter) = MINTER.get() {
+        {
+            let cache = WEB_TOKEN.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((expiry, token)) = cache.as_ref() {
+                if *expiry > Instant::now() {
+                    return Ok(token.clone());
+                }
+            }
+        }
+        match minter().await {
+            Ok(minted) => {
+                let ttl = Duration::from_secs(minted.expires_in.saturating_sub(60).max(1));
+                let mut cache = WEB_TOKEN.lock().unwrap_or_else(|e| e.into_inner());
+                *cache = Some((Instant::now() + ttl, minted.access_token.clone()));
+                return Ok(minted.access_token);
+            }
+            // The librespot keymaster token cannot grant `user-library-read`
+            // (403), so minting is best-effort: fall back to the stored OAuth
+            // session, which is the only source of a library-scoped token.
+            Err(e) => {
+                tracing::warn!("Spotify token mint unavailable, using stored session: {e}");
+            }
+        }
+    }
+
+    let session =
+        stored_session().ok_or_else(|| Error::Custom("Log in with Spotify first".to_string()))?;
+
+    if session.is_fresh() {
+        return Ok(session.access_token);
+    }
+
+    let client_id = session.client_id.clone().ok_or_else(|| {
+        Error::Custom(
+            "Stored Spotify session has no client id; reconnect Spotify to refresh access."
+                .to_string(),
+        )
+    })?;
+    let response = HttpClientBuilder::get_reqwest_client()?
+        .post(TOKEN_URL)
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", session.refresh_token.as_str()),
+            ("client_id", client_id.as_str()),
+        ])
+        .send()
+        .await
+        .map_err(|e| Error::Custom(format!("Spotify token refresh failed: {}", e)))?;
+
+    let refreshed = session_from_response(response, Some(&session), client_id).await?;
+    store_session(&refreshed)?;
+    Ok(refreshed.access_token)
+}
+
+async fn session_from_response(
+    response: reqwest::Response,
+    previous: Option<&SpotifySession>,
+    issued_by: String,
+) -> SoundgnomeResult<SpotifySession> {
+    let status = response.status();
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| Error::Custom(format!("Unreadable Spotify token response: {}", e)))?;
+
+    if !status.is_success() {
+        let detail = body
+            .get("error_description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        return Err(Error::Custom(format!(
+            "Spotify refused the login: {}",
+            detail
+        )));
+    }
+
+    let access_token = body
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| Error::Custom("Spotify returned no access token".to_string()))?
+        .to_string();
+    let refresh_token = body
+        .get("refresh_token")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| previous.map(|p| p.refresh_token.clone()))
+        .ok_or_else(|| Error::Custom("Spotify returned no refresh token".to_string()))?;
+    let expires_in = body
+        .get("expires_in")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(3600);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let mut session = SpotifySession {
+        access_token,
+        refresh_token,
+        expires_at: now + expires_in,
+        user_name: previous.and_then(|p| p.user_name.clone()),
+        client_id: Some(issued_by),
+    };
+
+    // Deliberately not fetching the display name here. This runs on every
+    // refresh, and while /me is throttled the name stays None, so it would ask
+    // again forever. Logins set it once instead.
+    Ok(session)
+}
+
+/// Best effort: the account name is only for showing who is logged in.
+async fn fetch_display_name(access_token: &str) -> Option<String> {
+    let response = HttpClientBuilder::get_reqwest_client()
+        .ok()?
+        .get(ME_URL)
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .ok()?;
+    let body: serde_json::Value = response.json().await.ok()?;
+    body.get("display_name")
+        .or_else(|| body.get("id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+/// One entry of the signed-in user's Liked Songs.
+#[derive(Clone)]
+pub struct SavedTrack {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub duration_secs: Option<i32>,
+    pub artwork_url: Option<String>,
+    pub spotify_url: String,
+}
+
+impl SavedTrack {
+    /// Convert to the shared model, carrying a Spotify `Source` reference so
+    /// the downloader routes it the same way as a pasted Spotify URL.
+    pub fn to_track(&self) -> shared::models::Track {
+        use shared::models::{Album, AlbumType, Artist, Platform, Reference, ReferenceType, Track};
+
+        let artists = vec![Artist {
+            id: None,
+            name: self.artist.clone(),
+            icon: None,
+            references: Vec::new(),
+        }];
+
+        Track {
+            id: None,
+            needs_validation: false,
+            validation_reason: None,
+            soundome_id: None,
+            title: self.title.clone(),
+            artists: artists.clone(),
+            album: self.album.as_ref().map(|title| Album {
+                id: None,
+                title: title.clone(),
+                artists,
+                cover: self.artwork_url.clone(),
+                date: None,
+                album_type: AlbumType::Unknown,
+                references: Vec::new(),
+            }),
+            genre: None,
+            duration: self.duration_secs,
+            track_number: None,
+            disc_number: None,
+            label: None,
+            date: None,
+            cover: self.artwork_url.clone(),
+            file_path: None,
+            references: vec![Reference {
+                id: None,
+                ref_type: ReferenceType::Source,
+                platform: Platform::Spotify,
+                external_id: Some(self.id.clone()),
+                external_url: Some(self.spotify_url.clone()),
+            }],
+        }
+    }
+}
+
+/// Store a Web API session obtained by another login.
+///
+/// The librespot login runs its PKCE exchange against Spotify's desktop
+/// client, which may also ask for library scopes. Reusing that single approval
+/// means the user does not have to register an app or log in twice.
+pub async fn store_user_token(
+    access_token: String,
+    refresh_token: String,
+    expires_in: u64,
+    client_id: String,
+) -> SoundgnomeResult<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let user_name = fetch_display_name(&access_token).await;
+    // A new session may belong to a different account.
+    clear_likes_cache();
+    store_session(&SpotifySession {
+        access_token,
+        refresh_token,
+        expires_at: now + expires_in,
+        user_name,
+        client_id: Some(client_id),
+    })
+}
+
+/// Every liked track, newest first.
+///
+/// Read-only: this lists what the account has saved and downloads nothing.
+pub async fn saved_tracks() -> SoundgnomeResult<Vec<SavedTrack>> {
+    if let Some(cached) = cached_likes() {
+        tracing::debug!("Serving {} liked tracks from cache", cached.len());
+        return Ok(cached);
+    }
+
+    // Prefer the librespot-native collection read (no throttled /me/tracks Web
+    // API) when the downloader has registered it.
+    if let Some(provider) = LIKED_PROVIDER.get() {
+        let fetched = provider().await?;
+        store_likes(&fetched);
+        return Ok(fetched);
+    }
+
+    let (fetched, complete) = fetch_saved_tracks().await?;
+    // Only cache a complete listing. A partial (rate-limited) fetch must be
+    // retried next time rather than masquerading as the full library.
+    if complete {
+        store_likes(&fetched);
+    }
+    Ok(fetched)
+}
+
+/// Cached copy of the last full fetch, with the moment it was taken.
+static LIKES_CACHE: LazyLock<Mutex<Option<(Instant, Vec<SavedTrack>)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+fn cached_likes() -> Option<Vec<SavedTrack>> {
+    let cache = LIKES_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let (taken_at, tracks) = cache.as_ref()?;
+    (taken_at.elapsed() < LIKES_CACHE_TTL).then(|| tracks.clone())
+}
+
+fn store_likes(tracks: &[SavedTrack]) {
+    let mut cache = LIKES_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    *cache = Some((Instant::now(), tracks.to_vec()));
+}
+
+/// Drop the cached list, so the next read reflects a different account or a
+/// library the user has just changed.
+pub fn clear_likes_cache() {
+    let mut cache = LIKES_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    *cache = None;
+}
+
+async fn fetch_saved_tracks() -> SoundgnomeResult<(Vec<SavedTrack>, bool)> {
+    let token = access_token().await?;
+    let client = HttpClientBuilder::get_reqwest_client()?;
+
+    let limit = 50;
+    let mut offset = 0;
+    let mut tracks = Vec::new();
+
+    // Spotify answers 429 with a Retry-After in seconds. Paging a large
+    // library is exactly when that happens, and giving up loses the whole
+    // fetch, so wait it out within a total budget.
+    let mut waited = 0u64;
+
+    loop {
+        let response = client
+            .get("https://api.spotify.com/v1/me/tracks")
+            .bearer_auth(&token)
+            .query(&[("limit", limit.to_string()), ("offset", offset.to_string())])
+            .send()
+            .await
+            .map_err(|e| Error::Custom(format!("Spotify saved tracks request failed: {}", e)))?;
+
+        if response.status().as_u16() == 429 {
+            let wait = response
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(5)
+                .max(1);
+
+            // Capping each wait would mean coming back before Spotify is
+            // ready and re-tripping the limit, so cap the total instead.
+            waited += wait;
+            if waited > MAX_RATE_LIMIT_WAIT_SECS {
+                // Salvage what we have: archiving a partial library beats
+                // failing the whole sync. The rest is retried on the next run.
+                if tracks.is_empty() {
+                    return Err(Error::Custom(format!(
+                        "Spotify is rate limiting the saved tracks request and asked to wait \
+                         {}s. Try again later.",
+                        wait
+                    )));
+                }
+                tracing::warn!(
+                    "Spotify rate limited after {} liked tracks; archiving those and retrying \
+                     the rest next sync.",
+                    tracks.len()
+                );
+                return Ok((tracks, false));
+            }
+
+            tracing::warn!(
+                "Spotify rate limited the saved tracks request, waiting {}s ({}s of {}s budget)",
+                wait,
+                waited,
+                MAX_RATE_LIMIT_WAIT_SECS
+            );
+            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            continue;
+        }
+
+        if !response.status().is_success() {
+            if tracks.is_empty() {
+                return Err(Error::Custom(format!(
+                    "Spotify refused the saved tracks request: {}",
+                    response.status()
+                )));
+            }
+            tracing::warn!(
+                "Spotify saved tracks request failed with {} after {} tracks; archiving those.",
+                response.status(),
+                tracks.len()
+            );
+            return Ok((tracks, false));
+        }
+
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| Error::Custom(format!("Unreadable saved tracks response: {}", e)))?;
+
+        let items = body.get("items").and_then(|v| v.as_array()).cloned();
+        let Some(items) = items.filter(|items| !items.is_empty()) else {
+            break;
+        };
+        let page_len = items.len();
+
+        for item in items {
+            let Some(track) = item.get("track") else {
+                continue;
+            };
+            let Some(id) = track.get("id").and_then(|v| v.as_str()) else {
+                // Local files a user added to Spotify have no id and no URL.
+                continue;
+            };
+
+            tracks.push(SavedTrack {
+                id: id.to_string(),
+                title: track
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown title")
+                    .to_string(),
+                artist: track
+                    .pointer("/artists/0/name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown artist")
+                    .to_string(),
+                album: track
+                    .pointer("/album/name")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                duration_secs: track
+                    .get("duration_ms")
+                    .and_then(|v| v.as_i64())
+                    .map(|ms| (ms / 1000) as i32),
+                artwork_url: track
+                    .pointer("/album/images/0/url")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                spotify_url: track
+                    .pointer("/external_urls/spotify")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            });
+        }
+
+        if page_len < limit {
+            break;
+        }
+        // Pace requests so a large library does not burst into the rate limit.
+        tokio::time::sleep(PAGE_SPACING).await;
+        offset += limit;
+    }
+
+    tracing::info!("Fetched {} liked tracks from Spotify", tracks.len());
+    Ok((tracks, true))
+}
+
+pub fn stored_session() -> Option<SpotifySession> {
+    serde_json::from_str(&fs::read_to_string(session_path()).ok()?).ok()
+}
+
+fn store_session(session: &SpotifySession) -> SoundgnomeResult<()> {
+    let body = serde_json::to_string_pretty(session)
+        .map_err(|e| Error::Custom(format!("Cannot serialise the session: {}", e)))?;
+    write_private(&session_path(), &body)
+        .map_err(|e| Error::Custom(format!("Cannot write the session: {}", e)))
+}
+
+/// Forget the login. App credentials are left alone.
+pub fn clear_session() -> SoundgnomeResult<()> {
+    clear_likes_cache();
+    for path in [session_path()] {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(Error::Custom(format!(
+                    "Cannot remove {}: {}",
+                    path.display(),
+                    e
+                )))
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    options.open(path)?.write_all(contents.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_expiring_within_the_margin_is_stale() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let session = |expires_at| SpotifySession {
+            access_token: "t".into(),
+            refresh_token: "r".into(),
+            expires_at,
+            user_name: None,
+            client_id: None,
+        };
+
+        assert!(session(now + 3600).is_fresh());
+        assert!(!session(now + 10).is_fresh(), "inside the refresh margin");
+        assert!(
+            !session(now.saturating_sub(1)).is_fresh(),
+            "already expired"
+        );
+    }
+
+    #[test]
+    fn a_session_refreshes_against_the_client_that_minted_it() {
+        // The two logins use different clients: the pasted app credentials and
+        // Spotify's desktop client. Refreshing with the wrong one fails with
+        // invalid_client an hour after logging in.
+        let session = SpotifySession {
+            access_token: "a".into(),
+            refresh_token: "r".into(),
+            expires_at: 0,
+            user_name: None,
+            client_id: Some("desktop-client".into()),
+        };
+        assert_eq!(session.client_id.as_deref(), Some("desktop-client"));
+
+        // Sessions written before the field existed must still load, falling
+        // back to the configured pair.
+        let legacy: SpotifySession = serde_json::from_str(
+            r#"{"access_token":"a","refresh_token":"r","expires_at":0,"user_name":null}"#,
+        )
+        .expect("legacy session must still deserialise");
+        assert_eq!(legacy.client_id, None);
+    }
+}

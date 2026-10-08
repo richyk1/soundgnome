@@ -72,7 +72,14 @@ export interface MatchCandidateDto {
 }
 
 export type TaskStatus = 'Pending' | 'Running' | 'Completed' | 'Failed' | 'Cancelled' | 'Cancelling';
-export type TaskType = 'SyncPlaylist' | 'SyncArtist' | 'SyncAlbum' | 'DownloadTrack' | 'IngestDir';
+export type TaskType =
+  | 'SyncPlaylist'
+  | 'SyncArtist'
+  | 'SyncAlbum'
+  | 'DownloadTrack'
+  | 'IngestDir'
+  | 'EmbedArtworkBackfill'
+  | 'FingerprintBackfill';
 
 export interface TaskTrackErrorDto {
   track: string;
@@ -92,12 +99,22 @@ export interface TaskStatsDto {
   skipped: number;
   errors: TaskTrackErrorDto[];
   to_validate_tracks: TaskTrackValidationDto[];
+  skipped_tracks: TaskTrackValidationDto[];
   ai_curation: AiCurationProgressDto | null;
+  backfill: BackfillProgressDto | null;
 }
 
 export interface AiCurationProgressDto {
   processed: number;
   total: number;
+}
+
+export interface BackfillProgressDto {
+  /** 'fingerprint' or 'artwork' */
+  kind: string;
+  ok: number;
+  skipped: number;
+  errors: number;
 }
 
 export interface TaskDto {
@@ -119,6 +136,16 @@ export interface TaskDto {
 // Library
 // ================================================================================================
 
+/** Audio quality of the local file. Null on the track when there is no file yet, or it could not be probed. */
+export interface TrackQualityDto {
+  /** Short uppercase label: AAC, MP3, FLAC, ALAC, OPUS, VORBIS, WAV or PCM. */
+  format: string;
+  bitrate_kbps: number | null;
+  lossless: boolean;
+}
+
+export type TrackRating = 'liked' | 'disliked';
+
 export interface LibraryTrackDto {
   id: number;
   title: string;
@@ -132,8 +159,11 @@ export interface LibraryTrackDto {
   disc_number: number | null;
   label: string | null;
   file_path: string | null;
+  quality?: TrackQualityDto | null;
   needs_validation: boolean;
   references: ReferenceDto[];
+  /** User like/dislike curation. Null = unrated. */
+  rating: TrackRating | null;
 }
 
 export interface UpdateTrackBody {

@@ -1,6 +1,6 @@
 # Product documentation
 
-This section covers the functional scope of Soundome: what problem it is trying to solve, what the current codebase is expected to do, and which areas remain explicitly out of scope.
+This section covers the functional scope of Soundgnome: what problem it is trying to solve, what the current codebase is expected to do, and which areas remain explicitly out of scope.
 
 ## Primary document
 

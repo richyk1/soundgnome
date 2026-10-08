@@ -2,7 +2,7 @@
 
 ## Overview
 
-After each playlist sync, Soundome regenerates one `.m3u8` file per playlist in a configurable output directory. Any M3U8-compliant music player — Navidrome, Jellyfin, mpd, VLC, and others — can discover and read these files without depending on Soundome at runtime.
+After each playlist sync, Soundgnome regenerates one `.m3u8` file per playlist in a configurable output directory. Any M3U8-compliant music player — Navidrome, Jellyfin, mpd, VLC, and others — can discover and read these files without depending on Soundgnome at runtime.
 
 The feature is always active; no explicit opt-in is required. Only finalized tracks with a library path appear in the exported file.
 
@@ -47,7 +47,7 @@ An `.m3u8` file is written (or overwritten) in two situations:
 
 ## Stale files
 
-When a playlist is deleted from Soundome its `.m3u8` file is **not** removed automatically. Manual cleanup of the output directory is required if a playlist is no longer needed.
+When a playlist is deleted from Soundgnome its `.m3u8` file is **not** removed automatically. Manual cleanup of the output directory is required if a playlist is no longer needed.
 
 ## Code entry points
 

@@ -7,7 +7,7 @@ use fetcher::Source;
 use shared::{
     errors::Error,
     models::{Reference, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 
 use crate::{utils::ytdlp::download_with_ytdlp, Matcher, Provider};
@@ -54,7 +54,7 @@ fn is_drm_error(stderr: &str) -> bool {
 
 #[async_trait]
 impl Provider for SoundCloud {
-    async fn search(&self, track: &Track) -> SoundomeResult<Reference> {
+    async fn search(&self, track: &Track) -> SoundgnomeResult<Reference> {
         // 1. Create search query
         let search_query = self.create_search_query(track.clone());
 
@@ -77,7 +77,7 @@ impl Provider for SoundCloud {
         file_name: &str,
         base_library_dir: PathBuf,
     ) -> Result<PathBuf, Error> {
-        match download_with_ytdlp(url, file_name, base_library_dir).await {
+        match download_with_ytdlp(url, file_name, base_library_dir, false).await {
             Err(Error::ExitCode { code, ref stderr }) if is_drm_error(stderr) => {
                 tracing::warn!(
                     "SoundCloud DRM protection detected (exit {}) for {}: {}",

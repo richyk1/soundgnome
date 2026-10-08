@@ -9,7 +9,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  BIN_NAME: soundome
+  BIN_NAME: soundgnome
 
 jobs:
   # ------------------------------------------------------------------ #
@@ -148,7 +148,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "soundome CLI v${{ steps.semver.outputs.version }}"
+          name: "soundgnome CLI v${{ steps.semver.outputs.version }}"
           body_path: RELEASE_NOTES.md
           files: |
             artifacts/*

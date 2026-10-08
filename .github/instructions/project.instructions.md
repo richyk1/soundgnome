@@ -1,12 +1,12 @@
 ---
-description: "Use when: starting work in the Soundome repository, needing project context, identifying major architecture boundaries, or understanding global product and repository expectations before choosing a narrower instruction or skill."
+description: "Use when: starting work in the Soundgnome repository, needing project context, identifying major architecture boundaries, or understanding global product and repository expectations before choosing a narrower instruction or skill."
 ---
 
-# Soundome project context
+# Soundgnome project context
 
 ## Overview
 
-Soundome is a personal music-library management project. It pulls data from streaming sources and local files, enriches metadata, downloads or ingests audio, tags files, organizes them on disk, and persists enough context to keep the library clean over time.
+Soundgnome is a personal music-library management project. It pulls data from streaming sources and local files, enriches metadata, downloads or ingests audio, tags files, organizes them on disk, and persists enough context to keep the library clean over time.
 
 The repository is still evolving, so prefer the current code paths over older notes when the documentation and the implementation diverge.
 

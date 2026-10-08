@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      headroom-ai:
-        specifier: ^0.1.0
-        version: 0.1.0
       openrtk:
         specifier: ^0.1.0
         version: 0.1.0(@opencode-ai/plugin@1.15.13)
@@ -1642,24 +1639,6 @@ packages:
   hasown@2.0.4:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
-
-  headroom-ai@0.1.0:
-    resolution: {integrity: sha512-SM5i2kptwsO+KnQqpaLThZVx1ZrmobVw5JRXwF5OvnMvhV/3WbwUI+VvXHTwTCvVq+AAyhkhuVcNXod1piAVuQ==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      '@ai-sdk/provider': '>=1.0.0'
-      '@anthropic-ai/sdk': '>=0.30.0'
-      ai: '>=6.0.0'
-      openai: '>=4.0.0'
-    peerDependenciesMeta:
-      '@ai-sdk/provider':
-        optional: true
-      '@anthropic-ai/sdk':
-        optional: true
-      ai:
-        optional: true
-      openai:
-        optional: true
 
   ico-endec@0.1.6:
     resolution: {integrity: sha512-ZdLU38ZoED3g1j3iEyzcQj+wAkY2xfWNkymszfJPoxucIUhK7NayQ+/C4Kv0nDFMIsbtbEHldv3V8PU494/ueQ==}
@@ -4185,8 +4164,6 @@ snapshots:
   hasown@2.0.4:
     dependencies:
       function-bind: 1.1.2
-
-  headroom-ai@0.1.0: {}
 
   ico-endec@0.1.6: {}
 

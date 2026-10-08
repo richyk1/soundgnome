@@ -1,5 +1,5 @@
 import {
-  getTracks, updateTrack, deleteTrack,
+  getTracks, updateTrack, cleanTrackWithAI, deleteTrack, setTrackRating,
   getAlbums, updateAlbum, deleteAlbum, mergeAlbums,
   getArtists, updateArtist, deleteArtist, mergeArtists,
   uploadArtistImage, uploadAlbumImage, uploadTrackImage,
@@ -9,26 +9,84 @@ import {
   addEntityReference, deleteEntityReference,
 } from '../api';
 import type {
-  LibraryTrackDto, UpdateTrackBody,
+  LibraryTrackDto, UpdateTrackBody, TrackRating,
   LibraryAlbumDto, UpdateAlbumBody,
   LibraryArtistDto, UpdateArtistBody,
   LibraryPlaylistDto, PlaylistTrackDto,
   ReferenceDto, AddReferenceBody,
 } from '../types';
+import { type GlobalPlayer, type PlayerTrack } from '../player';
 
 export type Tab = 'artists' | 'albums' | 'tracks' | 'playlists';
 export type ViewMode = 'list' | 'grid';
-export type TrackFilter = 'all' | 'ok' | 'pending';
 export type SortDirection = 'asc' | 'desc';
 export type ArtistSortBy = 'name' | 'track_count' | 'album_count';
 export type AlbumSortBy = 'title' | 'date' | 'artist' | 'track_count';
 export type TrackSortBy = 'title' | 'artist' | 'album' | 'date' | 'duration';
+export type TrackFilter = 'all' | 'review' | 'lossless' | 'liked';
 export type EditState =
   | { type: 'track'; item: LibraryTrackDto }
   | { type: 'album'; item: LibraryAlbumDto }
   | { type: 'artist'; item: LibraryArtistDto }
   | null;
 export type HoveredItem = { type: 'track' | 'album' | 'artist'; id: number } | null;
+
+// ── Playback ─────────────────────────────────────────────────────────────────
+// The Library page owns the audio element and hands these controls to every
+// track list through context. Tracks without a local file are not playable.
+export interface LibraryPlayer {
+  play(track: LibraryTrackDto, queue?: LibraryTrackDto[]): void;
+  isCurrent(id: number): boolean;
+  isPlaying(id: number): boolean;
+}
+export const LIBRARY_PLAYER = Symbol('library-player');
+
+// Most YouTube-sourced tracks have no cover in the DB, but their source/provider
+// reference carries the video id — derive the thumbnail from it.
+function ytThumb(refs: { external_url: string | null }[]): string | null {
+  for (const r of refs) {
+    const m = (r.external_url ?? '').match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})/);
+    const id = m?.[1] ?? m?.[2];
+    if (id) return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+  }
+  return null;
+}
+
+function spotifyTrackUrl(refs: { external_url: string | null }[]): string | null {
+  const r = refs.find((x) => (x.external_url ?? '').includes('open.spotify.com/track'));
+  return r?.external_url ?? null;
+}
+
+export function toPlayerTrack(t: LibraryTrackDto): PlayerTrack {
+  return {
+    id: t.id,
+    title: t.title,
+    artist: t.artists.map((a) => a.name).join(', '),
+    artwork: t.cover ?? ytThumb(t.references),
+    waveformUrl: `/api/tracks/${t.id}/waveform`,
+    spotifyUrl: spotifyTrackUrl(t.references),
+    durationSecs: t.duration,
+    source: 'library',
+  };
+}
+
+// Build the LIBRARY_PLAYER bridge over the app-wide player. `queueFallback`
+// supplies the queue when a caller does not pass its own visible list. Shared by
+// the Library and Liked pages so the mapping never diverges.
+export function createLibraryPlayer(
+  player: GlobalPlayer | undefined,
+  queueFallback: () => LibraryTrackDto[],
+): LibraryPlayer {
+  return {
+    play(track, queue) {
+      if (!track.file_path) return;
+      const list = (queue ?? queueFallback()).filter((t) => t.file_path);
+      player?.play(toPlayerTrack(track), list.map(toPlayerTrack));
+    },
+    isCurrent: (id) => player?.isCurrent(id, 'library') ?? false,
+    isPlaying: (id) => player?.isPlaying(id, 'library') ?? false,
+  };
+}
 
 // ── Artist name similarity helpers ────────────────────────────────────────────
 function _editDistance(a: string, b: string): number {
@@ -148,6 +206,13 @@ function createLibraryStore() {
   let albumsSortDir: SortDirection = $state('asc');
   let tracksSortBy: TrackSortBy = $state('title');
   let tracksSortDir: SortDirection = $state('asc');
+  // When the player is shuffling a library queue it pushes its play order here
+  // (a list of track ids); the tracks list then renders in that order so the
+  // next track is the adjacent row. Null = use the normal sort.
+  let playOrder: number[] | null = $state(null);
+  // The player registers this so the store can tell it when a track is disliked
+  // (from anywhere); the player skips it if it is the one currently playing.
+  let onTrackDisliked: ((id: number) => void) | null = null;
 
   let tracks: LibraryTrackDto[] = $state([]);
   let tracksLoaded = $state(false);
@@ -179,16 +244,17 @@ function createLibraryStore() {
   let lastRefreshed: Date | null = $state(null);
 
   let trackSearch = $state('');
+  let trackFilter = $state<TrackFilter>('all');
   let albumSearch = $state('');
   let artistSearch = $state('');
   let playlistSearch = $state('');
-  let trackFilter: TrackFilter = $state('ok');
 
   let drillArtistId: number | null = $state(_initHash.artistId);
   let drillAlbumId: number | null = $state(_initHash.albumId);
 
   let editState: EditState = $state(null);
   let editSaving = $state(false);
+  let aiCleaning = $state(false);
   let imageUploading = $state(false);
   let thumbnailFetching = $state(false);
   let trackDraft: UpdateTrackBody = $state({});
@@ -263,10 +329,37 @@ function createLibraryStore() {
     let list = tracks;
     const q = trackSearch.trim().toLowerCase();
     if (q) list = list.filter(t => t.title.toLowerCase().includes(q) || t.artists.some(a => a.name.toLowerCase().includes(q)));
-    if (trackFilter === 'ok') list = list.filter(t => !t.needs_validation);
-    if (trackFilter === 'pending') list = list.filter(t => t.needs_validation);
+    if (trackFilter === 'review') {
+      list = list.filter(t => t.needs_validation);
+    } else {
+      // The main library shows finalized tracks only; pending ones live in the
+      // Validations tab (and often shadow a finalized copy, looking like dupes).
+      list = list.filter(t => !t.needs_validation);
+      if (trackFilter === 'lossless') list = list.filter(t => t.quality?.lossless === true);
+      else if (trackFilter === 'liked') list = list.filter(t => t.rating === 'liked');
+    }
+    if (playOrder) {
+      const pos = new Map<number, number>();
+      playOrder.forEach((id, i) => pos.set(id, i));
+      return [...list].sort((a, b) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity));
+    }
     return sortTracks(list, tracksSortBy, tracksSortDir);
   });
+  // A search in the default (finalized-only) view can hide tracks the user really
+  // has, sitting in Needs review. Count those so the UI can offer to jump there
+  // instead of showing "no results".
+  let hiddenReviewMatches = $derived.by(() => {
+    const q = trackSearch.trim().toLowerCase();
+    if (!q || trackFilter === 'review') return 0;
+    return tracks.filter(
+      (t) =>
+        t.needs_validation &&
+        (t.title.toLowerCase().includes(q) || t.artists.some((a) => a.name.toLowerCase().includes(q))),
+    ).length;
+  });
+  let needsReviewCount = $derived(tracks.filter(t => t.needs_validation).length);
+  let likedTracks = $derived(tracks.filter(t => t.rating === 'liked'));
+  let dislikedTracks = $derived(tracks.filter(t => t.rating === 'disliked'));
   let filteredAlbums = $derived.by(() => {
     const q = albumSearch.trim().toLowerCase();
     let list = !q ? albums : albums.filter(a => a.title.toLowerCase().includes(q) || a.artists.some(ar => ar.name.toLowerCase().includes(q)));
@@ -281,7 +374,6 @@ function createLibraryStore() {
     const q = playlistSearch.trim().toLowerCase(); if (!q) return playlists;
     return playlists.filter(p => p.name.toLowerCase().includes(q));
   });
-  let pendingCount = $derived(tracks.filter(t => t.needs_validation).length);
   let similarArtistIds = $derived.by(() => {
     const ids = new Set<number>();
     for (let i = 0; i < artists.length; i++) {
@@ -349,7 +441,17 @@ function createLibraryStore() {
     loadAll();
   }
 
+  // Plain (non-reactive) in-flight flag. It must NOT be `$state`: `loadAll` runs
+  // inside Library's mount `$effect`, so reading a reactive flag here would make
+  // that effect depend on it and re-run every time it toggles - an infinite
+  // reload loop. A plain variable is invisible to the reactive graph.
+  let loadingAll = false;
   async function loadAll() {
+    // Dedupe the double initial load: App.onMount and Library's mount effect
+    // both call this, and a second concurrent run would blank every list and
+    // refetch several MB of JSON for nothing.
+    if (loadingAll) return;
+    loadingAll = true;
     refreshing = true;
     tracksLoaded = false; albumsLoaded = false; artistsLoaded = false; playlistsLoaded = false;
     tracks = []; albums = []; artists = []; playlists = [];
@@ -358,6 +460,7 @@ function createLibraryStore() {
       lastRefreshed = new Date();
     } finally {
       refreshing = false;
+      loadingAll = false;
     }
   }
 
@@ -450,6 +553,25 @@ function createLibraryStore() {
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     } finally { editSaving = false; }
+  }
+
+  // Ask the AI backend to clean the current draft's title/artists, then fill the
+  // form with the suggestion for the user to review and save. Non-destructive.
+  async function aiCleanTrack() {
+    if (!editState || editState.type !== 'track') return;
+    aiCleaning = true;
+    try {
+      const cleaned = await cleanTrackWithAI(editState.item.id, {
+        title: trackDraft.title ?? editState.item.title,
+        artists: trackDraft.artists ?? editState.item.artists.map((a) => a.name),
+      });
+      trackDraft.title = cleaned.title;
+      trackDraft.artists = cleaned.artists;
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      aiCleaning = false;
+    }
   }
 
   // ── Image upload ──────────────────────────────────────────────────────────
@@ -558,6 +680,21 @@ function createLibraryStore() {
     if (!confirm('Delete this track from the library?')) return;
     try { await deleteTrack(id); tracks = tracks.filter(t => t.id !== id); }
     catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+  }
+  async function setRating(track: LibraryTrackDto, rating: TrackRating | null) {
+    const prev = track.rating;
+    track.rating = rating; // optimistic; reactive on whichever list is showing
+    if (rating === 'disliked') onTrackDisliked?.(track.id);
+    try {
+      await setTrackRating(track.id, rating);
+      // A drilldown list holds a different object instance than the master list,
+      // so keep the master in sync too (Tracks + Liked pages read from it).
+      const master = tracks.find(t => t.id === track.id);
+      if (master && master !== track) master.rating = rating;
+    } catch (e) {
+      track.rating = prev;
+      alert(e instanceof Error ? e.message : String(e));
+    }
   }
   async function handleDeleteAlbum(id: number) {
     if (!confirm('Delete this album? Tracks will remain but lose their album association.')) return;
@@ -783,10 +920,10 @@ function createLibraryStore() {
     get drillPlaylistTracksError() { return drillPlaylistTracksError; },
 
     get trackSearch() { return trackSearch; }, set trackSearch(v: string) { trackSearch = v; },
+    get trackFilter() { return trackFilter; }, set trackFilter(v: TrackFilter) { trackFilter = v; },
     get albumSearch() { return albumSearch; }, set albumSearch(v: string) { albumSearch = v; },
     get artistSearch() { return artistSearch; }, set artistSearch(v: string) { artistSearch = v; },
     get playlistSearch() { return playlistSearch; }, set playlistSearch(v: string) { playlistSearch = v; },
-    get trackFilter() { return trackFilter; }, set trackFilter(v: TrackFilter) { trackFilter = v; },
 
     get drillArtistId() { return drillArtistId; },
     get drillAlbumId() { return drillAlbumId; },
@@ -797,13 +934,21 @@ function createLibraryStore() {
     get albumTracks() { return albumTracks; },
     get artistTracksByAlbum() { return artistTracksByAlbum; },
     get filteredTracks() { return filteredTracks; },
+    get shuffled() { return playOrder != null; },
+    setPlayOrder(ids: number[] | null) { playOrder = ids; },
+    set onTrackDisliked(fn: ((id: number) => void) | null) { onTrackDisliked = fn; },
+    get needsReviewCount() { return needsReviewCount; },
+    get hiddenReviewMatches() { return hiddenReviewMatches; },
+    get likedTracks() { return likedTracks; },
+    get dislikedTracks() { return dislikedTracks; },
+    setRating,
     get filteredAlbums() { return filteredAlbums; },
     get filteredArtists() { return filteredArtists; },
     get filteredPlaylists() { return filteredPlaylists; },
-    get pendingCount() { return pendingCount; },
 
     get editState() { return editState; }, set editState(v: EditState) { editState = v; },
     get editSaving() { return editSaving; },
+    get aiCleaning() { return aiCleaning; },
     get imageUploading() { return imageUploading; },
     get thumbnailFetching() { return thumbnailFetching; },
     get trackDraft() { return trackDraft; },
@@ -834,6 +979,7 @@ function createLibraryStore() {
     loadTracks, loadAlbums, loadArtists, loadPlaylists,
     startEditTrack, startEditAlbum, startEditArtist,
     openEditForHovered, saveEdit, uploadImage, fetchThumbnailFromReferences,
+    aiCleanTrack,
     batchFetchArtistIconsAction, batchFetchAlbumCoversAction,
     handleDeleteTrack, handleDeleteAlbum, handleDeleteArtist, handleDeletePlaylist,
     toggleArtistSelection, clearArtistSelection, startMergePicking, cancelMergePicking, pickMergeTarget,

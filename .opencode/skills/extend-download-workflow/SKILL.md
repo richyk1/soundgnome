@@ -1,6 +1,6 @@
 ---
 name: extend-download-workflow
-description: Use when changing DownloadService, playlist sync, source-to-provider flow, staging logic, deduplication, tagging handoff, organize step, or track finalization without breaking Soundome workflow invariants.
+description: Use when changing DownloadService, playlist sync, source-to-provider flow, staging logic, deduplication, tagging handoff, organize step, or track finalization without breaking Soundgnome workflow invariants.
 ---
 
 # Extend Download Workflow

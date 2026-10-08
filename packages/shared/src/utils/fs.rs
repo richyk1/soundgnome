@@ -21,12 +21,13 @@ pub fn get_project_relative_path(relative_path: &str) -> PathBuf {
 /// and trims surrounding whitespace.
 pub fn sanitize_filename(name: &str) -> String {
     name.chars()
-        .map(|c| match c {
-            // Unix/Linux filesystem reserved
-            '/' | '\\' => '_',
-            // Windows filesystem reserved
-            // '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            c => c,
+        .filter_map(|c| match c {
+            // Path separators would otherwise create unintended subdirectories.
+            '/' | '\\' => Some('_'),
+            // Control characters (NUL, newlines, ...) are illegal in path
+            // components and can arrive from noisy tags or provider metadata.
+            c if c.is_control() => None,
+            c => Some(c),
         })
         .collect::<String>()
         .trim()

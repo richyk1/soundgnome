@@ -1,10 +1,20 @@
 <script lang="ts">
-  import { lib } from '../lib/library/store.svelte';
+  import { setContext, getContext } from 'svelte';
+  import { lib, LIBRARY_PLAYER, createLibraryPlayer, type LibraryPlayer } from '../lib/library/store.svelte';
   import ArtistTab from '../lib/library/ArtistTab.svelte';
   import AlbumTab from '../lib/library/AlbumTab.svelte';
   import TracksTab from '../lib/library/TracksTab.svelte';
   import PlaylistsTab from '../lib/library/PlaylistsTab.svelte';
   import EditModal from '../lib/library/EditModal.svelte';
+  import { GLOBAL_PLAYER, type GlobalPlayer } from '../lib/player';
+  import { runNavigation } from '../lib/navigation-motion';
+  let { onNavigateLiked }: { onNavigateLiked?: () => void } = $props();
+
+  // ── Playback: driven by the single app-wide player mounted in the shell,
+  // so it keeps playing as the user navigates away from the library. ─────────
+  const player = getContext<GlobalPlayer>(GLOBAL_PLAYER);
+
+  setContext<LibraryPlayer>(LIBRARY_PLAYER, createLibraryPlayer(player, () => lib.filteredTracks));
 
   // Refresh all collections when arriving on this page.
   $effect(() => {
@@ -13,7 +23,7 @@
 
   // Browser back / forward
   $effect(() => {
-    function onPopState() { lib.applyHash(); }
+    function onPopState() { runNavigation(() => lib.applyHash()); }
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   });
@@ -23,7 +33,7 @@
     function onKeydown(e: KeyboardEvent) {
       const tgt = e.target as HTMLElement;
       const inInput = tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT';
-      if (lib.editState || inInput) return;
+      if (lib.editState || inInput || tgt.closest('dialog')) return;
       if (e.key === 's') {
         e.preventDefault();
         document.querySelector<HTMLInputElement>('.library-page .search')?.focus();
@@ -31,8 +41,8 @@
         e.preventDefault();
         lib.openEditForHovered();
       } else if (e.key === 'Backspace' && !e.metaKey && !e.ctrlKey) {
-        if (lib.drillAlbumId != null) { e.preventDefault(); lib.navigate(lib.tab, lib.drillArtistId ?? undefined); }
-        else if (lib.drillArtistId != null) { e.preventDefault(); lib.navigate(lib.tab); }
+        if (lib.drillAlbumId != null) { e.preventDefault(); runNavigation(() => lib.navigate(lib.tab, lib.drillArtistId ?? undefined)); }
+        else if (lib.drillArtistId != null) { e.preventDefault(); runNavigation(() => lib.navigate(lib.tab)); }
       } else if (e.key === 'Escape') {
         if (lib.mergePicking) { e.preventDefault(); lib.cancelMergePicking(); }
         else if (lib.selectedArtistIds.size > 0) { e.preventDefault(); lib.clearArtistSelection(); }
@@ -56,37 +66,54 @@
     if (!d) return '';
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   }
+
+  function formatSynced(d: Date | null): string {
+    if (!d) return '';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function headerSub(): string {
+    const synced = lib.lastRefreshed ? ` · synced ${formatSynced(lib.lastRefreshed)}` : '';
+    if (lib.tab === 'tracks') return `${lib.tracks.length} tracks · ${lib.needsReviewCount} need validation${synced}`;
+    if (lib.tab === 'artists') return `${lib.artists.length} artists${synced}`;
+    if (lib.tab === 'albums') return `${lib.albums.length} albums${synced}`;
+    return `${lib.playlists.length} playlists${synced}`;
+  }
 </script>
 
 <div class="library-page">
   <div class="page-header">
-    <h1>Library</h1>
+    <div class="header-titles">
+      <span class="eyebrow">Library</span>
+      <h1>{lib.tab === 'artists' ? 'Artists' : lib.tab === 'albums' ? 'Albums' : lib.tab === 'tracks' ? 'Tracks' : 'Playlists'}</h1>
+      <p class="header-sub">{headerSub()}</p>
+      <p class="mobile-count">
+        {lib.tab === 'tracks' ? lib.filteredTracks.length : lib.tab === 'artists' ? lib.filteredArtists.length : lib.tab === 'albums' ? lib.filteredAlbums.length : lib.filteredPlaylists.length}
+        {lib.tab}{lib.tab === 'tracks' && lib.trackFilter === 'review' ? ' to review' : ''}
+      </p>
+    </div>
     <div class="header-right">
-      {#if lib.lastRefreshed}
-        <span class="last-refreshed">Updated {formatLastRefreshed(lib.lastRefreshed)}</span>
-      {/if}
-      <button class="btn-header" onclick={lib.handleRefresh} disabled={lib.refreshing}>
+      <button class="btn-header mobile-liked" aria-label="Open liked tracks" onclick={() => onNavigateLiked?.()}>
+        <i class="lni lni-heart" aria-hidden="true"></i>
+      </button>
+      <button class="btn-header" aria-label={lib.refreshing ? 'Refreshing library' : 'Refresh library'} onclick={lib.handleRefresh} disabled={lib.refreshing}>
         {#if lib.refreshing}
-          <span class="spinner"></span> Refreshing…
+          <span class="spinner" aria-hidden="true"></span><span class="refresh-label">Refreshing…</span>
         {:else}
-          Refresh
+          <span class="reload" aria-hidden="true">↻</span><span class="refresh-label">Refresh</span>
         {/if}
       </button>
     </div>
   </div>
 
-  <div class="tabs">
-    {#each (['artists', 'albums', 'tracks', 'playlists'] as const) as t}
-      <button class="tab" class:active={lib.tab === t} onclick={() => lib.switchTab(t)}>
-        {t === 'artists' ? 'Artists' : t === 'albums' ? 'Albums' : t === 'tracks' ? 'Tracks' : 'Playlists'}
-        {#if t === 'artists' && lib.artistsLoaded}<span class="tab-count">{lib.artists.length}</span>{/if}
-        {#if t === 'albums' && lib.albumsLoaded}<span class="tab-count">{lib.albums.length}</span>{/if}
-        {#if t === 'tracks' && lib.tracksLoaded}<span class="tab-count">{lib.tracks.length}</span>{/if}
-        {#if t === 'tracks' && lib.pendingCount > 0}<span class="tab-badge">{lib.pendingCount}</span>{/if}
-        {#if t === 'playlists' && lib.playlistsLoaded}<span class="tab-count">{lib.playlists.length}</span>{/if}
-      </button>
-    {/each}
+  <div class="lib-chips">
+    <button class="lib-chip" class:active={lib.tab === 'tracks'} aria-pressed={lib.tab === 'tracks'} onclick={() => runNavigation(() => lib.switchTab('tracks'))}>Tracks</button>
+    <button class="lib-chip" class:active={lib.tab === 'playlists'} aria-pressed={lib.tab === 'playlists'} onclick={() => runNavigation(() => lib.switchTab('playlists'))}>Playlists</button>
+    <button class="lib-chip" class:active={lib.tab === 'albums'} aria-pressed={lib.tab === 'albums'} onclick={() => runNavigation(() => lib.switchTab('albums'))}>Albums</button>
+    <button class="lib-chip" class:active={lib.tab === 'artists'} aria-pressed={lib.tab === 'artists'} onclick={() => runNavigation(() => lib.switchTab('artists'))}>Artists</button>
+    <button class="lib-chip liked" onclick={() => onNavigateLiked?.()}><i class="lni lni-heart"></i>Liked</button>
   </div>
+
 
   {#if (lib.tab === 'artists' || lib.tab === 'albums') && (lib.batchFetchingArtists || lib.batchFetchingAlbums || lib.batchFetchResult)}
     <div class="batch-tools">
@@ -125,13 +152,13 @@
 
   {#if lib.drillArtist || lib.drillAlbum || lib.drillArtistId || lib.drillAlbumId}
     <nav class="breadcrumb">
-      <button class="crumb-btn" onclick={lib.backToRoot}>
+      <button class="crumb-btn" onclick={() => runNavigation(lib.backToRoot)}>
         {lib.tab === 'artists' ? 'Artists' : 'Albums'}
       </button>
       {#if lib.drillArtist}
         <span class="crumb-sep">›</span>
         {#if lib.drillAlbum}
-          <button class="crumb-btn" onclick={lib.backToArtist}>{lib.drillArtist.name}</button>
+          <button class="crumb-btn" onclick={() => runNavigation(lib.backToArtist)}>{lib.drillArtist.name}</button>
           <span class="crumb-sep">›</span>
           <span class="crumb-current">{lib.drillAlbum.title}</span>
         {:else}
@@ -147,7 +174,7 @@
     </nav>
   {:else if lib.drillPlaylistId != null}
     <nav class="breadcrumb">
-      <button class="crumb-btn" onclick={() => lib.navigate('playlists')}>Playlists</button>
+      <button class="crumb-btn" onclick={() => runNavigation(() => lib.navigate('playlists'))}>Playlists</button>
       <span class="crumb-sep">›</span>
       {#if lib.drillPlaylist}
         <span class="crumb-current">{lib.drillPlaylist.name}</span>
@@ -170,80 +197,56 @@
 
 <EditModal />
 
+
 <style>
   .library-page { 
-    max-width: 1400px; 
-    margin: 0 auto; 
-    padding: 1rem 0.75rem;
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-page);
   }
 
-  @media (min-width: 640px) {
-    .library-page {
-      padding: 1.5rem 1rem;
-    }
-  }
 
-  @media (min-width: 1024px) {
-    .library-page {
-      padding: 2rem 1.5rem;
-    }
-  }
-
-  .page-header { 
-    display: flex; 
+  .page-header {
+    display: flex;
     flex-direction: column;
     gap: 1rem;
     align-items: flex-start;
-    justify-content: space-between; 
+    justify-content: space-between;
     margin-bottom: 1.5rem;
   }
-
   @media (min-width: 640px) {
-    .page-header {
-      flex-direction: row;
-      align-items: center;
-    }
+    .page-header { flex-direction: row; align-items: flex-start; }
   }
-
-  h1 { 
-    font-size: 1.25rem; 
-    font-weight: 700; 
+  .header-titles { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-size: 2.4rem;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1.02;
+    color: var(--text-bright);
     margin: 0;
   }
-
-  @media (min-width: 768px) {
-    h1 {
-      font-size: 1.5rem;
-    }
+  .header-sub {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    margin: 0;
   }
-
   .header-right {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    flex-wrap: wrap;
-    width: 100%;
+    flex-shrink: 0;
   }
-
-  @media (min-width: 640px) {
-    .header-right {
-      width: auto;
-      gap: 0.75rem;
-    }
-  }
-
-  .last-refreshed {
-    font-size: 0.7rem;
-    color: var(--muted);
-    display: none;
-  }
-
-  @media (min-width: 640px) {
-    .last-refreshed {
-      display: block;
-      font-size: 0.78rem;
-    }
-  }
+  .btn-header.mobile-liked, .mobile-count { display: none; }
 
   .btn-header {
     display: inline-flex;
@@ -251,7 +254,7 @@
     gap: 0.3rem;
     padding: 0.3rem 0.7rem;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 999px;
     background: var(--surface);
     cursor: pointer;
     font-size: 0.75rem;
@@ -282,74 +285,6 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .tabs { 
-    display: flex; 
-    gap: 0.25rem; 
-    border-bottom: 1px solid var(--border); 
-    margin-bottom: 1.5rem;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .tab { 
-    background: none; 
-    border: none; 
-    color: var(--muted); 
-    font-size: 0.75rem; 
-    padding: 0.4rem 0.7rem; 
-    cursor: pointer; 
-    border-bottom: 2px solid transparent; 
-    margin-bottom: -1px; 
-    border-radius: 4px 4px 0 0; 
-    display: flex; 
-    align-items: center; 
-    gap: 0.3rem; 
-    transition: color 0.15s; 
-    font-family: inherit;
-    white-space: nowrap;
-  }
-
-  @media (min-width: 768px) {
-    .tab {
-      font-size: 0.875rem;
-      padding: 0.5rem 1rem;
-      gap: 0.4rem;
-    }
-  }
-
-  .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-count { 
-    font-size: 0.65rem; 
-    color: var(--muted); 
-    background: var(--surface-2); 
-    border-radius: 10px; 
-    padding: 0 0.3rem;
-  }
-
-  @media (min-width: 768px) {
-    .tab-count {
-      font-size: 0.75rem;
-      padding: 0 0.4rem;
-    }
-  }
-
-  .tab-badge { 
-    background: var(--warning); 
-    color: #000; 
-    font-size: 0.6rem; 
-    font-weight: 700; 
-    border-radius: 10px; 
-    padding: 0 0.25rem;
-  }
-
-  @media (min-width: 768px) {
-    .tab-badge {
-      font-size: 0.68rem;
-      padding: 0 0.35rem;
-    }
-  }
-
   .batch-tools {
     display: flex;
     align-items: center;
@@ -365,14 +300,14 @@
     background: var(--accent);
     border: none;
     border-radius: 6px;
-    color: #fff;
+    color: var(--on-accent);
     font-size: 0.85rem;
     padding: 0.5rem 0.9rem;
     cursor: pointer;
     font-family: inherit;
     font-weight: 500;
     white-space: nowrap;
-    transition: opacity 0.15s;
+    transition: opacity var(--motion-fast, 160ms) var(--ease-out, ease-out);
   }
 
   .btn-batch:hover:not(:disabled) {
@@ -421,4 +356,49 @@
   .crumb-sep { color: var(--muted); }
   .crumb-current { color: var(--text); font-weight: 500; }
   .muted { color: var(--muted); }
+  .lib-chips { display: none; }
+  .lib-chip {
+    flex: 0 0 auto;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .lib-chip.active {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    color: var(--text);
+  }
+  .lib-chip .lni { font-size: 15px; }
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    .lib-chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+    .lib-chip { justify-content: center; min-width: 0; min-height: 44px; padding: 0 3px; border: none; border-radius: 9px; font-size: 13px; background: transparent; }
+    .lib-chip.liked { display: none; }
+  }
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    .library-page .page-header { flex-direction: row; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .header-titles { flex: 1; gap: 4px; }
+    .eyebrow, .header-sub, .refresh-label { display: none; }
+    .mobile-count { display: block; margin: 0; font-size: 12px; color: var(--muted); }
+    .btn-header.mobile-liked { display: inline-flex; }
+    .header-right { gap: 4px; }
+    .btn-header { width: 44px; height: 44px; justify-content: center; padding: 0; border-radius: 50%; font-size: 20px; }
+    .spinner { width: 16px; height: 16px; }
+    .batch-tools { flex-wrap: wrap; }
+  }
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    button { min-height: 44px; min-width: 44px; }
+    .library-page { min-width: 0; } h1 { font-size: 1.6rem; } .batch-tools { min-width: 0; } .btn-batch { white-space: normal; } .breadcrumb { flex-wrap: wrap; overflow-wrap: anywhere; } .crumb-btn { white-space: normal; text-align: left; } .lib-chips { margin-bottom: 0.75rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } .btn-batch { transition: none; } }
 </style>

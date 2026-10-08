@@ -11,7 +11,7 @@ use crate::{
 use shared::{
     errors::Error,
     models::{Artist, Reference, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 
 /// Number of results requested per `ytsearchN:` query. Chosen to match the
@@ -65,7 +65,7 @@ impl Youtube<'_> {
     }
 
     /// Returns all search results without similarity filtering, for manual user selection.
-    pub async fn search_all(&self, track: &Track) -> SoundomeResult<Vec<Track>> {
+    pub async fn search_all(&self, track: &Track) -> SoundgnomeResult<Vec<Track>> {
         let query = self.create_search_query(track.clone());
         let results = self.get_results(&query).await?;
         Ok(results
@@ -74,7 +74,7 @@ impl Youtube<'_> {
             .collect())
     }
 
-    async fn get_results(&self, search_query: &str) -> SoundomeResult<Vec<YtDlpSearchResult>> {
+    async fn get_results(&self, search_query: &str) -> SoundgnomeResult<Vec<YtDlpSearchResult>> {
         search_with_ytdlp(search_query, SEARCH_RESULT_LIMIT)
             .await
             .map_err(|err| {
@@ -121,7 +121,7 @@ impl Youtube<'_> {
 
 #[async_trait]
 impl Provider for Youtube<'_> {
-    async fn search(&self, track: &Track) -> SoundomeResult<Reference> {
+    async fn search(&self, track: &Track) -> SoundgnomeResult<Reference> {
         // 1. Create search query
         let search_query = self.create_search_query(track.clone());
         tracing::info!("Youtube search query: {}", search_query);
@@ -149,11 +149,11 @@ impl Provider for Youtube<'_> {
         url: &str,
         file_name: &str,
         base_library_dir: PathBuf,
-    ) -> SoundomeResult<PathBuf> {
+    ) -> SoundgnomeResult<PathBuf> {
         // if the url is a youtube music one, convert it to a youtube one
         // let url = url.replace("music.youtube.com", "www.youtube.com");
 
-        download_with_ytdlp(url, file_name, base_library_dir).await
+        download_with_ytdlp(url, file_name, base_library_dir, true).await
     }
 
     fn is_valid_url(url: &str) -> bool {

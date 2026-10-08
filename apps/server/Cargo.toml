@@ -1,15 +1,16 @@
 [package]
-name = "soundome-server"
-description = "Soundome server"
-version = "0.2.8"
+name = "soundgnome-server"
+description = "Soundgnome server"
+version = "0.3.0"
 edition = "2021"
 authors = [
-    "Bartholomé Gili <dev.bartho@gmail.com",
+    "Bartholomé Gili <dev.bartho@gmail.com>",
+    "Richard Kasendu",
 ]
-repository = "https://github.com/barthofu/soundome"
+repository = "https://github.com/richyk1/soundgnome"
 readme = "README.md"
 keywords = [
-    "soundome",
+    "soundgnome",
     "music",
     "server",
     "api"
@@ -17,10 +18,13 @@ keywords = [
 
 [dependencies]
 domain = { path = "../../packages/domain" }
+fetcher = { path = "../../packages/fetcher" }
+downloader = { path = "../../packages/downloader" }
 shared = { path = "../../packages/shared" }
 config = { path = "../../packages/config" }
 database = { path = "../../packages/database" }
 tagger = { path = "../../packages/tagger" }
+ai = { path = "../../packages/ai" }
 walkdir = "2"
 
 tracing-subscriber = { workspace = true }
@@ -35,6 +39,7 @@ okapi = { version = "0.7.0" }
 schemars = "0.8.21"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.138"
+md5 = "0.7.0"
 thiserror = "2.0.11"
 tokio = { version = "1.44.2", features = ["full"] }
 dotenvy = { git = "https://github.com/allan2/dotenvy", features = ["macros"] }

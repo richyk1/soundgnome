@@ -1,4 +1,4 @@
-# Soundome instructions
+# Soundgnome instructions
 
 This directory contains workspace instructions that guide Copilot when tasks or edited files match a specific concern.
 

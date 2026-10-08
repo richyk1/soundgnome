@@ -1,3 +1,5 @@
+pub mod auth;
+
 mod mappers;
 
 use ai::AIBackend;
@@ -8,20 +10,44 @@ use futures::future::join_all;
 use mappers::convert_track;
 use rsoundcloud::models::track::BasicTrack;
 use rsoundcloud::{
-    ClientError, CollectionParams, PlaylistsApi, ResourceId, SearchApi, SoundCloudClient,
+    ClientError, CollectionParams, MeApi, PlaylistsApi, ResourceId, SearchApi, SoundCloudClient,
     TracksApi, UsersApi,
 };
 use shared::{
     errors::Error,
     http::HttpClientBuilder,
     models::{Album, Artist, Platform, Playlist, PlaylistTrack, SimplifiedTrack, Track},
-    types::SoundomeResult,
+    types::SoundgnomeResult,
 };
 
 use crate::Source;
 
+/// Hard stop for likes pagination. At 50 entries per page this covers 50k
+/// likes, well past any real account, and prevents an unbounded loop if
+/// SoundCloud ever returns a self-referential `next_href`.
+const MAX_LIKES_PAGES: u32 = 1000;
+
+/// Pull the opaque pagination cursor out of a `next_href` returned by
+/// api-v2. The value is percent-encoded in the URL and must be handed back
+/// decoded, since the client re-encodes query parameters itself.
+fn next_cursor(next_href: &str) -> Option<String> {
+    reqwest::Url::parse(next_href)
+        .ok()?
+        .query_pairs()
+        .find(|(key, _)| key == "offset")
+        .map(|(_, value)| value.into_owned())
+        .filter(|cursor| !cursor.is_empty())
+}
+
 pub struct Soundcloud {
     client: SoundCloudClient,
+}
+
+/// A liked track plus the extras SoundCloud only exposes on the like feed.
+pub struct LikedTrack {
+    pub track: Track,
+    /// Peaks JSON for the SoundCloud waveform, ready to fetch from the browser.
+    pub waveform_url: Option<String>,
 }
 
 impl Soundcloud {
@@ -39,14 +65,22 @@ impl Soundcloud {
         url.split('?').next().unwrap_or(url).to_string()
     }
 
-    pub async fn new() -> SoundomeResult<Self> {
+    pub async fn new() -> SoundgnomeResult<Self> {
+        // The stored session token is what makes private endpoints such as
+        // "my likes" reachable; without it the client stays anonymous and those
+        // return 401.
+        let auth_token = auth::stored_token();
+        if auth_token.is_some() {
+            tracing::debug!("SoundCloud client using stored session token");
+        }
+
         let client = match Config::get().proxy.as_ref() {
             Some(proxy_config) if proxy_config.enabled => {
                 let reqwest_client = HttpClientBuilder::get_reqwest_client()?;
                 let http_client = rsoundcloud::http::HttpClient::new(reqwest_client);
-                SoundCloudClient::with_http_client(http_client, None, None).await
+                SoundCloudClient::with_http_client(http_client, None, auth_token).await
             }
-            _ => SoundCloudClient::default().await,
+            _ => SoundCloudClient::new(None, auth_token).await,
         }
         .map_err(|e| match e {
             ClientError::ClientIDGenerationFailed => {
@@ -56,6 +90,203 @@ impl Soundcloud {
         })?;
 
         Ok(Self { client })
+    }
+
+    /// SoundCloud's own URL for the signed-in user's likes. Treating it as a
+    /// playlist URL means the whole existing sync pipeline (tasks, schedules,
+    /// progress, M3U8 export) works on likes with no new plumbing.
+    pub const LIKES_URL: &'static str = "https://soundcloud.com/you/likes";
+
+    /// True for the likes pseudo-playlist, in the few spellings a user might
+    /// paste (with or without scheme, `www.`, trailing slash, or query).
+    pub fn is_likes_url(url: &str) -> bool {
+        let trimmed = Self::sanitize_url(url)
+            .trim_end_matches('/')
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_start_matches("www.")
+            .to_lowercase();
+
+        matches!(
+            trimmed.as_str(),
+            "soundcloud.com/you/likes" | "soundcloud.com/you/favorites"
+        )
+    }
+
+    /// The liked tracks as domain models, without touching the database or
+    /// downloading anything. Backs the read-only Likes view.
+    pub async fn list_liked_tracks(&self) -> Result<Vec<LikedTrack>, Error> {
+        Ok(self
+            .get_all_liked_tracks()
+            .await?
+            .into_iter()
+            .map(|basic_track| {
+                // SoundCloud precomputes the waveform and serves the peaks from
+                // a public CDN, so the UI can draw it without decoding audio.
+                let waveform_url =
+                    Some(basic_track.track.waveform_url.clone()).filter(|url| !url.is_empty());
+                LikedTrack {
+                    track: mappers::convert_basic_track(basic_track, None),
+                    waveform_url,
+                }
+            })
+            .collect())
+    }
+
+    /// Resolve a playable audio URL for a track, for preview only.
+    ///
+    /// SoundCloud advertises several transcodings per track; the `progressive`
+    /// MP3 is the only one a plain `<audio>` element can play (the rest are
+    /// HLS). Its URL is not the stream itself but an indirection that returns a
+    /// short-lived signed CDN link, so callers must expect it to expire.
+    pub async fn resolve_stream_url(&self, track_id: u64) -> Result<String, Error> {
+        let raw = self
+            .client
+            .api_get(
+                &format!("/tracks/{}", track_id),
+                std::collections::HashMap::new(),
+            )
+            .await
+            .map_err(|e| Error::Network(format!("Failed to fetch track {}: {}", track_id, e)))?;
+
+        let track: serde_json::Value = serde_json::from_str(&raw)
+            .map_err(|e| Error::Internal(format!("Failed to parse track response: {}", e)))?;
+
+        let transcoding_url = track
+            .pointer("/media/transcodings")
+            .and_then(|t| t.as_array())
+            .and_then(|transcodings| {
+                transcodings.iter().find(|t| {
+                    t.pointer("/format/protocol").and_then(|p| p.as_str()) == Some("progressive")
+                })
+            })
+            .and_then(|t| t.get("url"))
+            .and_then(|u| u.as_str())
+            .ok_or_else(|| {
+                // Usually means the track is preview-only, geo-blocked, or
+                // DRM-protected: it has HLS transcodings but no progressive one.
+                Error::NotFound(format!("playable stream for SoundCloud track {}", track_id))
+            })?;
+
+        // The advertised transcoding URL is absolute, but the client prepends
+        // its own API base and appends the `client_id` the media endpoint
+        // requires, so hand it just the path.
+        let path = reqwest::Url::parse(transcoding_url)
+            .map_err(|e| Error::Internal(format!("Unusable transcoding URL: {}", e)))?
+            .path()
+            .to_string();
+
+        let raw = self
+            .client
+            .api_get(&path, std::collections::HashMap::new())
+            .await
+            .map_err(|e| Error::Network(format!("Failed to resolve stream URL: {}", e)))?;
+
+        serde_json::from_str::<serde_json::Value>(&raw)
+            .ok()
+            .and_then(|v| v.get("url").and_then(|u| u.as_str()).map(str::to_string))
+            .ok_or_else(|| Error::NotFound(format!("signed stream URL for track {}", track_id)))
+    }
+
+    /// Every track the signed-in user has liked, newest first.
+    ///
+    /// Liked *playlists* also appear in this feed and are skipped: expanding
+    /// them would silently pull in hundreds of tracks the user never liked
+    /// individually.
+    async fn get_all_liked_tracks(&self) -> Result<Vec<BasicTrack>, Error> {
+        if auth::stored_token().is_none() {
+            return Err(Error::Custom(
+                "SoundCloud is not connected. Add your session token in Tools, then Providers."
+                    .to_string(),
+            ));
+        }
+
+        let me = self.client.get_me().await.map_err(|e| {
+            Error::Custom(format!(
+                "Could not identify the connected SoundCloud account: {}",
+                e
+            ))
+        })?;
+        let user_id = me.user.id;
+
+        let limit = 50u32;
+        // The likes feed is cursor paginated: `offset` is an opaque token
+        // handed back in `next_href`, not a row count. Numeric offsets are
+        // rejected outright with a 400.
+        let mut cursor: Option<String> = None;
+        let mut page = 0u32;
+        let mut liked: Vec<BasicTrack> = Vec::new();
+        let mut seen_ids: std::collections::HashSet<u64> = std::collections::HashSet::new();
+        let mut skipped_playlists = 0usize;
+
+        loop {
+            let uri = format!("/users/{}/likes", user_id);
+            let mut query = std::collections::HashMap::new();
+            query.insert("limit".to_string(), limit.to_string());
+            query.insert("linked_partitioning".to_string(), "1".to_string());
+            if let Some(cursor) = cursor.as_deref() {
+                query.insert("offset".to_string(), cursor.to_string());
+            }
+
+            let result = self.client.api_get(&uri, query).await.map_err(|e| {
+                Error::Network(format!("Failed to fetch likes page {}: {}", page, e))
+            })?;
+
+            let json: serde_json::Value = serde_json::from_str(&result)
+                .map_err(|e| Error::Internal(format!("Failed to parse likes response: {}", e)))?;
+
+            let items = match json.get("collection").and_then(|c| c.as_array()) {
+                Some(items) if !items.is_empty() => items.clone(),
+                _ => break,
+            };
+            // Each entry is `{created_at, kind, track | playlist}`.
+            for item in items {
+                let Some(track_value) = item.get("track") else {
+                    skipped_playlists += 1;
+                    continue;
+                };
+                match serde_json::from_value::<BasicTrack>(track_value.clone()) {
+                    Ok(track) => {
+                        if seen_ids.insert(track.track.id) {
+                            liked.push(track);
+                        }
+                    }
+                    // One unusual entry must not abort a 600-track sync.
+                    Err(e) => tracing::warn!("Skipping unreadable liked track: {}", e),
+                }
+            }
+
+            // A short page does NOT mean the end: SoundCloud filters deleted and
+            // private entries server side after slicing, so pages routinely come
+            // back under `limit` with more still to come. `next_href` is the only
+            // reliable terminator.
+            match json
+                .get("next_href")
+                .and_then(|v| v.as_str())
+                .and_then(next_cursor)
+            {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+
+            page += 1;
+            if page > MAX_LIKES_PAGES {
+                tracing::warn!(
+                    "Stopping likes pagination after {} pages, {} tracks so far",
+                    page,
+                    liked.len()
+                );
+                break;
+            }
+        }
+
+        tracing::info!(
+            "Fetched {} liked tracks ({} liked playlists skipped)",
+            liked.len(),
+            skipped_playlists
+        );
+
+        Ok(liked)
     }
 
     // =================
@@ -215,10 +446,25 @@ impl Soundcloud {
         &self,
         tracks: &mut [&mut Track],
         mut on_batch: Option<&mut (dyn FnMut(usize, usize) + Send)>,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
+        // AI cleanup is an enhancement, never a requirement: an unconfigured or
+        // disabled backend must leave the raw SoundCloud metadata in place
+        // rather than failing the download. Only backend availability is
+        // tolerated here; a configured backend that errors mid-run still
+        // propagates, since that is a real failure the user should see.
+        let ai_client = match ai::AIClient::new() {
+            Ok(client) => client,
+            Err(e) => {
+                tracing::warn!(
+                    "Skipping AI metadata cleanup for {} track(s): {}",
+                    tracks.len(),
+                    e
+                );
+                return Ok(());
+            }
+        };
+
         let prompt = ai::prompts::clean_track_title_and_artist_name(false)?;
-        let ai_client = ai::AIClient::new()
-            .map_err(|e| Error::Internal(format!("Failed to initialize AI client: {}", e)))?;
 
         // Process in small chunks to avoid token limit issues, reduce timeout risk, and
         // prevent the AI from confusing/leaking artist names across unrelated tracks.
@@ -372,7 +618,7 @@ impl Soundcloud {
 
 #[async_trait]
 impl Source for Soundcloud {
-    async fn get_track_from_url(&self, url: &str) -> SoundomeResult<Track> {
+    async fn get_track_from_url(&self, url: &str) -> SoundgnomeResult<Track> {
         tracing::info!("Getting SoundCloud track from URL: {}", url);
         let track = self
             .client
@@ -398,7 +644,17 @@ impl Source for Soundcloud {
         .await)
     }
 
-    async fn get_playlist_from_url(&self, url: &str) -> SoundomeResult<Playlist> {
+    async fn get_playlist_from_url(&self, url: &str) -> SoundgnomeResult<Playlist> {
+        if Self::is_likes_url(url) {
+            return Ok(Playlist {
+                id: None,
+                name: "SoundCloud Likes".to_string(),
+                source: Platform::SoundCloud,
+                source_url: Some(Self::LIKES_URL.to_string()),
+                cover: None,
+            });
+        }
+
         let playlist = self
             .client
             .get_playlist(ResourceId::Url(url.to_string()))
@@ -418,6 +674,28 @@ impl Source for Soundcloud {
     }
 
     async fn get_playlist_tracks_from_url(&self, url: &str) -> Result<Vec<PlaylistTrack>, Error> {
+        if Self::is_likes_url(url) {
+            let liked = self.get_all_liked_tracks().await?;
+            return Ok(liked
+                .into_iter()
+                .enumerate()
+                .map(|(i, basic_track)| {
+                    // Both flags matter: an uploader can enable downloads and
+                    // still have run out of the quota SoundCloud enforces.
+                    let original_available = Some(
+                        basic_track.track.downloadable && basic_track.track.has_downloads_left,
+                    );
+                    PlaylistTrack {
+                        id: None,
+                        track: mappers::convert_basic_track(basic_track, None),
+                        added_at: None,
+                        position: Some(i as u32),
+                        original_available,
+                    }
+                })
+                .collect());
+        }
+
         let tracks = self
             .client
             .get_playlist_tracks(ResourceId::Url(url.to_string()))
@@ -437,6 +715,10 @@ impl Source for Soundcloud {
             track,
             added_at: None,
             position: Some(i as u32),
+            // The playlist endpoint returns fully hydrated tracks, but the
+            // conversion above drops the raw flags, so treat it as unknown and
+            // let the caller probe if it cares.
+            original_available: None,
         })
         .collect())
     }
@@ -504,7 +786,7 @@ impl Source for Soundcloud {
         .await)
     }
 
-    async fn clean_track_metadata(&self, track: &mut Track) -> SoundomeResult<()> {
+    async fn clean_track_metadata(&self, track: &mut Track) -> SoundgnomeResult<()> {
         let mut tracks = vec![track];
         self.clean_tracks_metadata(&mut tracks, None).await
     }
@@ -513,7 +795,7 @@ impl Source for Soundcloud {
         &self,
         tracks: &mut Vec<&mut Track>,
         on_batch: Option<&mut (dyn FnMut(usize, usize) + Send)>,
-    ) -> SoundomeResult<()> {
+    ) -> SoundgnomeResult<()> {
         self.clean_tracks_title_and_artist_name(tracks, on_batch)
             .await
     }
@@ -525,6 +807,9 @@ impl Source for Soundcloud {
     }
 
     fn is_valid_playlist_url(url: &str) -> bool {
+        if Self::is_likes_url(url) {
+            return true;
+        }
         let sanitized = Self::sanitize_url(url);
         let re = Regex::new(Self::PLAYLIST_REGEX).unwrap(); // safe unwrap
         re.is_match(&sanitized).unwrap_or(false)

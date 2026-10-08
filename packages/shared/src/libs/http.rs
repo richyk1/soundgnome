@@ -1,4 +1,4 @@
-use crate::{errors::Error, types::SoundomeResult};
+use crate::{errors::Error, types::SoundgnomeResult};
 use config::{
     models::{ProxyConfig, ProxyStrategy},
     Config,
@@ -22,7 +22,7 @@ pub struct ProxyRotator {
 impl ProxyRotator {
     // Static methods
 
-    pub fn init() -> SoundomeResult<()> {
+    pub fn init() -> SoundgnomeResult<()> {
         let rotator = ProxyRotator::new(Config::get().proxy.clone());
         GLOBAL_PROXY_ROTATOR
             .set(rotator)
@@ -132,7 +132,7 @@ pub struct HttpClientBuilder;
 
 impl HttpClientBuilder {
     /// Creates a reqwest client with optional proxy configuration and rotation
-    pub fn get_reqwest_client_builder() -> SoundomeResult<reqwest::ClientBuilder> {
+    pub fn get_reqwest_client_builder() -> SoundgnomeResult<reqwest::ClientBuilder> {
         let proxy_config = Config::get().proxy.as_ref();
 
         let proxy_url = proxy_config
@@ -156,7 +156,7 @@ impl HttpClientBuilder {
         Ok(client_builder)
     }
 
-    pub fn get_reqwest_client() -> SoundomeResult<reqwest::Client> {
+    pub fn get_reqwest_client() -> SoundgnomeResult<reqwest::Client> {
         Self::get_reqwest_client_builder()?
             .build()
             .map_err(|e| Error::Network(format!("Failed to build HTTP client: {}", e)))
@@ -165,7 +165,7 @@ impl HttpClientBuilder {
     /// Creates a reqwest client with a specific proxy
     pub fn get_reqwest_client_with_specific_proxy(
         proxy_url: Option<&str>,
-    ) -> SoundomeResult<reqwest::Client> {
+    ) -> SoundgnomeResult<reqwest::Client> {
         let mut client_builder = reqwest::Client::builder();
 
         if let Some(url) = proxy_url {
@@ -181,7 +181,7 @@ impl HttpClientBuilder {
     }
 
     /// Creates a reqwest proxy from a URL string, supporting HTTP/HTTPS and SOCKS5
-    fn create_reqwest_proxy(proxy_url: &str) -> SoundomeResult<reqwest::Proxy> {
+    fn create_reqwest_proxy(proxy_url: &str) -> SoundgnomeResult<reqwest::Proxy> {
         if proxy_url.starts_with("socks5://") {
             // For SOCKS5, we need to use a different approach
             // reqwest supports SOCKS5 through the "socks" feature

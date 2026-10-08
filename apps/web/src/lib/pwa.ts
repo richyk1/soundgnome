@@ -7,7 +7,6 @@
  */
 
 let registration: ServiceWorkerRegistration | undefined
-let updateWaiting = false
 
 /**
  * Initialize PWA service worker registration
@@ -15,7 +14,6 @@ let updateWaiting = false
  */
 export function initPWA() {
   if (!('serviceWorker' in navigator)) {
-    console.log('Service Worker not supported')
     return
   }
 
@@ -23,7 +21,6 @@ export function initPWA() {
   navigator.serviceWorker.register('/sw.js', { scope: '/' })
     .then(reg => {
       registration = reg
-      console.log('PWA Service Worker registered')
 
       // Check for updates every 60 seconds
       setInterval(async () => {
@@ -37,13 +34,11 @@ export function initPWA() {
 
         newWorker.addEventListener('statechange', () => {
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            // New service worker is ready but waiting
-            updateWaiting = true
+            // Notify the running tab that a new build is ready.
             const event = new CustomEvent<PWAUpdatePayload>('PWAUpdate', {
               detail: { registration: reg },
             })
             window.dispatchEvent(event as unknown as Event)
-            console.log('PWA update available')
           }
         })
       })
@@ -62,36 +57,23 @@ interface PWAUpdatePayload {
  * This is typically called after a user accepts an update prompt
  */
 export function refreshPWA() {
-  if (!registration?.waiting) {
-    console.warn('No waiting service worker found')
+  // The service worker is generated with `registerType: 'autoUpdate'`, so a new
+  // worker skips waiting and claims the page itself — there is no worker parked
+  // in `waiting` to message. The running tab just holds the previous bundle in
+  // memory, so a reload is what actually swaps in the new build.
+  if (registration?.waiting) {
+    // Defensive: if the strategy ever becomes a waiting/prompt worker, wake it
+    // and reload once it takes control.
+    let reloaded = false
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloaded) return
+      reloaded = true
+      window.location.reload()
+    })
+    registration.waiting.postMessage({ type: 'SKIP_WAITING' })
     return
   }
-
-  // Tell the waiting service worker to skip waiting
-  registration.waiting.postMessage({ type: 'SKIP_WAITING' })
-
-  // Set a flag that we're refreshing
-  localStorage.setItem('pwa-refreshing', 'true')
-
-  // Reload when the controller changes
-  let refreshing = false
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!refreshing) {
-      refreshing = true
-      window.location.reload()
-    }
-  })
-}
-
-/**
- * Unregister the PWA service worker
- * Useful for development or if the user wants to disable PWA features
- */
-export async function unregisterPWA() {
-  if (registration) {
-    await registration.unregister()
-    console.log('PWA Service Worker unregistered')
-  }
+  window.location.reload()
 }
 
 /**
@@ -99,13 +81,6 @@ export async function unregisterPWA() {
  */
 export function isPWAAvailable(): boolean {
   return 'serviceWorker' in navigator && 'caches' in window
-}
-
-/**
- * Get the current PWA registration
- */
-export function getPWARegistration(): ServiceWorkerRegistration | undefined {
-  return registration
 }
 
 /**
