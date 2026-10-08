@@ -662,28 +662,32 @@
     return lib.tracks.find((x) => x.id === t.id)?.rating === 'disliked';
   }
 
-  /** Move `dir` steps through the play order, skipping disliked tracks, and start
-     the result. Wraps only when repeat is 'all'. Returns false when nothing
-     playable remains that way (e.g. only disliked tracks are left). */
-  function advance(dir: number): boolean {
+  /** The order position `dir` steps away, skipping disliked tracks. Wraps only
+     when repeat is 'all'. Null when nothing playable remains that way (e.g. the
+     first track with repeat off, or only disliked tracks are left). */
+  function stepTarget(dir: number): number | null {
     const n = order.length;
-    if (!n) return false;
     let p = orderPos;
     for (let tries = 0; tries < n; tries++) {
       p += dir;
       if (p < 0) {
         if (repeat === 'all') p = n - 1;
-        else return false;
+        else return null;
       } else if (p >= n) {
         if (repeat === 'all') p = 0;
-        else return false;
+        else return null;
       }
-      if (!isDisliked(queue[order[p]])) {
-        playAt(p);
-        return true;
-      }
+      if (!isDisliked(queue[order[p]])) return p;
     }
-    return false;
+    return null;
+  }
+
+  /** Start the track `dir` steps away; false when there is none (see stepTarget). */
+  function advance(dir: number): boolean {
+    const p = stepTarget(dir);
+    if (p === null) return false;
+    playAt(p);
+    return true;
   }
 
   function next() {
@@ -943,14 +947,17 @@
     // Commit after a real distance, then on either reach (with momentum) or a quick flick.
     const far = Math.abs(swipeX) > 48 && (Math.abs(projected) > width * 0.3 || Math.abs(swipeVel) > 700);
     const direction = far ? Math.sign(projected) : 0;
-    if (!canStep || direction === 0 || e.type === 'pointercancel') {
+    // Resolve the destination now, so a swipe toward nothing (first track with
+    // repeat off, only disliked tracks left) springs back instead of faking a change.
+    const target = direction === 0 || e.type === 'pointercancel' ? null : stepTarget(direction < 0 ? 1 : -1);
+    if (target === null) {
       swipeTransition = '';
       swipeX = 0;
       return;
     }
     haptic(e.currentTarget as Element);
     if (reduceMotion) {
-      advance(direction < 0 ? 1 : -1);
+      playAt(target);
       swipeTransition = 'none';
       swipeX = 0;
       return;
@@ -958,7 +965,7 @@
     swipeTransition = `translate ${SWIPE_OUT_MS}ms var(--ease-out)`;
     swipeX = direction * width * 1.2;
     setTimeout(() => {
-      advance(direction < 0 ? 1 : -1);
+      playAt(target);
       // Jump to the far side unseen, then glide the new cover into place.
       swipeTransition = 'none';
       swipeX = -direction * width * 1.2;
