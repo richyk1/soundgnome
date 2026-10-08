@@ -585,7 +585,9 @@
     };
   });
 
-  /** Rebuild the play order from the current queue, shuffle flag, and qIndex. */
+  /** Rebuild the play order from the current queue, shuffle flag, and qIndex.
+     Only for a new context (another list, or shuffle switched on/off): taps
+     within the playing list go through `jumpTo` and keep the order. */
   function rebuildOrder() {
     const n = queue.length;
     const idxs = Array.from({ length: n }, (_, i) => i);
@@ -606,20 +608,32 @@
       orderPos = Math.max(0, idxs.indexOf(qIndex));
     }
     order = idxs;
-    // Mirror the play order into the visible library list so the "next" track is
-    // the next row (no long scroll to a random song). Only when shuffled and the
-    // queue is library-sourced; otherwise clear so the list keeps its own sort.
-    const playingSource = queue[qIndex]?.source;
-    if (shuffle && playingSource === 'library') {
-      lib.setPlayOrder(
-        idxs
-          .map((i) => queue[i])
-          .filter((t): t is PlayerTrack => t?.source === 'library')
-          .map((t) => t.id),
-      );
+  }
+
+  /** Make queue index `idx` the current track without reshuffling. In order
+     mode that is its own position; in shuffle the picked track moves to just
+     after the current one, so what already played stays behind it (Previous)
+     and the rest of the shuffle keeps its sequence. */
+  function jumpTo(idx: number) {
+    if (!shuffle) {
+      orderPos = Math.max(0, order.indexOf(idx));
     } else {
-      lib.setPlayOrder(null);
+      const p = order.indexOf(idx);
+      if (p !== orderPos) {
+        const next = [...order];
+        next.splice(p, 1);
+        const at = p < orderPos ? orderPos : orderPos + 1;
+        next.splice(at, 0, idx);
+        order = next;
+        orderPos = at;
+      }
     }
+    qIndex = idx;
+  }
+
+  /** Same tracks in the same order: tapping another row of the list that is playing. */
+  function sameQueue(a: PlayerTrack[], b: PlayerTrack[]): boolean {
+    return a.length === b.length && a.every((t, i) => t.id === b[i].id && t.source === b[i].source);
   }
 
   /** Play the track at position `pos` within the current play order. */
@@ -635,20 +649,21 @@
     if (!el) return;
 
     // Adopt the caller's list as the queue so prev/next/shuffle have context.
-    if (q && q.length) {
+    // Tapping within the list that is already playing keeps the play order.
+    if (q && q.length && !sameQueue(q, queue)) {
       queue = q;
       const idx = q.findIndex((t) => t.id === track.id && t.source === track.source);
       qIndex = idx >= 0 ? idx : 0;
+      rebuildOrder();
     } else {
       const idx = queue.findIndex((t) => t.id === track.id && t.source === track.source);
-      if (idx >= 0) qIndex = idx;
+      if (idx >= 0) jumpTo(idx);
       else {
         queue = [track];
         qIndex = 0;
+        rebuildOrder();
       }
     }
-
-    rebuildOrder();
 
     if (current?.id === track.id && current.source === track.source) {
       togglePlay();
@@ -878,6 +893,8 @@
     activeMorph = undefined;
     morphing = true;
     root.classList.add('np-morph'); // names the morphing pair; see app.css
+    // A route change still settling is skipped by this transition; unname its page area now.
+    root.classList.remove('page-nav');
     root.classList.toggle('np-morph-closing', !next);
     let transition: ViewTransition | undefined;
     try {

@@ -208,10 +208,6 @@ function createLibraryStore() {
   let albumsSortDir: SortDirection = $state('asc');
   let tracksSortBy: TrackSortBy = $state('title');
   let tracksSortDir: SortDirection = $state('asc');
-  // When the player is shuffling a library queue it pushes its play order here
-  // (a list of track ids); the tracks list then renders in that order so the
-  // next track is the adjacent row. Null = use the normal sort.
-  let playOrder: number[] | null = $state(null);
   // The player registers this so the store can tell it when a track is disliked
   // (from anywhere); the player skips it if it is the one currently playing.
   let onTrackDisliked: ((id: number) => void) | null = null;
@@ -339,11 +335,6 @@ function createLibraryStore() {
       list = list.filter(t => !t.needs_validation);
       if (trackFilter === 'lossless') list = list.filter(t => t.quality?.lossless === true);
       else if (trackFilter === 'liked') list = list.filter(t => t.rating === 'liked');
-    }
-    if (playOrder) {
-      const pos = new Map<number, number>();
-      playOrder.forEach((id, i) => pos.set(id, i));
-      return [...list].sort((a, b) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity));
     }
     return sortTracks(list, tracksSortBy, tracksSortDir);
   });
@@ -936,8 +927,6 @@ function createLibraryStore() {
     get albumTracks() { return albumTracks; },
     get artistTracksByAlbum() { return artistTracksByAlbum; },
     get filteredTracks() { return filteredTracks; },
-    get shuffled() { return playOrder != null; },
-    setPlayOrder(ids: number[] | null) { playOrder = ids; },
     set onTrackDisliked(fn: ((id: number) => void) | null) { onTrackDisliked = fn; },
     get needsReviewCount() { return needsReviewCount; },
     get hiddenReviewMatches() { return hiddenReviewMatches; },

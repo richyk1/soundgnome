@@ -90,6 +90,12 @@ changed after that point.
   duration). On phones, lists no longer offer track editing or like/dislike;
   rate a track from Now Playing while it plays and edit track info on desktop.
   Off-screen rows reserve their real height, so long lists no longer shift.
+- Shuffle no longer rearranges the tracks list. The list always keeps its own
+  sort; shuffle is a hidden play order built when you turn it on or start from
+  a different list. Tapping another song in the playing list plays it next in
+  that order without reshuffling: what already played stays behind it for
+  Previous, and the rest of the order (the sidebar's Up next) is unchanged. The
+  list also stops scrolling itself to follow the playing song.
 
 ### Removed
 
