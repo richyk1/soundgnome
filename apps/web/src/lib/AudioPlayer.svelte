@@ -860,6 +860,7 @@
   // both states and animates between them, while `morphing` holds the live sheet
   // still. Without the API, or with reduced motion, the sheet slides as before.
   let morphing = $state(false);
+  let activeMorph: ViewTransition | undefined;
   async function setExpanded(next: boolean) {
     const settle = async () => {
       expanded = next;
@@ -872,18 +873,27 @@
       return;
     }
     const root = document.documentElement;
+    // A tap mid-morph replaces the running one; only the latest cleans up.
+    activeMorph?.skipTransition();
+    activeMorph = undefined;
     morphing = true;
     root.classList.add('np-morph'); // names the morphing pair; see app.css
+    root.classList.toggle('np-morph-closing', !next);
+    let transition: ViewTransition | undefined;
     try {
-      const transition = document.startViewTransition(settle);
+      transition = document.startViewTransition(settle);
+      activeMorph = transition;
       void transition.ready.catch(() => {});
       await transition.finished.catch(() => {});
     } catch {
       // The API can exist yet refuse to snapshot; the state still has to change.
       await settle();
     } finally {
-      morphing = false;
-      root.classList.remove('np-morph');
+      if (activeMorph === transition) {
+        activeMorph = undefined;
+        morphing = false;
+        root.classList.remove('np-morph', 'np-morph-closing');
+      }
     }
   }
   function openNP() {
@@ -983,7 +993,9 @@
     const direction = far ? Math.sign(projected) : 0;
     // Resolve the destination now, so a swipe toward nothing (first track with
     // repeat off, only disliked tracks left) springs back instead of faking a change.
-    const target = direction === 0 || e.type === 'pointercancel' ? null : stepTarget(direction < 0 ? 1 : -1);
+    const step = direction === 0 || e.type === 'pointercancel' ? null : stepTarget(direction < 0 ? 1 : -1);
+    // Wrapping back onto the playing track (a one-track queue on repeat) is not a change either.
+    const target = step === orderPos ? null : step;
     if (target === null) {
       swipeTransition = '';
       swipeX = 0;

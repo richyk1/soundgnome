@@ -246,28 +246,44 @@ button,
 }
 
 /* Now Playing morph (AudioPlayer adds .np-morph while it runs): the floating bar
-   grows into the full-screen sheet and its thumbnail into the big cover. The
-   page underneath holds still, and nothing is clipped to the dock. */
+   grows into the full-screen sheet and its thumbnail into the big cover. Only
+   that pair takes part: the page drops its route-transition name so it, the tab
+   bar, and everything else stay live instead of being frozen into a snapshot
+   that covers the dock. Nothing is clipped to the dock either. */
+:root.np-morph .content-panel { view-transition-name: none; }
 :root.np-morph::view-transition { clip-path: none; }
-:root.np-morph::view-transition-old(app-content) { display: none; }
-:root.np-morph::view-transition-new(app-content) { animation: none; }
 :root.np-morph::view-transition-group(np-surface),
 :root.np-morph::view-transition-group(np-cover) {
   animation-duration: var(--motion-sheet);
   animation-timing-function: var(--ease-drawer);
 }
-/* The surface keeps its corners and clips the full sheet while it is card-sized. */
+/* The surface is a growing window with the card's corners. Both snapshots keep
+   their natural size (no stretched text) pinned to its top, and hand over
+   quickly instead of ghosting through a long cross-fade. */
 :root.np-morph::view-transition-group(np-surface) {
   overflow: clip;
   border-radius: var(--radius-card);
+  /* Solid while the snapshots hand over, so the page never shows through. */
+  background: var(--bg);
+  box-shadow: var(--float-shadow);
 }
 :root.np-morph::view-transition-old(np-surface),
 :root.np-morph::view-transition-new(np-surface) {
   block-size: 100%;
-  object-fit: cover;
-  object-position: top;
+  object-fit: none;
+  object-position: top center;
+  mix-blend-mode: normal;
 }
+:root.np-morph::view-transition-old(np-surface) { animation: np-morph-out calc(var(--motion-sheet) * 0.35) var(--ease-out) both; }
+:root.np-morph::view-transition-new(np-surface) { animation: np-morph-in calc(var(--motion-sheet) * 0.5) var(--ease-out) both; }
+/* Closing: the sheet stays solid while it shrinks and the card resolves at the end. */
+:root.np-morph-closing::view-transition-old(np-surface) { animation: np-morph-out-late var(--motion-sheet) var(--ease-out) both; }
+:root.np-morph-closing::view-transition-new(np-surface) { animation: np-morph-in-late var(--motion-sheet) var(--ease-out) both; }
 :root.np-morph::view-transition-group(np-cover) { border-radius: var(--radius-card); overflow: clip; }
+@keyframes np-morph-out { to { opacity: 0; } }
+@keyframes np-morph-in { from { opacity: 0; } }
+@keyframes np-morph-out-late { 0%, 45% { opacity: 1; } to { opacity: 0; } }
+@keyframes np-morph-in-late { 0%, 55% { opacity: 0; } to { opacity: 1; } }
 .content-panel.navigation-enter-a {
   animation: app-page-enter-a var(--motion-normal) var(--ease-out);
 }
