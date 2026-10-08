@@ -11,6 +11,9 @@ changed after that point.
 
 ### Fixed
 
+- Tapped buttons no longer stay highlighted on phones: hover styles now apply
+  only on devices that can hover (a PostCSS step in `apps/web/vite.config.ts`
+  gates every `:hover` rule, component styles included).
 - Removed backdrop blur from library card action buttons to reduce compositing
   overhead when scrolling large album grids on phones.
 - Virtualized the album and artist grids so only visible rows and a small overscan buffer

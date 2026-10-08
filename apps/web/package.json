@@ -16,6 +16,7 @@
     "@types/node": "^24.12.2",
     "@vite-pwa/assets-generator": "^1.0.2",
     "pixelarticons": "2.4.2",
+    "postcss": "^8.5.12",
     "sharp": "^0.35.3",
     "svelte": "^5.55.4",
     "svelte-check": "^4.4.6",
