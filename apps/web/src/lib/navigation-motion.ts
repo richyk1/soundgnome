@@ -50,11 +50,15 @@ export async function runNavigation(update: () => void | Promise<void>): Promise
     }
 
     if (typeof document.startViewTransition === 'function') {
+      const root = document.documentElement;
+      // Names the page area for this transition only; see App.svelte.
+      root.classList.add('page-nav');
       let transition: ViewTransition;
       try {
         transition = document.startViewTransition(apply);
       } catch {
         // A browser may expose the API while being unable to start a snapshot.
+        root.classList.remove('page-nav');
         await apply();
         if (request === latestRequest) animateFallback();
         return;
@@ -64,7 +68,9 @@ export async function runNavigation(update: () => void | Promise<void>): Promise
       // native promise without letting an older completion clear a newer one.
       void transition.ready.catch(() => {});
       const clear = () => {
-        if (activeTransition === transition) activeTransition = undefined;
+        if (activeTransition !== transition) return;
+        activeTransition = undefined;
+        root.classList.remove('page-nav');
       };
       void transition.finished.then(clear, clear);
       await transition.updateCallbackDone;

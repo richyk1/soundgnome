@@ -247,9 +247,10 @@ button,
 
 /* Now Playing morph (AudioPlayer adds .np-morph while it runs): the floating bar
    grows into the full-screen sheet and its thumbnail into the big cover. Only
-   that pair takes part: the page drops its route-transition name so it, the tab
-   bar, and everything else stay live instead of being frozen into a snapshot
-   that covers the dock. Nothing is clipped to the dock either. */
+   that pair takes part: the page area is unnamed outside route changes, so it,
+   the tab bar, and everything else stay live. If a route change is still
+   settling, this keeps the page out of the morph's snapshot. Nothing is clipped
+   to the dock either. */
 :root.np-morph .content-panel { view-transition-name: none; }
 :root.np-morph::view-transition { clip-path: none; }
 :root.np-morph::view-transition-group(np-surface),

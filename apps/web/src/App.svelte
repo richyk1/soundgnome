@@ -534,8 +534,11 @@
     overscroll-behavior-y: contain;
     scroll-padding-block: var(--space-page);
     background: var(--bg);
-    view-transition-name: app-content;
   }
+  /* Named only while a route change runs (navigation-motion adds .page-nav).
+     A permanent name would make the Now Playing morph toggle it, which rebuilds
+     this scroller's layer and can leave WebKit painting the pinned header off-screen. */
+  :global(:root.page-nav) .content-panel { view-transition-name: app-content; }
 
   /* ── Dock: player bar on desktop; player + tabs on phones ───────────── */
   .footer-dock {
