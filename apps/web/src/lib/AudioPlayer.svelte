@@ -32,6 +32,7 @@
   import PixelCover from './PixelCover.svelte';
   import ArtGlow from './ArtGlow.svelte';
   import { pop } from './motion';
+  import { haptic } from './haptics';
   import { Equalizer, loadEqState, saveEqState, type EqState } from './equalizer';
   import * as scrobbler from './scrobbler';
   import { lib } from './library/store.svelte';
@@ -893,6 +894,81 @@
     else dragY = 0;
   }
 
+  // Swipe the Now Playing cover sideways to change track, like Spotify: left is
+  // next, right is the previous track itself (no restart, unlike the button).
+  // The cover tracks the finger, slides out, and the new one slides in from the
+  // other side; short or slow swipes spring back.
+  let swipeX = $state(0);
+  let swipeTransition = $state('');
+  let swipeStartX = 0;
+  let swipeStartY = 0;
+  let swipeAxis: 'x' | 'y' | null = null;
+  let swipeLastX = 0;
+  let swipeLastT = 0;
+  let swipeVel = 0;
+  let swipePointer: number | null = null;
+  const SWIPE_OUT_MS = 160;
+  function onArtPointerDown(e: PointerEvent) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    swipePointer = e.pointerId;
+    swipeAxis = null;
+    swipeStartX = swipeLastX = e.clientX;
+    swipeStartY = e.clientY;
+    swipeLastT = performance.now();
+    swipeVel = 0;
+    swipeTransition = 'none';
+  }
+  function onArtPointerMove(e: PointerEvent) {
+    if (e.pointerId !== swipePointer) return;
+    const dx = e.clientX - swipeStartX;
+    if (!swipeAxis) {
+      // Decide the axis once the finger has clearly moved, so taps stay taps.
+      if (Math.hypot(dx, e.clientY - swipeStartY) < 8) return;
+      swipeAxis = Math.abs(dx) > Math.abs(e.clientY - swipeStartY) ? 'x' : 'y';
+      if (swipeAxis === 'x') (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }
+    if (swipeAxis !== 'x') return;
+    swipeX = canStep ? dx : dx * 0.2; // nothing to step to: rubber-band
+    const now = performance.now();
+    if (now > swipeLastT) swipeVel = ((e.clientX - swipeLastX) / (now - swipeLastT)) * 1000; // px/s
+    swipeLastX = e.clientX;
+    swipeLastT = now;
+  }
+  function onArtPointerUp(e: PointerEvent) {
+    if (e.pointerId !== swipePointer) return;
+    swipePointer = null;
+    if (swipeAxis !== 'x') return;
+    const width = (e.currentTarget as HTMLElement).clientWidth || 300;
+    const projected = swipeX + swipeVel * 0.12;
+    // Commit after a real distance, then on either reach (with momentum) or a quick flick.
+    const far = Math.abs(swipeX) > 48 && (Math.abs(projected) > width * 0.3 || Math.abs(swipeVel) > 700);
+    const direction = far ? Math.sign(projected) : 0;
+    if (!canStep || direction === 0 || e.type === 'pointercancel') {
+      swipeTransition = '';
+      swipeX = 0;
+      return;
+    }
+    haptic(e.currentTarget as Element);
+    if (reduceMotion) {
+      advance(direction < 0 ? 1 : -1);
+      swipeTransition = 'none';
+      swipeX = 0;
+      return;
+    }
+    swipeTransition = `translate ${SWIPE_OUT_MS}ms var(--ease-out)`;
+    swipeX = direction * width * 1.2;
+    setTimeout(() => {
+      advance(direction < 0 ? 1 : -1);
+      // Jump to the far side unseen, then glide the new cover into place.
+      swipeTransition = 'none';
+      swipeX = -direction * width * 1.2;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        swipeTransition = '';
+        swipeX = 0;
+      }));
+    }, SWIPE_OUT_MS);
+  }
+
   // ── Like / dislike the current library track (Now Playing only) ────────────
   let currentLibTrack = $derived.by(() => {
     const c = current;
@@ -1091,7 +1167,17 @@
 
     <div class="np-stage">
       <ArtGlow src={npArt} seed={coverSeed} />
-      <div class="np-art cover-wrap">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="np-art cover-wrap"
+        style:translate="{swipeX}px 0"
+        style:transition={swipeTransition || null}
+        onpointerdown={onArtPointerDown}
+        onpointermove={onArtPointerMove}
+        onpointerup={onArtPointerUp}
+        onpointercancel={onArtPointerUp}
+        ondragstart={(e) => e.preventDefault()}
+      >
         <PixelCover src={npArt} seed={coverSeed} loading="eager" />
       </div>
     </div>
@@ -1558,6 +1644,15 @@
     z-index: 1;
     width: var(--np-art-size);
     border-radius: var(--radius-card);
+    /* Horizontal drags change track; vertical ones stay with the page. */
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    transition: translate var(--motion-normal) var(--ease-spring);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .np-art { transition: none; }
   }
   .np-meta { width: 100%; margin-top: 24px; text-align: center; }
   .np-title {

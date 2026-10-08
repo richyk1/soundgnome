@@ -62,6 +62,10 @@ changed after that point.
 - A glow behind the Now Playing cover, taken from the cover's own colors: a
   pixel mosaic that dithers out into the dark theme, and a faint blurred halo in
   the light theme that fades into the status bar. Off with Reduce Transparency.
+- Swipe the Now Playing cover left for the next track and right for the previous
+  one (straight to it, unlike the button, which first restarts a song more than
+  3 seconds in). The cover follows the finger and slides between tracks; short
+  swipes spring back. A haptic marks the change.
 - Documented frontend-only development against a remote API and corrected local
   startup prerequisites, automatic SQLite migrations, and optional server `.env`.
 

@@ -6,33 +6,42 @@
 
 const PRESSABLE = 'button:not(:disabled), [role="button"]:not([aria-disabled="true"]), a[href], summary';
 
+let label: HTMLLabelElement | undefined;
+
+/** One light haptic tick. Must run inside a user gesture (click or pointerup) to be felt on iOS. */
+export function haptic(from?: Element | null): void {
+  if ('vibrate' in navigator) {
+    navigator.vibrate(8);
+    return;
+  }
+  if (!label) return;
+  // A modal <dialog> makes everything outside it inert, so the switch rides along.
+  (from?.closest('dialog[open]') ?? document.body).append(label);
+  // Clicking the label must not steal focus from dialogs or fields.
+  const focused = document.activeElement as HTMLElement | null;
+  label.click();
+  if (focused && document.activeElement !== focused) focused.focus({ preventScroll: true });
+}
+
 export function installHaptics(): () => void {
-  const label = document.createElement('label');
-  label.setAttribute('aria-hidden', 'true');
-  label.style.cssText = 'position:fixed;left:-100px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none';
+  const switchLabel = document.createElement('label');
+  switchLabel.setAttribute('aria-hidden', 'true');
+  switchLabel.style.cssText = 'position:fixed;left:-100px;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none';
   const input = document.createElement('input');
   input.type = 'checkbox';
   input.setAttribute('switch', '');
   input.tabIndex = -1;
-  label.append(input);
-  document.body.append(label);
+  switchLabel.append(input);
+  document.body.append(switchLabel);
+  label = switchLabel;
 
   let lastPointer = '';
   const onPointerDown = (event: PointerEvent) => { lastPointer = event.pointerType; };
 
   function onClick(event: MouseEvent) {
     const target = event.target as Element | null;
-    if (lastPointer !== 'touch' || !target || label.contains(target) || !target.closest(PRESSABLE)) return;
-    if ('vibrate' in navigator) {
-      navigator.vibrate(8);
-      return;
-    }
-    // A modal <dialog> makes everything outside it inert, so the switch rides along.
-    (target.closest('dialog[open]') ?? document.body).append(label);
-    // Clicking the label must not steal focus from dialogs or fields.
-    const focused = document.activeElement as HTMLElement | null;
-    label.click();
-    if (focused && document.activeElement !== focused) focused.focus({ preventScroll: true });
+    if (lastPointer !== 'touch' || !target || switchLabel.contains(target) || !target.closest(PRESSABLE)) return;
+    haptic(target);
   }
 
   document.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true });
@@ -40,6 +49,7 @@ export function installHaptics(): () => void {
   return () => {
     document.removeEventListener('pointerdown', onPointerDown, { capture: true });
     document.removeEventListener('click', onClick, { capture: true });
-    label.remove();
+    switchLabel.remove();
+    label = undefined;
   };
 }
