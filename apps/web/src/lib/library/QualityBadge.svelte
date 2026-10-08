@@ -25,38 +25,30 @@
 {/if}
 
 <style>
+  /* Mono data tag. Tiers: lossless = accent tint, lossy = neutral. */
   .quality-badge {
     display: inline-flex;
     align-items: baseline;
-    gap: 0.3rem;
-    padding: 0.1rem 0.35rem;
-    border: 1px solid var(--border);
+    gap: 5px;
+    padding: 1px 5px;
     border-radius: 4px;
     background: var(--surface-2);
-    color: var(--muted);
-    font-size: 0.68rem;
-    line-height: 1.4;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.06em;
+    line-height: 1.5;
+    text-transform: uppercase;
     white-space: nowrap;
   }
 
   .quality-badge.lossless {
-    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    background: var(--accent-muted);
     color: var(--accent);
   }
 
-  .fmt {
-    font-weight: 600;
-    letter-spacing: 0.03em;
-  }
-
-  .rate {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .unit {
-    margin-left: 0.15rem;
-    opacity: 0.7;
-  }
+  .fmt { font-weight: 600; }
+  .unit { margin-left: 2px; text-transform: none; letter-spacing: 0; }
 </style>

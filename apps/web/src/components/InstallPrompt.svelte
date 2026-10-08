@@ -60,8 +60,8 @@
 </script>
 
 {#if !installed && (deferred || isIOS)}
-  <button class="install-btn" onclick={install}>
-    <i class="lni lni-download-1" aria-hidden="true"></i>Install app
+  <button class="btn-ghost install-btn" onclick={install}>
+    <i class="pxi pxi-download" aria-hidden="true"></i>Install app
   </button>
   {#if showIosHint}
     <p class="ios-hint">
@@ -71,38 +71,24 @@
 {/if}
 
 <style>
+  /* Secondary hairline control, left-aligned like the sidebar nav rows. */
   .install-btn {
-    display: flex;
-    align-items: center;
+    justify-content: flex-start;
     gap: 10px;
     width: 100%;
-    padding: 9px 12px;
-    font: inherit;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-    border-radius: 10px;
-    cursor: pointer;
+    padding: 0 10px;
+    margin-bottom: 8px;
     text-align: left;
-    margin-bottom: 10px;
-  }
-  .install-btn:hover {
-    background: color-mix(in srgb, var(--accent) 20%, transparent);
-  }
-  .install-btn .lni {
-    font-size: 16px;
   }
   .ios-hint {
-    margin: 8px 2px 0;
+    margin: 0 0 8px;
+    padding: 0 10px;
     font-size: 12px;
     line-height: 1.5;
     color: var(--muted);
   }
-
-  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    button { min-height: 44px; min-width: 44px; }
-    .install-btn { min-height: 44px; } .ios-hint { font-size: 0.875rem; }
+  .ios-hint strong {
+    font-weight: 600;
+    color: var(--text);
   }
 </style>

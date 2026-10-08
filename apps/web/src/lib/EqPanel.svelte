@@ -16,13 +16,10 @@
   let {
     state = $bindable(),
     onUpdate,
-    disabledReason,
   }: {
     state: EqState;
     /** Called after any change so the parent can push it to the graph + persist. */
     onUpdate: (s: EqState) => void;
-    /** Native iOS playback cannot route through the processing graph. */
-    disabledReason?: string;
   } = $props();
 
   const graphicNames = Object.keys(GRAPHIC_PRESETS);
@@ -30,9 +27,14 @@
 
   // ── Response curve geometry (SVG viewBox units) ────────────────────────────
   const W = 336;
-  const H = 78;
+  const H = 80;
   const DB_SPAN = 12;
   const freqs = curveFreqs(96);
+  // The curve spans 20 Hz–20 kHz on a log axis; decade rules mark 100, 1k, 10k.
+  const LOG_LO = Math.log10(20);
+  const LOG_SPAN = Math.log10(20000) - LOG_LO;
+  const DECADES = [100, 1000, 10000];
+  const DB_RULES = [6, -6];
 
   let device = $derived(isDevicePreset(state.preset));
   let curveDb = $derived(
@@ -40,14 +42,23 @@
   );
   let pathD = $derived(buildPath(curveDb));
   let areaD = $derived(`${pathD} L${W},${H / 2} L0,${H / 2} Z`);
+  // Preamp fill runs from the 0 dB centre to the current value.
+  let preampPct = $derived(((state.preamp - EQ_MIN_DB) / (EQ_MAX_DB - EQ_MIN_DB)) * 100);
+
+  function freqX(hz: number): number {
+    return ((Math.log10(hz) - LOG_LO) / LOG_SPAN) * W;
+  }
+  function dbY(db: number): number {
+    const clamped = Math.max(-DB_SPAN, Math.min(DB_SPAN, db));
+    return H / 2 - (clamped / DB_SPAN) * (H / 2 - 4);
+  }
 
   function buildPath(db: number[]): string {
     const n = db.length;
     return db
       .map((d, i) => {
         const x = (i / (n - 1)) * W;
-        const clamped = Math.max(-DB_SPAN, Math.min(DB_SPAN, d));
-        const y = H / 2 - (clamped / DB_SPAN) * (H / 2 - 4);
+        const y = dbY(d);
         return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
       })
       .join(' ');
@@ -94,38 +105,72 @@
   }
 </script>
 
-<fieldset class="eq" disabled={!!disabledReason} aria-label="Equalizer">
-  {#if disabledReason}<p class="eq-unavailable">{disabledReason}</p>{/if}
+<fieldset class="eq" aria-label="Equalizer">
   <div class="eq-head">
-    <button class="eq-toggle" class:on={state.enabled && !disabledReason} onclick={toggle} aria-pressed={state.enabled && !disabledReason}>
-      <span class="dot" aria-hidden="true"></span>{disabledReason ? 'Unavailable' : state.enabled ? 'On' : 'Off'}
-    </button>
-    <select
-      class="eq-preset"
-      aria-label="Preset"
-      value={state.preset}
-      onchange={(e) => choosePreset(e.currentTarget.value)}
+    <button
+      class="filter-btn eq-toggle"
+      class:active={state.enabled}
+      onclick={toggle}
+      aria-pressed={state.enabled}
     >
-      <option value="custom">Custom</option>
-      <optgroup label="Presets">
-        {#each graphicNames as name}<option value={name}>{name}</option>{/each}
-      </optgroup>
-      <optgroup label="Device correction">
-        {#each deviceNames as name}<option value={name}>{name}</option>{/each}
-      </optgroup>
-    </select>
-    <button class="eq-reset" onclick={reset} title="Reset to flat">Reset</button>
+      <span class="led" aria-hidden="true"></span>{state.enabled ? 'On' : 'Off'}
+    </button>
+    <button class="filter-btn eq-reset" onclick={reset} title="Reset to flat">Reset</button>
   </div>
 
-  <!-- Live frequency response of the active EQ -->
-  <div class="eq-curve" class:muted={!state.enabled || !!disabledReason}>
-    <svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" role="img" aria-label="Frequency response">
-      <line class="axis" x1="0" y1={H / 2} x2={W} y2={H / 2} />
-      <path class="area" d={areaD} />
-      <path class="line" d={pathD} />
-    </svg>
-    <span class="eq-scale top">+{DB_SPAN}</span>
-    <span class="eq-scale bot">-{DB_SPAN}</span>
+  <!-- Preset keys: the manual curves, then calibrated device corrections. -->
+  <div class="eq-presets" role="group" aria-label="Preset">
+    <div class="filter-group" role="group" aria-label="Presets">
+      <button
+        class="filter-btn"
+        class:active={state.preset === 'custom'}
+        aria-pressed={state.preset === 'custom'}
+        onclick={() => choosePreset('custom')}
+      >Custom</button>
+      {#each graphicNames as name}
+        <button
+          class="filter-btn"
+          class:active={state.preset === name}
+          aria-pressed={state.preset === name}
+          onclick={() => choosePreset(name)}
+        >{name}</button>
+      {/each}
+    </div>
+    <div class="filter-group" role="group" aria-label="Device correction">
+      {#each deviceNames as name}
+        <button
+          class="filter-btn"
+          class:active={state.preset === name}
+          aria-pressed={state.preset === name}
+          onclick={() => choosePreset(name)}
+        ><i class="pxi pxi-headphone" aria-hidden="true"></i>{name}</button>
+      {/each}
+    </div>
+  </div>
+
+  <!-- Live frequency response of the active EQ, on a hairline graph grid. -->
+  <div class="eq-graph">
+    <div class="eq-curve" class:muted={!state.enabled}>
+      <svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" role="img" aria-label="Frequency response">
+        {#each DECADES as hz}
+          <line class="grid" x1={freqX(hz)} y1="0" x2={freqX(hz)} y2={H} />
+        {/each}
+        {#each DB_RULES as db}
+          <line class="grid" x1="0" y1={dbY(db)} x2={W} y2={dbY(db)} />
+        {/each}
+        <line class="axis" x1="0" y1={H / 2} x2={W} y2={H / 2} />
+        <path class="area" d={areaD} />
+        <path class="line" d={pathD} />
+      </svg>
+      <span class="eq-scale top">+{DB_SPAN}</span>
+      <span class="eq-scale mid">0</span>
+      <span class="eq-scale bot">-{DB_SPAN}</span>
+    </div>
+    <div class="eq-freq-axis" aria-hidden="true">
+      {#each DECADES as hz}
+        <span style="left: {(freqX(hz) / W) * 100}%">{fmtFreq(hz)}</span>
+      {/each}
+    </div>
   </div>
 
   <div class="eq-preamp" class:muted={!state.enabled}>
@@ -136,6 +181,7 @@
       max={EQ_MAX_DB}
       step="0.5"
       value={state.preamp}
+      style="--lo: {Math.min(50, preampPct)}%; --hi: {Math.max(50, preampPct)}%"
       oninput={(e) => setPreamp(+e.currentTarget.value)}
       aria-label="Preamp"
     />
@@ -144,7 +190,7 @@
 
   {#if device}
     <div class="eq-device">
-      <i class="lni lni-headphone-bluetooth" aria-hidden="true"></i>
+      <i class="pxi pxi-headphone" aria-hidden="true"></i>
       <div class="eq-device-text">
         <strong>{state.preset}</strong>
         <span>Calibrated correction curve. Choose Custom to shape it by hand.</span>
@@ -155,16 +201,18 @@
       {#each GRAPHIC_FREQS as freq, i}
         <div class="band">
           <span class="db">{fmtDb(state.gains[i] ?? 0)}</span>
-          <input
-            class="slider"
-            type="range"
-            min={EQ_MIN_DB}
-            max={EQ_MAX_DB}
-            step="0.5"
-            value={state.gains[i] ?? 0}
-            oninput={(e) => setBand(i, +e.currentTarget.value)}
-            aria-label={`${fmtFreq(freq)} Hz`}
-          />
+          <div class="fader">
+            <input
+              class="slider"
+              type="range"
+              min={EQ_MIN_DB}
+              max={EQ_MAX_DB}
+              step="0.5"
+              value={state.gains[i] ?? 0}
+              oninput={(e) => setBand(i, +e.currentTarget.value)}
+              aria-label={`${fmtFreq(freq)} Hz`}
+            />
+          </div>
           <span class="freq">{fmtFreq(freq)}</span>
         </div>
       {/each}
@@ -176,113 +224,68 @@
   .eq {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
     width: 100%;
     min-width: 0;
     margin: 0;
     padding: 0;
     border: 0;
   }
-  .eq-unavailable {
-    margin: 0;
-    color: var(--muted);
-    font-size: 13px;
-    line-height: 1.5;
-  }
   .eq :disabled { cursor: not-allowed; opacity: 0.65; }
 
+  /* ── Power + reset ───────────────────────────────────────────────────── */
   .eq-head {
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  .eq-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 10px;
-    min-height: 44px;
-    font: inherit;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--muted);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .eq-toggle .dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
+  .eq-reset { margin-left: auto; }
+  /* A square LED: dark when off, violet when the EQ is on. */
+  .led {
+    width: 6px;
+    height: 6px;
+    flex-shrink: 0;
     background: var(--muted-2);
-    transition:
-      background 0.15s ease,
-      box-shadow 0.15s ease;
   }
-  .eq-toggle.on {
-    color: var(--text-bright);
-    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  }
-  .eq-toggle.on .dot {
-    background: var(--accent);
-    box-shadow: 0 0 6px var(--accent);
-  }
-  .eq-preset {
-    flex: 1;
-    min-width: 0;
-    font: inherit;
-    font-size: 16px;
-    min-height: 44px;
-    color: var(--text);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 5px 8px;
-    cursor: pointer;
-  }
-  .eq-reset {
-    font: inherit;
-    font-size: 12px;
-    color: var(--muted);
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 10px;
-    min-height: 44px;
-    cursor: pointer;
-  }
-  .eq-reset:hover {
-    color: var(--text);
-  }
+  .eq-toggle.active .led { background: var(--accent); }
 
-  /* ── Response curve ──────────────────────────────────────────────────── */
+  /* ── Preset keys ─────────────────────────────────────────────────────── */
+  .eq-presets {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .eq-presets .pxi { font-size: 16px; }
+
+  /* ── Response graph ──────────────────────────────────────────────────── */
+  .eq-graph { display: flex; flex-direction: column; gap: 4px; }
   .eq-curve {
     position: relative;
-    height: 78px;
-    background: var(--surface-2);
+    height: 80px;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-control);
     overflow: hidden;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--motion-fast) var(--ease-out);
   }
-  .eq-curve.muted {
-    opacity: 0.45;
-  }
+  .eq-curve.muted { opacity: 0.45; }
   .eq-curve svg {
     display: block;
     width: 100%;
     height: 100%;
   }
-  .axis {
-    stroke: var(--border);
+  .grid {
+    stroke: var(--border-soft);
     stroke-width: 1;
-    stroke-dasharray: 3 3;
     vector-effect: non-scaling-stroke;
+    shape-rendering: crispEdges;
   }
-  .area {
-    fill: color-mix(in srgb, var(--accent) 18%, transparent);
+  .axis {
+    stroke: var(--border-strong);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+    shape-rendering: crispEdges;
   }
+  .area { fill: var(--accent-muted); }
   .line {
     fill: none;
     stroke: var(--accent);
@@ -290,104 +293,172 @@
     stroke-linejoin: round;
     vector-effect: non-scaling-stroke;
   }
-  .eq-scale {
-    position: absolute;
-    right: 5px;
+  .eq-scale,
+  .eq-freq-axis span {
     font-family: var(--font-mono);
-    font-size: 8.5px;
+    font-size: 11px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
     color: var(--muted-2);
     pointer-events: none;
   }
-  .eq-scale.top {
-    top: 3px;
+  .eq-scale { position: absolute; right: 6px; }
+  .eq-scale.top { top: 4px; }
+  .eq-scale.mid { top: calc(50% - 12px); }
+  .eq-scale.bot { bottom: 4px; }
+  .eq-freq-axis {
+    position: relative;
+    height: 12px;
   }
-  .eq-scale.bot {
-    bottom: 3px;
+  .eq-freq-axis span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
   }
 
   /* ── Preamp ──────────────────────────────────────────────────────────── */
   .eq-preamp {
     display: flex;
     align-items: center;
-    gap: 10px;
-    transition: opacity 0.15s ease;
+    gap: 12px;
+    transition: opacity var(--motion-fast) var(--ease-out);
   }
-  .eq-preamp.muted {
-    opacity: 0.55;
-  }
+  .eq-preamp.muted { opacity: 0.55; }
   .eq-preamp .lbl {
-    font-size: 11px;
-    color: var(--muted);
-    width: 46px;
     flex-shrink: 0;
-  }
-  .eq-preamp input {
-    flex: 1;
-    accent-color: var(--accent);
-    cursor: pointer;
-    min-height: 44px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
   .eq-preamp .val {
+    flex-shrink: 0;
+    width: 36px;
+    color: var(--text);
     font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--muted-2);
-    width: 34px;
-    text-align: right;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  /* Hairline track; the violet fill runs from 0 dB to the value; square cap. */
+  .eq-preamp input {
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+    margin: 0;
+    padding: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+  .eq-preamp input::-webkit-slider-runnable-track {
+    height: 2px;
+    background: linear-gradient(
+      to right,
+      var(--border-strong) var(--lo, 50%),
+      var(--accent) var(--lo, 50%),
+      var(--accent) var(--hi, 50%),
+      var(--border-strong) var(--hi, 50%)
+    );
+  }
+  .eq-preamp input::-moz-range-track {
+    height: 2px;
+    background: var(--border-strong);
+  }
+  .eq-preamp input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    margin-top: -4px;
+    border: 0;
+    border-radius: 0;
+    background: var(--accent);
+  }
+  .eq-preamp input::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border: 0;
+    border-radius: 0;
+    background: var(--accent);
+  }
+  .eq-preamp input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
-  /* ── Band sliders ────────────────────────────────────────────────────── */
+  /* ── Band faders on a hairline faceplate (±12 rails, 0 dB centre) ────── */
   .eq-bands {
     display: flex;
     justify-content: space-between;
-    gap: 2px;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--motion-fast) var(--ease-out);
   }
-  .eq-bands.muted {
-    opacity: 0.45;
-  }
+  .eq-bands.muted { opacity: 0.45; }
   .band {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 6px;
     flex: 1;
+    min-width: 0;
   }
-  .db {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    color: var(--muted-2);
-    font-variant-numeric: tabular-nums;
-    min-height: 12px;
+  .fader {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    border-top: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
   }
+  .fader::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    border-top: 1px solid var(--border);
+    pointer-events: none;
+  }
+  .db,
   .freq {
     font-family: var(--font-mono);
-    font-size: 9.5px;
-    color: var(--muted);
+    font-size: 11px;
+    line-height: 12px;
+    font-variant-numeric: tabular-nums;
   }
+  .db { min-height: 12px; color: var(--muted-2); }
+  .freq { color: var(--muted); }
   .slider {
+    position: relative;
     writing-mode: vertical-lr;
     direction: rtl;
     width: 28px;
     height: 92px;
+    margin: 0;
     accent-color: var(--accent);
     cursor: pointer;
   }
+  .slider:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 
-  /* ── Device-correction note ──────────────────────────────────────────── */
+  /* ── Device-correction line ──────────────────────────────────────────── */
   .eq-device {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 12px;
-    background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    border-radius: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
   }
-  .eq-device .lni {
-    font-size: 22px;
-    color: var(--accent);
+  .eq-device .pxi {
     flex-shrink: 0;
+    font-size: 24px;
+    color: var(--accent);
   }
   .eq-device-text {
     display: flex;
@@ -397,19 +468,23 @@
   }
   .eq-device-text strong {
     font-size: 13px;
+    font-weight: 600;
     color: var(--text-bright);
   }
   .eq-device-text span {
-    font-size: 11px;
+    font-size: 12px;
+    line-height: 1.45;
     color: var(--muted);
-    line-height: 1.4;
   }
+
   @media (max-width: 600px) {
-    .eq-head { flex-wrap: wrap; }
-    .eq-preset { order: 3; flex-basis: 100%; width: 100%; }
-    .eq-reset { margin-left: auto; }
-    .eq-bands { flex-wrap: wrap; gap: 14px 0; }
+    .eq-bands { flex-wrap: wrap; row-gap: 14px; }
     .band { flex: 0 0 20%; }
     .slider { width: 44px; height: 108px; }
+  }
+
+  @media (forced-colors: active) {
+    .eq-preamp input { -webkit-appearance: auto; appearance: auto; }
+    .led { border: 1px solid CanvasText; }
   }
 </style>

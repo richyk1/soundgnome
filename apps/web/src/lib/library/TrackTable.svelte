@@ -2,6 +2,8 @@
   import { getContext } from 'svelte';
   import type { LibraryTrackDto } from '../types';
   import { lib, LIBRARY_PLAYER, type LibraryPlayer } from './store.svelte';
+  import PixelCover from '../PixelCover.svelte';
+  import { trackCoverSeed } from '../pixel-art';
 
   let { tracks, showAlbumCol = true, showDelete = false }: {
     tracks: LibraryTrackDto[];
@@ -110,20 +112,17 @@
     >
       <span class="trow-idx">{String(i + 1).padStart(2, '0')}</span>
 
-      <div class="trow-art">
-        {#if coverUrl(t)}
-          <img src={coverUrl(t)} alt="" loading="lazy" />
-        {:else}
-          <div class="trow-ph"><i class="lni lni-music-note"></i></div>
-        {/if}
+      <div class="cover-wrap trow-art">
+        <PixelCover src={coverUrl(t)} seed={trackCoverSeed(t)} />
         {#if player && t.file_path}
-          <span class="trow-play" aria-hidden="true"><i class="lni {player.isPlaying(t.id) ? 'lni-pause' : 'lni-play'}"></i></span>
+          <span class="trow-play" aria-hidden="true"><i class="pxi {player.isPlaying(t.id) ? 'pxi-pause' : 'pxi-play'}"></i></span>
         {/if}
       </div>
 
       <div class="trow-main">
         <span class="trow-title">
           <span class="trow-title-text">{t.title}</span>
+          {#if player?.isCurrent(t.id)}<i class="pxi pxi-volume-3 trow-live" aria-hidden="true"></i>{/if}
           {#if t.needs_validation}<span class="trow-dot" title="Awaiting validation"></span>{/if}
         </span>
         <span class="trow-sub">{secondary(t)}</span>
@@ -133,24 +132,26 @@
       <span class="trow-dur">{lib.fmtDuration(t.duration)}</span>
 
       <div class="trow-actions">
-        <button class="btn-edit trow-hover" onclick={(e) => { e.stopPropagation(); lib.startEditTrack(t); }}>Edit</button>
+        <button class="btn-edit btn-sm trow-hover" onclick={(e) => { e.stopPropagation(); lib.startEditTrack(t); }}>Edit</button>
         {#if showDelete}
-          <button class="btn-delete trow-hover" onclick={(e) => { e.stopPropagation(); lib.handleDeleteTrack(t.id); }}>Delete</button>
+          <button class="btn-delete btn-sm trow-hover" onclick={(e) => { e.stopPropagation(); lib.handleDeleteTrack(t.id); }}>Delete</button>
         {/if}
         <button
           class="btn-rate"
           class:active-like={t.rating === 'liked'}
           title="Like"
           aria-label="Like"
+          aria-pressed={t.rating === 'liked'}
           onclick={(e) => { e.stopPropagation(); lib.setRating(t, t.rating === 'liked' ? null : 'liked'); }}
-        ><i class="lni lni-thumbs-up-1"></i></button>
+        ><i class="pxi pxi-thumbs-up" aria-hidden="true"></i></button>
         <button
           class="btn-rate"
           class:active-dislike={t.rating === 'disliked'}
           title="Dislike"
           aria-label="Dislike"
+          aria-pressed={t.rating === 'disliked'}
           onclick={(e) => { e.stopPropagation(); lib.setRating(t, t.rating === 'disliked' ? null : 'disliked'); }}
-        ><i class="lni lni-thumbs-down-1"></i></button>
+        ><i class="pxi pxi-thumbs-down" aria-hidden="true"></i></button>
       </div>
     </div>
   {/each}
@@ -164,60 +165,48 @@
     align-items: center;
     gap: 14px;
     padding: 8px 10px;
-    border-radius: 10px;
+    border-radius: var(--radius-control);
     min-width: 0;
+    /* Paint-only feedback: rows are long lists, so no transforms. */
+    transition: background-color var(--motion-fast) var(--ease-out);
     /* Skip layout/paint for rows outside the viewport so a multi-thousand-row
        list scrolls and re-renders cheaply without a virtual-list library.
        `auto` lets the browser remember each row's real height once measured. */
     content-visibility: auto;
-    contain-intrinsic-size: auto 60px;
+    contain-intrinsic-size: auto 56px;
   }
   .trow.playable { cursor: pointer; }
   .trow:hover { background: var(--surface); }
-  .trow.playing { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
   .trow-idx {
     flex: 0 0 auto;
     width: 26px;
     text-align: right;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: 11px;
     color: var(--muted-2);
     font-variant-numeric: tabular-nums;
   }
-  .trow.playing .trow-idx { color: var(--accent); }
+  .trow.playing .trow-idx { color: var(--live); }
 
   .trow-art {
-    position: relative;
     flex: 0 0 auto;
-    width: 44px;
-    height: 44px;
-    border-radius: 7px;
-    overflow: hidden;
-    background: var(--surface-2);
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-chip);
   }
-  .trow-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .trow-ph {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted-2);
-    background: linear-gradient(135deg, var(--surface-2), var(--surface));
-  }
-  .trow-ph .lni { font-size: 18px; }
   .trow-play {
     position: absolute;
     inset: 0;
     display: none;
     align-items: center;
     justify-content: center;
-    background: var(--overlay);
-    color: var(--on-accent);
+    background: color-mix(in srgb, var(--bg) 64%, transparent);
+    color: var(--text-bright);
+    font-size: 16px;
     pointer-events: none;
   }
-  .trow-play .lni { font-size: 18px; }
+  .trow.playing .trow-play { color: var(--live); }
   .trow.playable:hover .trow-play,
   .trow.playing .trow-play { display: flex; }
 
@@ -229,17 +218,18 @@
     min-width: 0;
   }
   .trow-title-text {
-    font-family: var(--font-display);
-    font-size: 14.5px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.35;
     color: var(--text-bright);
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    transition: color var(--motion-fast) var(--ease-out);
   }
-  .trow.playing .trow-title-text { color: var(--accent); }
+  .trow.playing .trow-title-text { color: var(--live); }
+  .trow-live { flex: 0 0 auto; font-size: 16px; color: var(--live); }
   .trow-dot {
     flex: 0 0 auto;
     width: 6px;
@@ -248,9 +238,8 @@
     background: var(--warning);
   }
   .trow-sub {
-    font-family: var(--font-display);
-    font-size: 12.5px;
-    font-weight: 500;
+    font-size: 13px;
+    line-height: 1.35;
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
@@ -260,8 +249,8 @@
   .trow-fmt {
     flex: 0 0 auto;
     font-family: var(--font-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.42px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
     color: var(--muted-2);
     text-align: right;
     min-width: 4.75em;
@@ -270,7 +259,7 @@
     flex: 0 0 auto;
     font-family: var(--font-mono);
     font-size: 12px;
-    color: var(--muted);
+    color: var(--muted-2);
     text-align: right;
     min-width: 3em;
     font-variant-numeric: tabular-nums;
@@ -280,10 +269,9 @@
     flex: 0 0 auto;
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
   }
-  .trow-actions .btn-rate { font-size: 17px; }
-  .trow-actions .btn-rate .lni { display: block; }
+  .trow-actions .btn-rate .pxi { display: block; }
   /* Curation actions replace format/duration on row hover: the resting row keeps
      like/dislike pinned to the right edge (no reserved gap), and Edit/Delete swap
      in without shoving the thumbs around. */
@@ -294,15 +282,13 @@
 
   /* ── Mobile: artwork-led list, tap to play ─────────────────────────────── */
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    .trow { gap: 10px; padding: 8px 2px; border-radius: 0; }
+    .trow { gap: 12px; padding: 8px 2px; border-radius: 0; }
     .trow-idx,
     .trow-fmt,
     .trow-actions { display: none; }
-    .trow-art { width: 48px; height: 48px; }
   }
 
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    button { min-height: 44px; min-width: 44px; }
-    .trow { flex-wrap: wrap; } .trow-actions { display: flex; flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; gap: 0.4rem; padding-bottom: 0.4rem; } .trow-hover { display: inline-flex; align-items: center; } .trow-dur { display: block; } .trow:hover .trow-dur { display: block; }
+    .trow { flex-wrap: wrap; } .trow-actions { display: flex; flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; } .trow-hover { display: inline-flex; align-items: center; } .trow-dur { display: block; } .trow:hover .trow-dur { display: block; }
   }
 </style>

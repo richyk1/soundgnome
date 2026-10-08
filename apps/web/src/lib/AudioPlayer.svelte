@@ -29,6 +29,7 @@
   import { usesNativeAudio } from './player';
   import Waveform from './Waveform.svelte';
   import EqPanel from './EqPanel.svelte';
+  import PixelCover from './PixelCover.svelte';
   import { Equalizer, loadEqState, saveEqState, type EqState } from './equalizer';
   import * as scrobbler from './scrobbler';
   import { lib } from './library/store.svelte';
@@ -52,10 +53,10 @@
 
   // -- Equalizer (opt-in Web Audio graph on the shared <audio> element) --------
   const eq = new Equalizer();
+  // iPhone and iPad play through native audio (background playback), which
+  // cannot route through the EQ or normalization graph, so those controls are
+  // not offered there; saved settings stay intact for other devices.
   const nativeAudio = usesNativeAudio();
-  const processingUnavailable = nativeAudio
-    ? 'iPhone and iPad use native audio for background playback. Equalizer and volume normalization are unavailable here; your saved settings are kept for other devices.'
-    : undefined;
   let eqState = $state<EqState>(loadEqState());
   let eqOpen = $state(false);
   let eqBtnEl: HTMLButtonElement | undefined = $state();
@@ -228,7 +229,8 @@
   let currentTime = $state(0);
   let duration = $state(0);
   let volume = $state(persisted?.volume ?? 1);
-  let muted = $state(persisted?.muted ?? false);
+  // No mute control on native audio (the device's buttons do it), so never restore a muted state there.
+  let muted = $state(!nativeAudio && (persisted?.muted ?? false));
   // Whether the current track's waveform loaded; drives the fall back to a plain range.
   let waveReady = $state(false);
   // Some sources hand out signed URLs that expire: allow exactly one silent re-resolve per track.
@@ -915,6 +917,11 @@
   let coverBase = $derived(currentLibTrack?.cover ?? current?.artwork ?? resolvedArt ?? null);
   let barArt = $derived(coverBase);
   let npArt = $derived(coverBase ? coverAtSize(coverBase, 'large') : null);
+  let coverSeed = $derived(current ? (current.coverSeed ?? `track:${current.id}`) : '');
+  /** Played/filled share of a native range, for its painted track fill. */
+  function fillPct(value: number, max: number): number {
+    return max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
+  }
   function rateCurrent(rating: 'liked' | 'disliked') {
     const t = currentLibTrack;
     if (t) lib.setRating(t, t.rating === rating ? null : rating);
@@ -929,7 +936,7 @@
   });
 </script>
 
-<!-- Inline player: fills the shell's bottom bar with a bound native <audio>
+<!-- Inline player: fills the shell's bottom dock with a bound native <audio>
   element and custom controls in a three-column CSS grid. -->
 <div class="player" class:idle={!current}>
   <audio
@@ -959,12 +966,8 @@
         aria-expanded={expanded}
         onclick={openNP}
       >
-        <div class="player-thumb">
-          {#if barArt}
-            <img src={barArt} alt="" />
-          {:else}
-            <div class="cover-ph"><i class="lni lni-music-note"></i></div>
-          {/if}
+        <div class="player-thumb cover-wrap">
+          <PixelCover src={barArt} seed={coverSeed} loading="eager" />
         </div>
         <div class="player-info">
           <span class="title">{displayTitle}</span>
@@ -973,19 +976,19 @@
       </button>
       {#if currentLibTrack}
         <div class="pl-rate">
-          <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} title="Like" aria-label="Like"><i class="lni lni-thumbs-up-1"></i></button>
-          <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} title="Dislike" aria-label="Dislike"><i class="lni lni-thumbs-down-1"></i></button>
+          <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} title="Like" aria-label="Like"><i class="pxi pxi-thumbs-up" aria-hidden="true"></i></button>
+          <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} title="Dislike" aria-label="Dislike"><i class="pxi pxi-thumbs-down" aria-hidden="true"></i></button>
         </div>
       {/if}
     </div>
 
     <div class="pl-center">
       <div class="transport">
-        <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} title="Shuffle" aria-label="Shuffle" aria-pressed={shuffle}><i class="lni lni-shuffle"></i></button>
-        <button class="tbtn previous" onclick={prev} disabled={!canStep} title="Previous" aria-label="Previous"><i class="lni lni-backward"></i></button>
-        <button class="play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="lni {paused ? 'lni-play' : 'lni-pause'}"></i></button>
-        <button class="tbtn" onclick={next} disabled={!canStep} title="Next" aria-label="Next"><i class="lni lni-forward"></i></button>
-        <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} title={'Repeat: ' + repeat} aria-label="Repeat"><i class="lni lni-repeat-1"></i>{#if repeat === 'one'}<span class="rep-one">1</span>{/if}</button>
+        <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} title="Shuffle" aria-label="Shuffle" aria-pressed={shuffle}><i class="pxi pxi-shuffle" aria-hidden="true"></i></button>
+        <button class="tbtn previous" onclick={prev} disabled={!canStep} title="Previous" aria-label="Previous"><i class="pxi pxi-skip-back" aria-hidden="true"></i></button>
+        <button class="play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="pxi {paused ? 'pxi-play' : 'pxi-pause'}" aria-hidden="true"></i></button>
+        <button class="tbtn" onclick={next} disabled={!canStep} title="Next" aria-label="Next"><i class="pxi pxi-skip-forward" aria-hidden="true"></i></button>
+        <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} title={'Repeat: ' + repeat} aria-label="Repeat"><i class="pxi pxi-reload" aria-hidden="true"></i>{#if repeat === 'one'}<span class="rep-one" aria-hidden="true">1</span>{/if}</button>
       </div>
 
       <div class="progress-row">
@@ -996,58 +999,61 @@
           </div>
         {/if}
         {#if !waveReady}
-          <input class="range" type="range" min="0" max={total || 0} step="0.1" value={currentTime} oninput={(e) => seekTo(+e.currentTarget.value)} aria-label="Seek" />
+          <input class="range" type="range" min="0" max={total || 0} step="0.1" value={currentTime} style="--fill: {fillPct(currentTime, total)}%" oninput={(e) => seekTo(+e.currentTarget.value)} aria-label="Seek" />
         {/if}
         <span class="time dur">{formatTime(total)}</span>
       </div>
     </div>
 
     <div class="pl-right">
-      <div class="eq-wrap">
-        <button
-          class="eq-btn"
-          class:on={eqState.enabled && !nativeAudio}
-          bind:this={eqBtnEl}
-          onclick={() => (eqOpen = !eqOpen)}
-          title="Equalizer"
-          aria-label="Equalizer"
-          aria-expanded={eqOpen}
-        >
-          <i class="lni lni-sliders-triple-vertical-1"></i>
-        </button>
-        {#if eqOpen && !expanded}
+      {#if !nativeAudio}
+        <div class="eq-wrap">
           <button
-            class="eq-backdrop"
-            aria-label="Close equalizer"
-            onclick={() => (eqOpen = false)}
-            use:portal
-          ></button>
-          <div class="eq-pop" style={eqStyle} use:portal>
-            <label class="norm-toggle">
-              <input
-                type="checkbox"
-                checked={normalizeEnabled && !nativeAudio}
-                disabled={nativeAudio}
-                onchange={(e) => setNormalize(e.currentTarget.checked)}
-              />
-              <span>Normalize volume</span>
-            </label>
-            <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} disabledReason={processingUnavailable} />
-          </div>
-        {/if}
-      </div>
-      <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}>
-        <i class="lni {muted || volume === 0 ? 'lni-volume-off' : volume < 0.5 ? 'lni-volume-low' : 'lni-volume-high'}"></i>
-      </button>
+            class="eq-btn"
+            class:on={eqState.enabled}
+            bind:this={eqBtnEl}
+            onclick={() => (eqOpen = !eqOpen)}
+            title="Equalizer"
+            aria-label="Equalizer"
+            aria-expanded={eqOpen}
+          >
+            <i class="pxi pxi-sliders-vertical" aria-hidden="true"></i>
+          </button>
+          {#if eqOpen && !expanded}
+            <button
+              class="eq-backdrop"
+              aria-label="Close equalizer"
+              onclick={() => (eqOpen = false)}
+              use:portal
+            ></button>
+            <div class="eq-pop" style={eqStyle} use:portal>
+              <label class="norm-toggle">
+                <input
+                  type="checkbox"
+                  checked={normalizeEnabled}
+                  onchange={(e) => setNormalize(e.currentTarget.checked)}
+                />
+                <span>Normalize volume</span>
+              </label>
+              <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} />
+            </div>
+          {/if}
+        </div>
+      {/if}
+      {#if !nativeAudio}
+        <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}>
+          <i class="pxi {muted || volume === 0 ? 'pxi-volume-x' : volume < 0.5 ? 'pxi-volume-1' : 'pxi-volume-3'}" aria-hidden="true"></i>
+        </button>
+      {/if}
       {#if nativeAudio}
         <span class="device-volume">Use device volume</span>
       {:else}
-        <input class="volume" type="range" min="0" max="1" step="0.01" bind:value={volume} aria-label="Volume" />
+        <input class="volume" type="range" min="0" max="1" step="0.01" bind:value={volume} style="--fill: {fillPct(volume, 1)}%" aria-label="Volume" />
       {/if}
     </div>
   {:else}
     <div class="pl-idle">
-      <i class="lni lni-music-note"></i>
+      <i class="pxi pxi-music" aria-hidden="true"></i>
       <span>Nothing playing</span>
     </div>
   {/if}
@@ -1067,7 +1073,7 @@
     class:open={expanded}
     class:dragging
     bind:clientHeight={sheetH}
-    style="transform: translateY({dragging ? dragY + 'px' : expanded ? '0px' : '100%'}); opacity: {reduceMotion ? (expanded ? 1 : 0) : 1}; transition: {dragging ? 'none' : reduceMotion ? 'opacity .2s ease' : 'transform .34s cubic-bezier(.32,.72,0,1)'}; pointer-events: {expanded ? 'auto' : 'none'}"
+    style="transform: translateY({dragging ? dragY + 'px' : expanded ? '0px' : '100%'}); opacity: {reduceMotion ? (expanded ? 1 : 0) : 1}; transition: {dragging ? 'none' : reduceMotion ? 'opacity 200ms var(--ease-out)' : 'transform var(--motion-sheet) var(--ease-drawer)'}; pointer-events: {expanded ? 'auto' : 'none'}"
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -1077,23 +1083,24 @@
       onpointerup={onSheetPointerUp}
       onpointercancel={onSheetPointerUp}
     >
-      <button class="np-close" onclick={closeNP} aria-label="Close now playing"><i class="lni lni-chevron-down"></i></button>
+      <button class="np-close" onclick={closeNP} aria-label="Close now playing"><i class="pxi pxi-chevron-down" aria-hidden="true"></i></button>
       <div class="np-grabber"></div>
     </div>
 
-    <div class="np-art">
-      {#if npArt}
-        <img src={npArt} alt="" />
-      {:else}
-        <div class="cover-ph"><i class="lni lni-music-note"></i></div>
-      {/if}
+    <div class="np-art cover-wrap">
+      <PixelCover src={npArt} seed={coverSeed} loading="eager" />
     </div>
 
     <div class="np-meta">
       <div class="np-title">{displayTitle}</div>
       <div class="np-artist">{displayArtist}</div>
     </div>
-    {#if playbackError}<p class="playback-error" role="status">{playbackError}</p>{/if}
+    {#if playbackError}
+      <div class="callout callout-error playback-error" role="status">
+        <i class="pxi pxi-square-alert" aria-hidden="true"></i>
+        <div class="callout-body"><strong>{playbackError}</strong></div>
+      </div>
+    {/if}
 
     <div class="np-scrub">
       {#if waveUrl || srcUrl}
@@ -1102,285 +1109,250 @@
         </div>
       {/if}
       {#if !waveReady}
-        <input class="range" type="range" min="0" max={total || 0} step="0.1" value={currentTime} oninput={(e) => seekTo(+e.currentTarget.value)} aria-label="Seek" />
+        <input class="range" type="range" min="0" max={total || 0} step="0.1" value={currentTime} style="--fill: {fillPct(currentTime, total)}%" oninput={(e) => seekTo(+e.currentTarget.value)} aria-label="Seek" />
       {/if}
       <div class="np-times"><span>{formatTime(currentTime)}</span><span>{formatTime(total)}</span></div>
     </div>
 
     <div class="np-transport">
-      <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} aria-label="Shuffle"><i class="lni lni-shuffle"></i></button>
-      <button class="tbtn" onclick={prev} disabled={!canStep} aria-label="Previous"><i class="lni lni-backward"></i></button>
-      <button class="np-play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="lni {paused ? 'lni-play' : 'lni-pause'}"></i></button>
-      <button class="tbtn" onclick={next} disabled={!canStep} aria-label="Next"><i class="lni lni-forward"></i></button>
-      <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} aria-label="Repeat"><i class="lni lni-repeat-1"></i>{#if repeat === 'one'}<span class="rep-one">1</span>{/if}</button>
+      <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} aria-label="Shuffle"><i class="pxi pxi-shuffle" aria-hidden="true"></i></button>
+      <button class="tbtn" onclick={prev} disabled={!canStep} aria-label="Previous"><i class="pxi pxi-skip-back" aria-hidden="true"></i></button>
+      <button class="np-play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="pxi {paused ? 'pxi-play' : 'pxi-pause'}" aria-hidden="true"></i></button>
+      <button class="tbtn" onclick={next} disabled={!canStep} aria-label="Next"><i class="pxi pxi-skip-forward" aria-hidden="true"></i></button>
+      <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} aria-label="Repeat"><i class="pxi pxi-reload" aria-hidden="true"></i>{#if repeat === 'one'}<span class="rep-one" aria-hidden="true">1</span>{/if}</button>
     </div>
 
     <div class="np-secondary">
       {#if currentLibTrack}
-        <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} aria-label="Like"><i class="lni lni-thumbs-up-1"></i></button>
-        <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} aria-label="Dislike"><i class="lni lni-thumbs-down-1"></i></button>
+        <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} aria-label="Like"><i class="pxi pxi-thumbs-up" aria-hidden="true"></i></button>
+        <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} aria-label="Dislike"><i class="pxi pxi-thumbs-down" aria-hidden="true"></i></button>
       {/if}
-      <button class="eq-btn" class:on={eqState.enabled && !nativeAudio} onclick={() => (eqOpen = !eqOpen)} aria-label="Equalizer" aria-expanded={eqOpen}><i class="lni lni-sliders-triple-vertical-1"></i></button>
-      <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}><i class="lni {muted || volume === 0 ? 'lni-volume-off' : volume < 0.5 ? 'lni-volume-low' : 'lni-volume-high'}"></i></button>
+      {#if !nativeAudio}
+        <button class="eq-btn" class:on={eqState.enabled} onclick={() => (eqOpen = !eqOpen)} aria-label="Equalizer" aria-expanded={eqOpen}><i class="pxi pxi-sliders-vertical" aria-hidden="true"></i></button>
+      {/if}
+      {#if !nativeAudio}
+        <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}><i class="pxi {muted || volume === 0 ? 'pxi-volume-x' : volume < 0.5 ? 'pxi-volume-1' : 'pxi-volume-3'}" aria-hidden="true"></i></button>
+      {/if}
     </div>
     {#if nativeAudio}
       <p class="device-volume">Use your device's volume buttons or Control Center.</p>
     {:else}
-      <input class="volume np-vol" type="range" min="0" max="1" step="0.01" bind:value={volume} aria-label="Volume" />
+      <input class="volume np-vol" type="range" min="0" max="1" step="0.01" bind:value={volume} style="--fill: {fillPct(volume, 1)}%" aria-label="Volume" />
     {/if}
 
-    {#if eqOpen && expanded}
+    {#if eqOpen && expanded && !nativeAudio}
       <div class="np-eq">
         <label class="norm-toggle">
           <input
             type="checkbox"
-            checked={normalizeEnabled && !nativeAudio}
-            disabled={nativeAudio}
+            checked={normalizeEnabled}
             onchange={(e) => setNormalize(e.currentTarget.checked)}
           />
           <span>Normalize volume</span>
         </label>
-        <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} disabledReason={processingUnavailable} />
-      </div>
-    {/if}
-
-    {#if upNext.length > 0}
-      <div class="np-queue">
-        <div class="np-queue-head">Up next</div>
-        {#each upNext.slice(0, 20) as q}
-          <div class="np-q-row">
-            <div class="np-q-art" style={q.artwork ? `background-image:url(${q.artwork})` : ''}>
-              {#if !q.artwork}<i class="lni lni-music-note"></i>{/if}
-            </div>
-            <div class="np-q-meta">
-              <div class="np-q-title">{q.title}</div>
-              <div class="np-q-artist">{q.artist}</div>
-            </div>
-          </div>
-        {/each}
+        <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} />
       </div>
     {/if}
   </div>
 {/if}
 
 <style>
-  /* Fills the shell's bottom player bar (App.svelte owns the bar background). */
+  /* Fills the shell's bottom dock; App.svelte owns its ground and top hairline. */
   .player {
     width: 100%;
     height: 100%;
-    box-sizing: border-box;
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, min(560px, 44vw)) minmax(0, 1fr);
     align-items: center;
     gap: 24px;
-    padding: 0 var(--space-page);
+    padding: 0 24px;
   }
   .player.idle { display: flex; align-items: center; justify-content: center; }
 
   .pl-idle {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     color: var(--muted-2);
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
   }
-  .pl-idle .lni { font-size: 18px; }
+  .pl-idle .pxi { font-size: 16px; }
 
   /* ── Left: track identity ────────────────────────────────────────────── */
   .pl-left {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     min-width: 0;
   }
   .pl-identity {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
     min-width: 0;
-  }
-  .pl-identity {
     padding: 0;
     border: 0;
+    border-radius: var(--radius-control);
     background: transparent;
     color: inherit;
     font: inherit;
     text-align: left;
   }
-  .pl-identity:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
-  .pl-rate {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    flex-shrink: 0;
-  }
-  .pl-rate .btn-rate {
-    font-size: 16px;
-    padding: 4px 6px;
-  }
   .player-thumb {
-    width: 60px;
-    height: 60px;
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--surface-2);
+    width: 48px;
     flex-shrink: 0;
+    border-radius: var(--radius-chip);
   }
-  .player-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .cover-ph {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted-2);
-    background: linear-gradient(135deg, var(--surface-2), var(--panel));
-  }
-  .cover-ph .lni { font-size: 22px; }
-  .player-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .player-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .title {
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 500;
+    line-height: 1.35;
     color: var(--text-bright);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .artist {
-    font-size: 12.5px;
-    font-weight: 500;
+    font-size: 13px;
+    line-height: 1.35;
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .pl-rate {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .pl-rate .btn-rate { width: 32px; height: 32px; }
 
-  /* ── Center: transport + progress ────────────────────────────────────── */
+  /* ── Center: transport (40px) over progress (28px) ───────────────────── */
   .pl-center {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    width: min(620px, 46vw);
+    display: grid;
+    grid-template-rows: 40px 28px;
+    row-gap: 4px;
+    justify-items: center;
+    min-width: 0;
+    width: 100%;
   }
-  .transport { display: flex; align-items: center; gap: 16px; }
+  .transport { display: flex; align-items: center; gap: 8px; }
   .tbtn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 4px;
-    min-width: 44px;
-    min-height: 44px;
     position: relative;
-    transition: color 0.12s, transform 0.12s;
-  }
-  .tbtn .lni { font-size: 18px; }
-  .tbtn:hover:not(:disabled) { color: var(--text-bright); transform: scale(1.08); }
-  .tbtn:disabled { opacity: 0.35; cursor: default; }
-  .tbtn.on { color: var(--accent); }
-  .tbtn.repeat .rep-one {
-    position: absolute;
-    top: -2px;
-    right: -1px;
-    font-family: var(--font-mono);
-    font-size: 9px;
-    font-weight: 600;
-    color: var(--accent);
-  }
-
-  .play {
-    width: 46px;
-    height: 46px;
-    border-radius: 50%;
-    background: var(--accent);
-    color: var(--on-accent);
-    border: none;
-    padding: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--muted);
     cursor: pointer;
-    flex-shrink: 0;
-    transition: transform 0.12s, filter 0.12s;
   }
-  .play:hover { transform: scale(1.05); filter: brightness(1.08); }
-  .play .lni { font-size: 18px; line-height: 1; }
+  .tbtn .pxi { font-size: 24px; }
+  .tbtn:hover:not(:disabled) { color: var(--text-bright); background: var(--surface-2); }
+  .tbtn:disabled { color: var(--text-disabled); cursor: default; }
+  .tbtn.on, .tbtn.on:hover:not(:disabled) { color: var(--accent); }
+  /* Repeat-one: a tiny mono key cap on the repeat glyph's corner. */
+  .rep-one {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    padding: 0 2px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 11px;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+
+  /* Play/pause: the ink key. */
+  .play,
+  .np-play {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    background: var(--text-bright);
+    color: var(--bg);
+    cursor: pointer;
+  }
+  .play {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-control);
+  }
+  .play .pxi, .np-play .pxi { font-size: 24px; }
+  .play:hover, .np-play:hover { background: color-mix(in srgb, var(--text-bright) 86%, var(--bg)); }
+  .play:active, .np-play:active { background: color-mix(in srgb, var(--text-bright) 78%, var(--bg)); }
 
   .progress-row {
     display: flex;
     align-items: center;
     gap: 12px;
     width: 100%;
+    height: 28px;
   }
   .time {
+    flex-shrink: 0;
+    min-width: 40px;
     color: var(--muted-2);
     font-family: var(--font-mono);
     font-size: 11px;
-    flex-shrink: 0;
-    min-width: 34px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
   }
-  .time.dur { text-align: right; }
+  .time.dur { text-align: left; }
   .wave-slot {
     flex: 1;
     min-width: 0;
-    height: 44px;
+    height: 28px;
     display: flex;
     align-items: center;
   }
 
-  /* ── Right: volume ───────────────────────────────────────────────────── */
+  /* ── Right: equalizer + volume ───────────────────────────────────────── */
   .pl-right {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 4px;
+    min-width: 0;
   }
-  .mute {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 4px;
-    display: flex;
-    align-items: center;
-  }
-  .mute:hover { color: var(--text-bright); }
-  .mute .lni { font-size: 17px; }
-
-  /* ── Equalizer button + popover ──────────────────────────────────────── */
   .eq-wrap { position: relative; display: flex; align-items: center; }
-  .norm-toggle {
-    display: flex;
+  .eq-btn,
+  .mute {
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 2px 2px 10px;
-    min-height: 44px;
-    margin-bottom: 8px;
-    font-size: 12.5px;
-    color: var(--text);
-    cursor: pointer;
-    border-bottom: 1px solid var(--border);
-  }
-  .norm-toggle input { accent-color: var(--accent); width: 20px; height: 20px; }
-  .eq-btn {
-    background: none;
-    border: none;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
     color: var(--muted);
     cursor: pointer;
-    padding: 4px;
-    display: flex;
-    align-items: center;
   }
-  .eq-btn:hover { color: var(--text-bright); }
-  .eq-btn.on { color: var(--accent); }
-  .eq-btn .lni { font-size: 17px; }
-  /* Portalled to <body>, so positioned via viewport-fixed inline coords. This
-     escapes the player bar's `overflow: hidden` (which was clipping it). */
+  .eq-btn .pxi, .mute .pxi { font-size: 16px; }
+  .eq-btn:hover, .mute:hover { color: var(--text-bright); background: var(--surface-2); }
+  .eq-btn.on, .eq-btn.on:hover { color: var(--accent); }
+  .pl-right .volume { margin-left: 6px; }
+  .device-volume { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+  /* Portalled to <body>, so positioned via viewport-fixed inline coords that
+     escape the dock's stacking. A floating layer: float ground and shadow. */
   .eq-backdrop {
     position: fixed;
     inset: 0;
@@ -1393,76 +1365,105 @@
   .eq-pop {
     position: fixed;
     z-index: 300;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px;
-    width: min(370px, calc(100vw - 16px));
+    width: min(380px, calc(100vw - 16px));
     max-height: calc(var(--app-height, 100dvh) - 32px);
+    padding: 16px;
     overflow-y: auto;
     overscroll-behavior: contain;
-    box-sizing: border-box;
-    box-shadow: var(--shadow);
+    border: 1px solid var(--float-border);
+    border-radius: var(--radius-card);
+    background: var(--float);
+    color: var(--text);
+    box-shadow: var(--float-shadow);
+  }
+  .norm-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .norm-toggle input {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--accent);
   }
 
-  /* Native range inputs (seek + volume), themed to the violet accent. */
-  .range, .volume {
+  /* Native range inputs (seek + volume): a hairline track, a painted fill
+     (live for playback, neutral for volume), and a small square thumb. */
+  .range,
+  .volume {
+    --fill-color: var(--live);
     -webkit-appearance: none;
     appearance: none;
-    height: 44px;
+    height: 28px;
     margin: 0;
+    padding: 0;
     background: transparent;
     cursor: pointer;
   }
-  .range::-webkit-slider-runnable-track, .volume::-webkit-slider-runnable-track {
-    height: 4px;
-    background: var(--surface-2);
-    border-radius: 999px;
-  }
-  .range::-moz-range-track, .volume::-moz-range-track {
-    height: 4px;
-    background: var(--surface-2);
-    border-radius: 999px;
-  }
-  .range:focus-visible, .volume:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
+  .volume { --fill-color: var(--text); width: 96px; flex-shrink: 0; }
   .range { flex: 1; min-width: 0; }
-  .volume { width: 96px; flex-shrink: 0; }
+  .range::-webkit-slider-runnable-track,
+  .volume::-webkit-slider-runnable-track {
+    height: 2px;
+    background: linear-gradient(to right, var(--fill-color) var(--fill, 0%), var(--border-strong) var(--fill, 0%));
+  }
+  .range::-moz-range-track,
+  .volume::-moz-range-track {
+    height: 2px;
+    background: var(--border-strong);
+  }
+  .range::-moz-range-progress,
+  .volume::-moz-range-progress {
+    height: 2px;
+    background: var(--fill-color);
+  }
   .range::-webkit-slider-thumb,
   .volume::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 18px;
-    height: 18px;
-    margin-top: -7px;
-    border-radius: 50%;
-    background: var(--accent);
-    cursor: pointer;
+    width: 10px;
+    height: 10px;
+    margin-top: -4px;
+    border: 0;
+    border-radius: 0;
+    background: var(--fill-color);
   }
   .range::-moz-range-thumb,
   .volume::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
-    border: none;
-    border-radius: 50%;
-    background: var(--accent);
-    cursor: pointer;
+    width: 10px;
+    height: 10px;
+    border: 0;
+    border-radius: 0;
+    background: var(--fill-color);
+  }
+  .range:focus-visible,
+  .volume:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
+  /* ── Phones: a 64px mini player row inside the dock ──────────────────── */
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    .player { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 0 12px; }
-    .pl-center { width: auto; }
-    .transport { gap: 2px; }
-    .pl-identity { gap: 8px; width: 100%; min-height: 44px; }
+    .player { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 0 8px 0 12px; }
+    .pl-center { display: flex; width: auto; }
+    .transport { gap: 0; }
+    .pl-identity { gap: 12px; width: 100%; min-height: 44px; cursor: pointer; }
     .player-info { flex: 1; }
-    .progress-row, .pl-right { display: none; }
+    .progress-row, .pl-right, .pl-rate { display: none; }
     .player .shuffle, .player .repeat, .player .previous { display: none; }
-    .player-thumb { width: 44px; height: 44px; }
+    .player-thumb { width: 40px; }
+    .player .tbtn { width: 44px; height: 44px; }
     .player .play { width: 44px; height: 44px; background: transparent; color: var(--text-bright); }
-    .player .title { font-size: 13px; }
-    .player .artist { font-size: 11px; }
+    .player .play:hover, .player .play:active { background: var(--surface-2); }
   }
 
   /* ── Mobile Now Playing (full-screen sheet) ────────────────────────────── */
@@ -1477,170 +1478,119 @@
     flex-direction: column;
     align-items: center;
     background: var(--bg);
-    padding: calc(env(safe-area-inset-top, 0px) + 6px) var(--space-page) calc(env(safe-area-inset-bottom, 0px) + 20px);
-    box-sizing: border-box;
-    overflow-y: auto;
+    padding: calc(var(--safe-top) + 4px) calc(var(--space-page) + var(--safe-right)) calc(var(--safe-bottom) + 24px) calc(var(--space-page) + var(--safe-left));
+    /* Everything fits one screen; only the opened EQ (non-iOS) may need to scroll. */
+    overflow-y: hidden;
     overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
     will-change: transform;
   }
-  .np > * { flex-shrink: 0; }
-  .tbtn, .mute, .eq-btn, .btn-rate, .np-close {
-    min-width: 44px;
-    min-height: 44px;
-    justify-content: center;
+  .np:has(.np-eq) {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  .btn-rate { color: var(--muted); background: none; border: none; cursor: pointer; }
-  .btn-rate.active-like { color: var(--success); }
-  .btn-rate.active-dislike { color: var(--error); }
-  .device-volume { color: var(--muted); font-size: 12px; line-height: 1.5; text-align: center; }
-  .playback-error { width: 100%; color: var(--error); background: var(--error-bg); padding: 12px; border-radius: 8px; box-sizing: border-box; font-size: 14px; }
+  .np > * { flex-shrink: 0; }
   .np-head {
-    width: 100%;
-    min-height: 44px;
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
-    position: relative;
-    padding: 6px 0 2px;
-    flex-shrink: 0;
+    width: 100%;
+    min-height: 48px;
     touch-action: none;
     cursor: grab;
   }
-  .np-grabber { width: 40px; height: 5px; border-radius: 999px; background: var(--surface-2); }
+  .np-grabber { width: 36px; height: 4px; background: var(--border-heavy); }
   .np-close {
     position: absolute;
-    left: -6px;
-    top: 0;
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-size: 24px;
-    cursor: pointer;
-    padding: 4px 8px;
-  }
-  .np-art {
-    width: min(72vw, 340px, calc(var(--app-height, 100dvh) * 0.42));
-    aspect-ratio: 1;
-    border-radius: 16px;
-    overflow: hidden;
-    background: var(--surface-2);
-    display: flex;
+    left: -10px;
+    top: 2px;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    box-shadow: var(--shadow);
-    margin-top: 20px;
-    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
   }
-  .np-art img { width: 100%; height: 100%; object-fit: cover; }
-  .np-art .cover-ph { font-size: 64px; color: var(--muted-2); }
-  .np-meta { width: 100%; text-align: center; margin-top: 20px; }
+  .np-close .pxi { font-size: 24px; }
+  .np-close:hover { color: var(--text-bright); background: var(--surface-2); }
+  .np-art {
+    /* The art takes whatever height the controls leave, so the sheet never needs to scroll. */
+    width: min(100%, 360px, calc(var(--app-height, 100dvh) - 440px));
+    margin-top: 16px;
+    border-radius: var(--radius-card);
+  }
+  .np-meta { width: 100%; margin-top: 24px; text-align: center; }
   .np-title {
     font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.35rem;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.25;
     letter-spacing: -0.02em;
     color: var(--text-bright);
-    line-height: 1.2;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  .np-artist { color: var(--muted); font-size: 0.95rem; margin-top: 5px; overflow-wrap: anywhere; }
-  .np-scrub { width: 100%; margin-top: 18px; }
-  .np-scrub .range { width: 100%; display: block; }
-  .np-scrub .wave-slot { width: 100%; }
+  .np-artist { margin-top: 4px; color: var(--muted); font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+  .playback-error { width: 100%; margin-top: 16px; }
+  .np-scrub { width: 100%; margin-top: 20px; }
+  .np-scrub .wave-slot { width: 100%; height: 48px; }
+  .np-scrub .range { display: block; width: 100%; height: 44px; }
   .np-times {
     display: flex;
     justify-content: space-between;
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
+    margin-top: 4px;
     color: var(--muted);
-    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
   }
   .np-transport {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: clamp(2px, 2vw, 12px);
+    gap: clamp(4px, 3vw, 16px);
     width: 100%;
-    margin-top: 16px;
+    margin-top: 20px;
   }
-  .np-transport .tbtn {
-    position: relative;
-    background: none;
-    border: none;
-    color: var(--text);
-    font-size: 22px;
-    cursor: pointer;
-    padding: 6px;
-  }
-  .np-transport .tbtn:disabled { opacity: 0.35; cursor: default; }
+  .np-transport .tbtn { width: 48px; height: 48px; color: var(--text); }
+  .np-transport .tbtn:disabled { color: var(--text-disabled); }
   .np-transport .tbtn.on { color: var(--accent); }
   .np-play {
     width: 64px;
     height: 64px;
-    flex-shrink: 0;
-    border-radius: 50%;
-    background: var(--text-bright);
-    color: var(--bg);
-    border: none;
-    font-size: 26px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    border-radius: var(--radius-card);
   }
   .np-secondary {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    flex-wrap: wrap;
+    gap: 8px;
     margin-top: 16px;
   }
-  .np-secondary .btn-rate { font-size: 20px; }
+  .np-secondary .pxi { font-size: 24px; }
+  .np-secondary .btn-rate,
   .np-secondary .eq-btn,
-  .np-secondary .mute {
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-size: 19px;
-    cursor: pointer;
-    padding: 4px;
-  }
-  .np-secondary .eq-btn.on { color: var(--accent); }
-  .np-vol { width: min(80%, 300px); margin-top: 10px; }
-  .np-eq { width: 100%; margin-top: 14px; }
-  .np-queue { width: 100%; margin-top: 22px; }
-  .np-queue-head {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    margin-bottom: 10px;
-  }
-  .np-q-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
-  .np-q-art {
-    width: 38px;
-    height: 38px;
-    border-radius: 6px;
-    background: var(--surface-2) center/cover no-repeat;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted-2);
-  }
-  .np-q-meta { min-width: 0; }
-  .np-q-title { font-size: 0.9rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .np-q-artist { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .np-secondary .mute { width: 48px; height: 48px; }
+  .np-vol { width: min(100%, 320px); height: 44px; margin-top: 8px; }
+  .np .device-volume { margin: 8px 0 0; text-align: center; }
+  .np-eq { width: 100%; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
 
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
     .np { display: flex; }
-    .pl-identity { cursor: pointer; }
-    .pl-rate { display: none; }
+  }
+
+  /* High contrast: native ranges and outlined keys read in system colors. */
+  @media (forced-colors: active) {
+    .range, .volume { -webkit-appearance: auto; appearance: auto; }
+    .play, .np-play { border: 1px solid ButtonText; }
   }
 </style>

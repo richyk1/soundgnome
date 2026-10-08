@@ -2,7 +2,9 @@
   import { lib } from './store.svelte';
   import CardActions from './CardActions.svelte';
   import LibraryOptions from './LibraryOptions.svelte';
+  import PixelCover from '../PixelCover.svelte';
   import { runNavigation } from '../navigation-motion';
+  import type { PlaylistTrackDto } from '../types';
 
   function fmtDuration(secs: number | null): string {
     if (secs == null) return '—';
@@ -10,53 +12,67 @@
     const s = secs % 60;
     return `${m}:${String(s).padStart(2, '0')}`;
   }
-</script>
 
-{#snippet coverWrap(src: string | null | undefined, alt: string)}
-  <div class="cover-wrap">
-    {#if src && (src.startsWith('http://') || src.startsWith('https://'))}
-      <img {src} {alt} class="cover-img" loading="lazy" />
-    {:else}
-      <div class="cover-ph">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <path d="M9 19V6l12-3v13"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="16" r="3"/>
-        </svg>
-      </div>
-    {/if}
-  </div>
-{/snippet}
+  function remoteCover(src: string | null | undefined): string | null {
+    return src && /^https?:\/\//.test(src) ? src : null;
+  }
+
+  /** Total running time, e.g. 48:31 or 1:12:05. */
+  function totalDuration(tracks: PlaylistTrackDto[]): string | null {
+    const secs = tracks.reduce((sum, t) => sum + (t.duration ?? 0), 0);
+    if (secs <= 0) return null;
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = String(Math.floor(secs % 60)).padStart(2, '0');
+    return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+  }
+
+  function playlistMeta(source: string): string {
+    const n = lib.drillPlaylistTracks.length;
+    return [source, `${n} track${n !== 1 ? 's' : ''}`, totalDuration(lib.drillPlaylistTracks)].filter(Boolean).join(' · ');
+  }
+</script>
 
 <!-- ── PLAYLIST DETAIL ──────────────────────────────────────────────────────── -->
 {#if lib.drillPlaylistId != null}
   {#if lib.drillPlaylistTracksLoading}
-    <p class="status">Loading tracks…</p>
+    <p class="status"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i> Loading tracks…</p>
   {:else if lib.drillPlaylistTracksError}
-    <p class="status error">{lib.drillPlaylistTracksError}</p>
+    <div class="callout callout-error" role="alert">
+      <i class="pxi pxi-square-alert" aria-hidden="true"></i>
+      <div class="callout-body"><strong>Couldn't load tracks</strong><span>{lib.drillPlaylistTracksError}</span></div>
+    </div>
   {:else}
     {@const playlist = lib.drillPlaylist}
     {#if playlist}
-      <div class="detail-hero">
-        <div class="detail-cover">{@render coverWrap(playlist.cover, playlist.name)}</div>
+      <header class="detail-hero">
+        <div class="cover-wrap detail-cover">
+          <PixelCover src={remoteCover(playlist.cover)} seed="playlist:{playlist.id}" alt={playlist.name} loading="eager" />
+        </div>
         <div class="detail-info">
-          <div class="detail-type">{playlist.source}</div>
           <h2>{playlist.name}</h2>
-          <div class="detail-meta">{lib.drillPlaylistTracks.length} track{lib.drillPlaylistTracks.length !== 1 ? 's' : ''}</div>
-          {#if playlist.source_url}
-            <a class="source-link" href={playlist.source_url} target="_blank" rel="noopener noreferrer">Open source ↗</a>
-          {/if}
+          <p class="detail-meta">{playlistMeta(playlist.source)}</p>
           <div class="detail-actions">
+            {#if playlist.source_url}
+              <a class="btn-header" href={playlist.source_url} target="_blank" rel="noopener noreferrer">
+                Open source <i class="pxi pxi-external-link" aria-hidden="true"></i>
+              </a>
+            {/if}
             <CardActions inline title={playlist.name} actions={[
               { label: 'Delete playlist', danger: true, onSelect: () => lib.handleDeletePlaylist(playlist.id) },
             ]} />
           </div>
         </div>
-      </div>
+      </header>
     {:else}
-      <p class="status muted">Loading playlist…</p>
+      <p class="status">Loading playlist…</p>
     {/if}
 
     {#if lib.drillPlaylistTracks.length === 0}
-      <p class="status">No tracks in this playlist.</p>
+      <div class="empty">
+        <i class="pxi pxi-bulletlist" aria-hidden="true"></i>
+        <p class="empty-title">No tracks in this playlist.</p>
+      </div>
     {:else}
       <div class="table-wrap">
         <table>
@@ -66,12 +82,12 @@
           <tbody>
             {#each lib.drillPlaylistTracks as t, i (t.id)}
               <tr>
-                <td class="muted">{i + 1}</td>
-                <td class="title-cell">{t.title}</td>
+                <td class="mono">{String(i + 1).padStart(2, '0')}</td>
+                <td class="pl-title">{t.title}</td>
                 <td class="muted">{t.artists.map(a => a.name).join(', ') || '—'}</td>
                 <td class="muted">{t.album?.title ?? '—'}</td>
                 <td class="muted">{t.genre ?? '—'}</td>
-                <td class="muted mono">{fmtDuration(t.duration)}</td>
+                <td class="mono">{fmtDuration(t.duration)}</td>
               </tr>
             {/each}
           </tbody>
@@ -82,31 +98,45 @@
 
 <!-- ── PLAYLISTS GRID ─────────────────────────────────────────────────────── -->
 {:else if lib.playlistsLoading}
-  <p class="status">Loading…</p>
+  <p class="status"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i> Loading…</p>
 {:else if lib.playlistsError}
-  <p class="status error">{lib.playlistsError}</p>
+  <div class="callout callout-error" role="alert">
+    <i class="pxi pxi-square-alert" aria-hidden="true"></i>
+    <div class="callout-body"><strong>Couldn't load playlists</strong><span>{lib.playlistsError}</span></div>
+  </div>
 {:else}
   <LibraryOptions>
     {#snippet search()}
+      <i class="pxi pxi-search" aria-hidden="true"></i>
       <input class="search" aria-label="Search playlists" placeholder="Search playlists…" bind:value={lib.playlistSearch} />
     {/snippet}
     {#snippet children()}
+      <div class="opt-row">
+        <button class="btn-header" onclick={lib.handleRefresh} disabled={lib.refreshing}>
+          <i class="pxi pxi-refresh" class:pxi-spin={lib.refreshing} aria-hidden="true"></i>
+          {lib.refreshing ? 'Refreshing…' : 'Refresh playlists'}
+        </button>
+      </div>
       <span class="count">{lib.filteredPlaylists.length} playlist{lib.filteredPlaylists.length !== 1 ? 's' : ''}</span>
-      <button class="playlist-refresh" onclick={lib.handleRefresh} disabled={lib.refreshing}>{lib.refreshing ? 'Refreshing…' : 'Refresh playlists'}</button>
     {/snippet}
   </LibraryOptions>
 
   {#if lib.filteredPlaylists.length === 0}
-    <p class="status">No playlists found.</p>
+    <div class="empty">
+      <i class="pxi pxi-bulletlist" aria-hidden="true"></i>
+      <p class="empty-title">No playlists found.</p>
+    </div>
   {:else}
-    <div class="grid">
-       {#each lib.filteredPlaylists as p (p.id)}
-         <div class="card">
-           <button class="card-main" onclick={() => runNavigation(() => lib.drillIntoPlaylist(p))}>
-             {@render coverWrap(p.cover, p.name)}
-            <div class="card-info">
+    <div class="card-grid">
+      {#each lib.filteredPlaylists as p (p.id)}
+        <div class="card clickable">
+          <button class="card-main" onclick={() => runNavigation(() => lib.drillIntoPlaylist(p))}>
+            <div class="cover-wrap">
+              <PixelCover src={remoteCover(p.cover)} seed="playlist:{p.id}" alt={p.name} />
+            </div>
+            <div class="card-body">
               <div class="card-title" title={p.name}>{p.name}</div>
-              <div class="card-sub">{p.source}</div>
+              <div class="card-meta source">{p.source}</div>
             </div>
           </button>
           <CardActions title={p.name} actions={[
@@ -119,179 +149,37 @@
 {/if}
 
 <style>
-  .search {
-    flex: 1;
-    min-width: 0;
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: var(--surface);
-    color: inherit;
-    font-size: 0.85rem;
-  }
-  .count {
-    font-size: 0.8rem;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr));
-    gap: 1rem;
-  }
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: var(--shadow-sm);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    position: relative;
-    transition: border-color var(--motion-fast, 160ms) var(--ease-out, ease-out);
-  }
-  .card:hover {
-    border-color: var(--accent);
-  }
   .card-main {
-    display: flex;
-    flex-direction: column;
-    cursor: pointer;
-    text-align: left;
+    display: block;
+    width: 100%;
+    min-width: 0;
     padding: 0;
-    background: none;
     border: none;
+    border-radius: var(--radius-control);
+    background: none;
     color: inherit;
     font-family: inherit;
-    width: 100%;
-  }
-  .cover-wrap {
-    width: 100%;
-    aspect-ratio: 1;
-    overflow: hidden;
-    background: var(--surface-2);
-    flex-shrink: 0;
-  }
-  .cover-img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .cover-ph {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted);
-  }
-  .cover-ph svg { width: 40%; height: 40%; }
-  .card-info {
-    padding: 0.5rem 0.6rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    min-width: 0;
-  }
-  .card-title {
-    font-size: 0.85rem;
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .card-sub {
-    font-size: 0.75rem;
-    color: var(--muted);
-    text-transform: capitalize;
-  }
-
-  /* Detail hero actions */
-  .detail-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-  }
-  .playlist-refresh { padding: 0.4rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); font: inherit; cursor: pointer; }
-
-  /* Detail view */
-  .detail-hero {
-    display: flex;
-    gap: 1.5rem;
-    align-items: flex-start;
-    margin-bottom: 1.5rem;
-  }
-  .detail-cover {
-    width: 120px;
-    height: 120px;
-    border-radius: 6px;
-    overflow: hidden;
-    flex-shrink: 0;
-    background: var(--surface-2);
-  }
-  .detail-info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    min-width: 0;
-  }
-  .detail-type {
-    font-size: 0.75rem;
-    color: var(--muted);
-    text-transform: capitalize;
-    letter-spacing: 0.04em;
-  }
-  .detail-info h2 { margin: 0; font-size: 1.3rem; font-weight: 700; }
-  .detail-meta { font-size: 0.85rem; color: var(--muted); }
-  .source-link {
-    font-size: 0.8rem;
-    color: var(--accent);
-    text-decoration: none;
-    margin-top: 0.2rem;
-  }
-  .source-link:hover { text-decoration: underline; }
-
-  .table-wrap { overflow-x: auto; }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-  th {
     text-align: left;
-    padding: 0.4rem 0.6rem;
-    font-weight: 500;
-    color: var(--muted);
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
+    cursor: pointer;
   }
-  td {
-    padding: 0.45rem 0.6rem;
-    border-bottom: 1px solid var(--border-soft);
-    vertical-align: middle;
-  }
-  tr:last-child td { border-bottom: none; }
-  .title-cell { font-weight: 500; }
-  .muted { color: var(--muted); }
-  .mono { font-variant-numeric: tabular-nums; }
+  .source { text-transform: uppercase; letter-spacing: 0.06em; }
 
-  .status {
-    color: var(--muted);
-    font-size: 0.9rem;
-    padding: 1rem 0;
-  }
-  .status.error { color: var(--error); }
+  /* Detail hero: no card chrome; the cover carries the hairline. */
+  .detail-hero { display: flex; align-items: flex-end; gap: 20px; margin-bottom: 32px; }
+  .detail-cover { width: 120px; height: 120px; flex: 0 0 auto; }
+  .detail-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .detail-info h2 { margin: 0; font-size: 28px; line-height: 1.15; letter-spacing: -0.03em; overflow-wrap: anywhere; }
+  .detail-meta { margin: 0; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted-2); }
+  .detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+  .detail-actions a { text-decoration: none; }
+
+  .pl-title { font-weight: 500; color: var(--text-bright); }
+  .status { display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .status .pxi { font-size: 16px; }
 
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    button { min-height: 44px; min-width: 44px; }
-    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 16px; min-height: 44px; }
-    .detail-hero { flex-wrap: wrap; gap: 1rem; }
-    .detail-info { flex: 1 1 100%; overflow-wrap: anywhere; }
-    .card-info { width: 100%; box-sizing: border-box; }
-    .card-title { max-width: 100%; }
-    .table-wrap { max-width: 100%; }
+    .detail-hero { align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+    .detail-info h2 { font-size: 24px; }
     table { min-width: 600px; }
-    .source-link { display: inline-flex; align-items: center; min-height: 44px; }
   }
-  @media (prefers-reduced-motion: reduce) { .card { transition: none; } }
 </style>

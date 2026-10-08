@@ -25,7 +25,7 @@ The generated `manifest.webmanifest` defines:
 - Installation scope and start URL
 
 ### Icons
-PWA icons are generated from `public/logo_soundgnome.png`:
+PWA icons are rendered from the pixel mark in `src/lib/brand-mark.js`:
 - **pwa-192x192.png**: Standard app icon
 - **pwa-512x512.png**: Large app icon for splash screens
 - **pwa-192x192-maskable.png**: Icon for masking (adaptive icons)
@@ -40,7 +40,7 @@ Icons are generated automatically during `npm run dev` and `npm run build`:
 pnpm run generate-icons
 ```
 
-This converts `public/logo_soundgnome.png` into the favicon, Apple touch icon, and PWA icons.
+This renders the pixel mark in `src/lib/brand-mark.js` into the favicon, Apple touch icon, and PWA icons, and builds `src/lib/pixel-icons.css` from the pixel icon list in `scripts/generate-pixel-icons.mjs`.
 
 ### Local Testing
 

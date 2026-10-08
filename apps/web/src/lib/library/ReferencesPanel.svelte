@@ -49,18 +49,6 @@
     return map[t] ?? t;
   }
 
-  function platformIcon(p: string): string {
-    const icons: Record<string, string> = {
-      Spotify: '🎵',
-      SoundCloud: '☁️',
-      MusicBrainz: '🎼',
-      YoutubeMusic: '▶️',
-      Youtube: '▶',
-      Bandcamp: '🎸',
-    };
-    return icons[p] ?? '🔗';
-  }
-
   function resetForm() {
     refType = 'Metadata';
     link = '';
@@ -103,11 +91,11 @@
   }
 </script>
 
-<div class="refs-panel">
+<section class="refs-panel">
   <div class="refs-header">
-    <span class="refs-title">References</span>
-    <button class="btn-add-ref" onclick={() => (formOpen = !formOpen)}>
-      {formOpen ? '✕' : '+ Add'}
+    <h4 class="refs-title">References <span class="refs-count">{references.length}</span></h4>
+    <button class="btn-ghost btn-sm" onclick={() => (formOpen = !formOpen)} aria-expanded={formOpen}>
+      {#if formOpen}<i class="pxi pxi-close" aria-hidden="true"></i>Close{:else}<i class="pxi pxi-plus" aria-hidden="true"></i>Add{/if}
     </button>
   </div>
 
@@ -132,8 +120,9 @@
         </label>
       </div>
 
-      <button type="button" class="btn-toggle-advanced" onclick={() => (advancedOpen = !advancedOpen)}>
-        {advancedOpen ? '▾' : '▸'} Advanced (override platform or set an id without a link)
+      <button type="button" class="btn-toggle-advanced" aria-expanded={advancedOpen} onclick={() => (advancedOpen = !advancedOpen)}>
+        <i class="pxi {advancedOpen ? 'pxi-chevron-down' : 'pxi-chevron-right'}" aria-hidden="true"></i>
+        Advanced (override platform or set an id without a link)
       </button>
 
       {#if advancedOpen}
@@ -150,6 +139,7 @@
             External ID
             <input
               bind:value={externalId}
+              type="text"
               placeholder="e.g. spotify track id"
             />
           </label>
@@ -157,13 +147,13 @@
       {/if}
 
       <div class="ref-form-actions">
-        <button class="btn-cancel-ref" onclick={resetForm} disabled={saving}>Cancel</button>
+        <button class="btn-cancel btn-sm" onclick={resetForm} disabled={saving}>Cancel</button>
         <button
-          class="btn-save-ref"
+          class="btn-save btn-sm"
           onclick={handleAdd}
           disabled={saving || (!link.trim() && !externalId.trim())}
         >
-          {saving ? '…' : 'Save'}
+          {#if saving}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>{/if}Save
         </button>
       </div>
     </div>
@@ -175,13 +165,13 @@
     <ul class="refs-list">
       {#each references as ref (ref.id ?? `${ref.platform}-${ref.external_id}-${ref.external_url}`)}
         <li class="ref-item">
-          <span class="ref-icon" title={platformLabel(ref.platform)}>{platformIcon(ref.platform)}</span>
-          <span class="ref-meta">
-            <span class="ref-type-badge">{refTypeLabel(ref.ref_type)}</span>
-            <span class="ref-platform">{platformLabel(ref.platform)}</span>
+          <span class="ref-tag ref-type">{refTypeLabel(ref.ref_type)}</span>
+          <span class="ref-tag ref-platform">{platformLabel(ref.platform)}</span>
+          <span class="ref-target">
             {#if ref.external_url}
               <a href={ref.external_url} target="_blank" rel="noopener noreferrer" class="ref-link">
-                {ref.external_id ?? ref.external_url}
+                <span class="ref-link-text">{ref.external_id ?? ref.external_url}</span>
+                <i class="pxi pxi-external-link" aria-hidden="true"></i>
               </a>
             {:else if ref.external_id}
               <span class="ref-id">{ref.external_id}</span>
@@ -191,63 +181,61 @@
             class="btn-delete-ref"
             onclick={() => handleDelete(ref)}
             title="Remove reference"
-          >✕</button>
+            aria-label="Remove reference"
+          ><i class="pxi pxi-close" aria-hidden="true"></i></button>
         </li>
       {/each}
     </ul>
   {/if}
-</div>
+</section>
 
 <style>
   .refs-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 10px;
+    margin-top: 4px;
+    padding-top: 16px;
     border-top: 1px solid var(--border);
-    padding-top: 0.75rem;
-    margin-top: 0.25rem;
   }
 
   .refs-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
   }
 
   .refs-title {
-    font-size: 0.78rem;
-    color: var(--muted);
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-bright);
   }
-
-  .btn-add-ref {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--accent);
-    font-size: 0.75rem;
-    padding: 0.15rem 0.5rem;
-    cursor: pointer;
-    font-family: inherit;
-    line-height: 1.4;
+  .refs-count {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
   }
-  .btn-add-ref:hover { background: var(--surface-2); }
 
   /* ── Form ─────────────────────────────────────────────────────────────── */
   .ref-form {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    background: var(--panel);
+    gap: 10px;
+    padding: 12px;
     border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: var(--shadow-sm);
-    padding: 0.65rem 0.75rem;
+    border-radius: var(--radius-control);
+    background: var(--surface);
   }
 
-  .ref-form-row { display: flex; gap: 0.5rem; }
+  .ref-form-row { display: flex; gap: 8px; }
 
   .ref-field-type { flex: 0 0 auto; min-width: 8rem; }
   .ref-field-link { flex: 2; }
@@ -255,64 +243,52 @@
   .ref-field {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
-    font-size: 0.75rem;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--muted);
     flex: 1;
     min-width: 0;
   }
 
-  .ref-field input,
+  /* Selects have no global skin; match the global text inputs. */
   .ref-field select {
-    padding: 0.35rem 0.55rem;
-    background: var(--surface);
+    padding: 10px 12px;
+    background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-control);
     color: var(--text);
-    font-size: 0.82rem;
-    font-family: inherit;
   }
-  .ref-field input:focus,
-  .ref-field select:focus { outline: none; border-color: var(--accent); }
+  .ref-field input { background: var(--bg); }
 
   .btn-toggle-advanced {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     align-self: flex-start;
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-size: 0.72rem;
     padding: 0;
-    cursor: pointer;
+    border: none;
+    background: none;
+    color: var(--muted);
     font-family: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
   }
-  .btn-toggle-advanced:hover { color: var(--text); }
+  .btn-toggle-advanced .pxi { font-size: 16px; }
+  .btn-toggle-advanced:hover { color: var(--text-bright); }
 
   .ref-form-actions {
     display: flex;
-    gap: 0.5rem;
+    gap: 8px;
     justify-content: flex-end;
   }
 
-  .btn-cancel-ref,
-  .btn-save-ref {
-    padding: 0.3rem 0.75rem;
-    border-radius: 5px;
-    font-size: 0.8rem;
-    font-family: inherit;
-    cursor: pointer;
-    border: 1px solid var(--border);
-  }
-  .btn-cancel-ref { background: none; color: var(--muted); }
-  .btn-cancel-ref:hover { background: var(--surface-2); color: var(--text); }
-  .btn-save-ref { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-  .btn-save-ref:disabled { opacity: 0.45; cursor: default; }
-  .btn-save-ref:not(:disabled):hover { filter: brightness(1.1); }
-
-  /* ── List ─────────────────────────────────────────────────────────────── */
+  /* ── List: hairline rows ──────────────────────────────────────────────── */
   .refs-empty {
-    font-size: 0.78rem;
-    color: var(--muted);
     margin: 0;
+    font-size: 13px;
+    color: var(--muted);
   }
 
   .refs-list {
@@ -321,87 +297,90 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
   }
 
   .ref-item {
     display: flex;
     align-items: center;
-    gap: 0.45rem;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: var(--shadow-sm);
-    padding: 0.35rem 0.55rem;
-    font-size: 0.8rem;
+    gap: 8px;
+    min-height: 44px;
+    padding: 4px 0;
+    border-top: 1px solid var(--border-soft);
+    font-size: 13px;
     min-width: 0;
   }
+  .ref-item:last-child { border-bottom: 1px solid var(--border-soft); }
 
-  .ref-icon { font-size: 0.9rem; flex-shrink: 0; }
-
-  .ref-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    flex: 1;
-    min-width: 0;
-    flex-wrap: wrap;
-  }
-
-  .ref-type-badge {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    font-size: 0.68rem;
-    padding: 0.05rem 0.35rem;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-
-  .ref-platform {
+  .ref-tag {
+    flex: 0 0 auto;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
     font-weight: 500;
-    color: var(--text);
+    letter-spacing: 0.06em;
+    line-height: 1.5;
+    text-transform: uppercase;
     white-space: nowrap;
-    font-size: 0.78rem;
   }
+  .ref-type { border: 1px solid var(--border-strong); color: var(--muted); }
+  .ref-platform { border: 1px solid transparent; background: var(--surface-2); color: var(--text); }
+
+  .ref-target { flex: 1; min-width: 0; display: flex; }
 
   .ref-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
     color: var(--accent);
     text-decoration: none;
+  }
+  .ref-link-text {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    min-width: 0;
-    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    font-size: 12px;
   }
-  .ref-link:hover { text-decoration: underline; }
+  .ref-link .pxi { flex: 0 0 auto; font-size: 16px; }
+  .ref-link:hover .ref-link-text { text-decoration: underline; }
 
   .ref-id {
-    color: var(--muted);
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    min-width: 0;
-    font-size: 0.78rem;
-    font-family: monospace;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
   }
 
   .btn-delete-ref {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 0.7rem;
-    padding: 0.1rem 0.25rem;
+    display: grid;
+    place-items: center;
     flex-shrink: 0;
-    line-height: 1;
-    border-radius: 3px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-chip);
+    background: none;
+    color: var(--muted-2);
+    font-size: 16px;
+    cursor: pointer;
   }
-  .btn-delete-ref:hover { color: var(--error); background: var(--surface); }
+  .btn-delete-ref:hover { color: var(--error); background: var(--surface-2); }
 
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    button { min-height: 44px; min-width: 44px; }
-    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select { font-size: 16px; min-height: 44px; }
-    .ref-form-row { flex-wrap: wrap; } .ref-field-type, .ref-field-link, .ref-field { flex: 1 1 100%; min-width: 0; } .ref-form-actions { flex-wrap: wrap; } .btn-delete-ref { min-width: 44px; } .ref-link { display: inline-flex; align-items: center; min-height: 44px; max-width: 100%; }
+    .ref-form-row { flex-wrap: wrap; }
+    .ref-field-type, .ref-field-link, .ref-field { flex: 1 1 100%; min-width: 0; }
+    .ref-form-actions { flex-wrap: wrap; }
+    .ref-item { flex-wrap: wrap; }
+    .btn-delete-ref { width: 44px; height: 44px; margin-left: auto; }
+    .ref-target { order: 3; flex-basis: 100%; }
+    .ref-link { min-height: 44px; }
   }
 </style>

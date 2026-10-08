@@ -27,31 +27,34 @@ another checkout does not update that server's website.
 
 ## Mobile layout and playback
 
-- Phones use one floating glass dock with Home, Search, Library, and **More**.
-  Its compact player row appears only when a track is loaded, including while
-  paused. Tap the artwork/title for full Now Playing controls; the dock keeps
-  Play/Pause and Next within reach. More restores focus to its trigger on close.
-- The selected navigation pill uses an ordinary SVG displacement filter inspired
-  by [Aave's web glass technique](https://aave.com/design/building-glass-for-the-web).
-  `GlassNav.svelte` refracts only a non-interactive decorative navigation copy;
-  `glass-lens.ts` generates a small rounded-lens PNG on geometry changes, not
-  scrolling or selection animation. No page or audio content is duplicated.
-  A single backdrop layer sits on the dock's pseudo-element so the full-screen
-  Now Playing sheet retains its viewport positioning. Reduced transparency uses
-  solid surfaces; forced colors retain a readable native-button selected state.
+- Phones use a docked bottom bar with Home, Search, Library, and **More**:
+  pixel icons, mono labels, and a violet tick on the active tab. A compact player
+  row sits above it only when a track is loaded, including while paused. Tap the
+  artwork/title for full Now Playing controls; the row keeps Play/Pause within
+  reach. More opens a bottom sheet and restores focus to its trigger on close.
+- The dock is opaque with a hairline top rule rather than a translucent blur
+  layer, so the full-screen Now Playing sheet keeps its viewport positioning and
+  scrolling large grids adds no compositing work. Forced colors keep a readable
+  native selected state.
+- Albums, tracks, artists, and playlists without artwork show a generated pixel
+  sprite seeded by the item (`apps/web/src/lib/pixel-art.ts`), so an album keeps
+  the same cover everywhere it appears. Real artwork replaces it when available.
+- The visual system (tokens, type, icons, mark, components) is documented in
+  `apps/web/DESIGN.md`; product context for design work lives in
+  `apps/web/PRODUCT.md`.
 - Page spacing, form sizing, and touch targets are shared across the interface;
   controls are at least 44px tall and text inputs use 16px text to avoid Safari's
   automatic input zoom.
-- The phone Library keeps four collection tabs in one segmented row, with a
-  **Liked** heart and Refresh icon in the header. Search stays visible; the
+- The phone Library keeps four collection tabs in one row of underline tabs,
+  with a **Liked** heart and Refresh icon in the header. Search stays visible; the
   adjacent **Sort and view options** button reveals secondary controls.
-- Card **…** buttons open an actions sheet with labeled 48px rows for editing,
+- Each card's actions button opens an actions sheet with labeled 48px rows for editing,
   selection, ratings, or deletion as applicable. Sheets mount only when opened,
   restore focus on close, and close before handing off to the Edit dialog.
 - Navigation uses [same-document view transitions](https://developer.mozilla.org/en-US/docs/Web/API/Document/startViewTransition)
   when available and a short main-content fade otherwise. Snapshots are clipped
-  above the floating dock so player controls remain visible and interactive.
-  System **Reduce Motion** disables navigation, glass-pill, and sheet movement;
+  above the dock so player controls remain visible and interactive.
+  System **Reduce Motion** disables navigation, tab-indicator, and sheet movement;
   scrolling and virtual-card mounts are not animated.
 - The shell and dialogs follow the visible viewport, including Safari toolbar
   and keyboard changes, and respect device safe-area insets. During keyboard
@@ -74,7 +77,7 @@ another checkout does not update that server's website.
   play attempt stays paused and offers Play rather than claiming playback started.
   Calls, other audio, browser eviction, or force-closing the app can still interrupt
   playback; background and lock-screen behavior must be checked on a real iPhone.
-- Glass rendering and scrolling performance still require verification on an
+- Scrolling performance and pixel-icon sharpness still require verification on an
   actual iPhone; Chromium with a phone viewport or iPhone user agent is not Safari.
 
 Opening from the home screen uses the same website in standalone mode, without

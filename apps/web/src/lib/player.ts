@@ -13,6 +13,8 @@ export interface PlayerTrack {
   title: string;
   artist: string;
   artwork: string | null;
+  /** Seed for the generated pixel cover when `artwork` is missing or fails, e.g. `album:42`. */
+  coverSeed?: string;
   durationSecs: number | null;
   /** Precomputed waveform peaks url (SoundCloud); enables the scrubber. */
   waveformUrl?: string | null;

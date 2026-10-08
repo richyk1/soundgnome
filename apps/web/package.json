@@ -7,7 +7,7 @@
     "dev": "pnpm run generate-icons && vite",
     "build": "pnpm run generate-icons && vite build",
     "preview": "vite preview",
-    "generate-icons": "node scripts/generate-all-icons.mjs",
+    "generate-icons": "node scripts/generate-all-icons.mjs && node scripts/generate-pixel-icons.mjs",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
   },
   "devDependencies": {
@@ -15,6 +15,7 @@
     "@tsconfig/svelte": "^5.0.8",
     "@types/node": "^24.12.2",
     "@vite-pwa/assets-generator": "^1.0.2",
+    "pixelarticons": "2.4.2",
     "sharp": "^0.35.3",
     "svelte": "^5.55.4",
     "svelte-check": "^4.4.6",

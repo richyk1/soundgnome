@@ -14,9 +14,11 @@
   import PWAUpdatePrompt from './components/PWAUpdatePrompt.svelte';
   import InstallPrompt from './components/InstallPrompt.svelte';
   import AudioPlayer from './lib/AudioPlayer.svelte';
-  import GlassNav from './lib/GlassNav.svelte';
+  import TabBar from './lib/TabBar.svelte';
+  import BrandMark from './lib/BrandMark.svelte';
+  import PixelCover from './lib/PixelCover.svelte';
   import { observeViewport } from './lib/viewport';
-  import { observeTheme } from './lib/theme';
+  import { observeTheme } from './lib/theme.svelte';
   import { runNavigation } from './lib/navigation-motion';
   import {
     GLOBAL_PLAYER,
@@ -138,14 +140,19 @@
   }
 
   const primaryNav: { id: Page; label: string; icon: string }[] = [
-    { id: 'library', label: 'Library', icon: 'lni-library' },
-    { id: 'download', label: 'Download', icon: 'lni-download-1' },
-    { id: 'ingest', label: 'Ingest', icon: 'lni-folder-upload' },
-    { id: 'validations', label: 'Validations', icon: 'lni-check-square-1' },
+    { id: 'library', label: 'Library', icon: 'library' },
+    { id: 'download', label: 'Download', icon: 'download' },
+    { id: 'ingest', label: 'Ingest', icon: 'upload' },
+    { id: 'validations', label: 'Validations', icon: 'checkbox-on' },
+  ];
+  const secondaryNav: { id: Page; label: string; icon: string }[] = [
+    { id: 'likes', label: 'Liked', icon: 'heart' },
+    { id: 'tasks', label: 'Activity', icon: 'bell' },
+    { id: 'tools', label: 'Tools', icon: 'gear' },
   ];
   const mobileTabs: { id: Page; label: string; icon: string }[] = [
-    { id: 'download', label: 'Home', icon: 'home-2' },
-    { id: 'search', label: 'Search', icon: 'search-1' },
+    { id: 'download', label: 'Home', icon: 'home' },
+    { id: 'search', label: 'Search', icon: 'search' },
     { id: 'library', label: 'Library', icon: 'library' },
   ];
   const footerItems = $derived([
@@ -158,7 +165,7 @@
     {
       id: 'more',
       label: 'More',
-      icon: 'menu-bento-1',
+      icon: 'menu',
       selected: moreOpen || !mobileTabs.some((tab) => tab.id === page),
       current: !mobileTabs.some((tab) => tab.id === page),
       expanded: moreOpen,
@@ -167,112 +174,117 @@
     },
   ]);
   const libraryTabs: { id: LibraryTab; label: string; icon: string; count: () => number }[] = [
-    { id: 'artists', label: 'Artists', icon: 'lni-microphone-1', count: () => lib.artists.length },
-    { id: 'albums', label: 'Albums', icon: 'lni-layers-1', count: () => lib.albums.length },
-    { id: 'tracks', label: 'Tracks', icon: 'lni-music-note', count: () => lib.tracks.length },
-    { id: 'playlists', label: 'Playlists', icon: 'lni-list-music-4', count: () => lib.playlists.length },
+    { id: 'artists', label: 'Artists', icon: 'mic', count: () => lib.artists.length },
+    { id: 'albums', label: 'Albums', icon: 'album', count: () => lib.albums.length },
+    { id: 'tracks', label: 'Tracks', icon: 'music', count: () => lib.tracks.length },
+    { id: 'playlists', label: 'Playlists', icon: 'bulletlist', count: () => lib.playlists.length },
   ];
 </script>
 
 <div class="app-shell">
+  <aside class="sidebar">
+    <button class="brand" onclick={() => navigate('library')} aria-label="Soundgnome: open the library">
+      <BrandMark scale={2} />
+      <span class="brand-name">Soundgnome</span>
+      {#if version}<span class="brand-ver">v{version}</span>{/if}
+    </button>
 
-  <div class="app-body">
-    <aside class="sidebar">
-      <div class="side-panel brand-panel">
-        <button class="brand" onclick={() => navigate('library')}>
-          <span class="brand-name">Soundgnome</span>
-          {#if version}<span class="brand-ver">v{version}</span>{/if}
-        </button>
-        <nav class="nav">
-          {#each primaryNav as item}
-            <button class="nav-item" class:active={page === item.id} aria-current={page === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
-              <span class="nav-label"><i class="lni {item.icon}"></i>{item.label}</span>
-              {#if item.id === 'validations' && lib.needsReviewCount > 0}
-                <span class="badge badge-amber">{lib.needsReviewCount}</span>
-              {/if}
-            </button>
-          {/each}
-        </nav>
-      </div>
-
-      <div class="side-panel library-panel">
-        <div class="panel-head">
-          <span class="eyebrow">Your library</span>
-          <span class="mono dim">{lib.tracks.length} tracks</span>
-        </div>
-        <div class="sub-nav">
-          {#each libraryTabs as t}
-            <button
-              class="sub-item"
-              class:active={page === 'library' && lib.tab === t.id}
-              aria-current={page === 'library' && lib.tab === t.id ? 'page' : undefined}
-              onclick={() => goLibraryTab(t.id)}
-            >
-              <span class="nav-label"><i class="lni {t.icon}"></i>{t.label}</span>
-              <span class="counts">
-                <span class="mono dim">{t.count()}</span>
-                {#if t.id === 'tracks' && lib.needsReviewCount > 0}
-                  <span class="badge badge-amber sm">{lib.needsReviewCount}</span>
-                {/if}
-              </span>
-            </button>
-          {/each}
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="eyebrow">Up next{#if upNext.length} · {upNext.length}{/if}</div>
-        <div class="queue">
-          {#if upNext.length === 0}
-            <p class="queue-empty">Nothing queued.</p>
-          {:else}
-            {#each upNext.slice(0, 8) as q}
-              <div class="queue-row">
-                <div class="queue-art" style={q.artwork ? `background-image:url(${q.artwork})` : ''}>
-                  {#if !q.artwork}<i class="lni lni-music-note"></i>{/if}
-                </div>
-                <div class="queue-meta">
-                  <div class="queue-title">{q.title}</div>
-                  <div class="queue-artist">{q.artist}</div>
-                </div>
-              </div>
-            {/each}
+    <nav class="nav" aria-label="Main">
+      {#each primaryNav as item}
+        <button class="nav-item" class:active={page === item.id} aria-current={page === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
+          <i class="pxi pxi-{item.icon}" aria-hidden="true"></i>
+          <span class="nav-text">{item.label}</span>
+          {#if item.id === 'validations' && lib.needsReviewCount > 0}
+            <span class="badge badge-amber" aria-label="{lib.needsReviewCount} to review">{lib.needsReviewCount}</span>
           {/if}
-        </div>
+        </button>
+      {/each}
+    </nav>
 
-        <InstallPrompt />
-        <div class="side-links">
-          <button class="side-link" onclick={() => navigate('likes')}><i class="lni lni-heart"></i>Liked</button>
-          <button class="side-link" onclick={() => navigate('tasks')}>
-            <i class="lni lni-bell-1"></i>Activity
-            {#if activeTasksCount > 0}<span class="badge badge-red sm">{activeTasksCount}</span>{/if}
-          </button>
-          <button class="side-link" onclick={() => navigate('tools')}><i class="lni lni-gear-1"></i>Tools</button>
-          <button class="side-link" onclick={() => (helpOpen = true)}><i class="lni lni-question-mark-circle"></i>Help</button>
-        </div>
+    <section class="side-group" aria-labelledby="side-library">
+      <h2 class="side-head" id="side-library">
+        <span>Your library</span>
+        <span class="side-count">{lib.tracks.length} tracks</span>
+      </h2>
+      {#each libraryTabs as t}
+        <button
+          class="nav-item"
+          class:active={page === 'library' && lib.tab === t.id}
+          aria-current={page === 'library' && lib.tab === t.id ? 'page' : undefined}
+          onclick={() => goLibraryTab(t.id)}
+        >
+          <i class="pxi pxi-{t.icon}" aria-hidden="true"></i>
+          <span class="nav-text">{t.label}</span>
+          {#if t.id === 'tracks' && lib.needsReviewCount > 0}
+            <span class="badge badge-amber" aria-label="{lib.needsReviewCount} to review">{lib.needsReviewCount}</span>
+          {/if}
+          <span class="side-count">{t.count()}</span>
+        </button>
+      {/each}
+    </section>
+
+    <section class="side-group queue-group" aria-labelledby="side-queue">
+      <h2 class="side-head" id="side-queue">
+        <span>Up next</span>
+        {#if upNext.length}<span class="side-count">{upNext.length}</span>{/if}
+      </h2>
+      <div class="queue">
+        {#if upNext.length === 0}
+          <p class="queue-empty">Nothing queued. Play an album or a list of tracks to fill it.</p>
+        {:else}
+          {#each upNext.slice(0, 8) as q}
+            <div class="queue-row">
+              <div class="queue-art">
+                <PixelCover src={q.artwork} seed={q.coverSeed ?? `track:${q.id}`} />
+              </div>
+              <div class="queue-meta">
+                <div class="queue-title">{q.title}</div>
+                <div class="queue-artist">{q.artist}</div>
+              </div>
+            </div>
+          {/each}
+        {/if}
       </div>
-    </aside>
+    </section>
 
-    <main class="content-panel" bind:this={contentPanel}>
-      {#if page === 'download'}
-        <Home onNavigateTasks={() => navigate('tasks')} />
-      {:else if page === 'library'}
-        <Library onNavigateLiked={() => navigate('likes')} />
-      {:else if page === 'tools'}
-        <Tools />
-      {:else if page === 'validations'}
-        <Validations onDownloaded={refreshCounts} />
-      {:else if page === 'ingest'}
-        <Ingest />
-      {:else if page === 'likes'}
-        <Likes />
-      {:else if page === 'search'}
-        <Search />
-      {:else}
-        <Tasks onNavigateValidations={() => navigate('validations')} />
-      {/if}
-    </main>
-  </div>
+    <div class="side-foot">
+      <InstallPrompt />
+      {#each secondaryNav as item}
+        <button class="nav-item" class:active={page === item.id} aria-current={page === item.id ? 'page' : undefined} onclick={() => navigate(item.id)}>
+          <i class="pxi pxi-{item.icon}" aria-hidden="true"></i>
+          <span class="nav-text">{item.label}</span>
+          {#if item.id === 'tasks' && activeTasksCount > 0}
+            <span class="badge badge-live" aria-label="{activeTasksCount} running">{activeTasksCount}</span>
+          {/if}
+        </button>
+      {/each}
+      <button class="nav-item" onclick={() => (helpOpen = true)}>
+        <i class="pxi pxi-circle-question" aria-hidden="true"></i>
+        <span class="nav-text">Help</span>
+        <kbd aria-hidden="true">?</kbd>
+      </button>
+    </div>
+  </aside>
+
+  <main class="content-panel" bind:this={contentPanel}>
+    {#if page === 'download'}
+      <Home onNavigateTasks={() => navigate('tasks')} />
+    {:else if page === 'library'}
+      <Library onNavigateLiked={() => navigate('likes')} />
+    {:else if page === 'tools'}
+      <Tools />
+    {:else if page === 'validations'}
+      <Validations onDownloaded={refreshCounts} />
+    {:else if page === 'ingest'}
+      <Ingest />
+    {:else if page === 'likes'}
+      <Likes />
+    {:else if page === 'search'}
+      <Search />
+    {:else}
+      <Tasks onNavigateValidations={() => navigate('validations')} />
+    {/if}
+  </main>
 
   <footer class="footer-dock" class:loaded={hasTrack} aria-label="Player and navigation">
     <div class="player-bar" class:idle={!hasTrack}>
@@ -285,14 +297,17 @@
       />
     </div>
     <div class="mobile-navigation">
-      <GlassNav items={footerItems} />
+      <TabBar items={footerItems} />
     </div>
   </footer>
 
   {#if playError}
     <div class="play-error" role="alert">
+      <i class="pxi pxi-square-alert" aria-hidden="true"></i>
       <span>{playError}</span>
-      <button class="play-error-x" onclick={() => (playError = null)} aria-label="Dismiss">×</button>
+      <button class="play-error-x" onclick={() => (playError = null)} aria-label="Dismiss">
+        <i class="pxi pxi-close" aria-hidden="true"></i>
+      </button>
     </div>
   {/if}
 </div>
@@ -301,295 +316,272 @@
 <PWAUpdatePrompt />
 
 {#if moreOpen}
-  <dialog id="more-menu" class="more-sheet" aria-label="More" use:showMore
+  <dialog id="more-menu" class="more-sheet" aria-labelledby="more-title" use:showMore
     oncancel={() => (moreOpen = false)}
     onclick={closeMoreBackdrop}>
     <div class="more-header">
-      <div class="more-title">More</div>
-      <button class="more-close" onclick={() => (moreOpen = false)} aria-label="Close more menu">×</button>
+      <h2 class="more-title" id="more-title">More</h2>
+      <button class="more-close" onclick={() => (moreOpen = false)} aria-label="Close">
+        <i class="pxi pxi-close" aria-hidden="true"></i>
+      </button>
     </div>
-    <button class="more-item" onclick={() => { navigate('ingest'); moreOpen = false; }}><i class="lni lni-folder-upload"></i>Ingest local files</button>
-    <button class="more-item" onclick={() => { navigate('validations'); moreOpen = false; }}><i class="lni lni-check-square-1"></i>Validations{#if lib.needsReviewCount > 0}<span class="badge badge-amber sm">{lib.needsReviewCount}</span>{/if}</button>
-    <button class="more-item" onclick={() => { navigate('tasks'); moreOpen = false; }}><i class="lni lni-bell-1"></i>Activity{#if activeTasksCount > 0}<span class="badge badge-red sm">{activeTasksCount}</span>{/if}</button>
-    <button class="more-item" onclick={() => { navigate('tools'); moreOpen = false; }}><i class="lni lni-gear-1"></i>Tools</button>
-    <button class="more-item" onclick={() => { helpOpen = true; moreOpen = false; }}><i class="lni lni-question-mark-circle"></i>Help</button>
+    <button class="more-item" onclick={() => { navigate('ingest'); moreOpen = false; }}>
+      <i class="pxi pxi-upload" aria-hidden="true"></i>Ingest local files
+    </button>
+    <button class="more-item" onclick={() => { navigate('validations'); moreOpen = false; }}>
+      <i class="pxi pxi-checkbox-on" aria-hidden="true"></i>Validations
+      {#if lib.needsReviewCount > 0}<span class="badge badge-amber" aria-label="{lib.needsReviewCount} to review">{lib.needsReviewCount}</span>{/if}
+    </button>
+    <button class="more-item" onclick={() => { navigate('likes'); moreOpen = false; }}>
+      <i class="pxi pxi-heart" aria-hidden="true"></i>Liked and disliked
+    </button>
+    <button class="more-item" onclick={() => { navigate('tasks'); moreOpen = false; }}>
+      <i class="pxi pxi-bell" aria-hidden="true"></i>Activity
+      {#if activeTasksCount > 0}<span class="badge badge-live" aria-label="{activeTasksCount} running">{activeTasksCount}</span>{/if}
+    </button>
+    <button class="more-item" onclick={() => { navigate('tools'); moreOpen = false; }}>
+      <i class="pxi pxi-gear" aria-hidden="true"></i>Tools
+    </button>
+    <button class="more-item" onclick={() => { helpOpen = true; moreOpen = false; }}>
+      <i class="pxi pxi-circle-question" aria-hidden="true"></i>Help
+    </button>
   </dialog>
 {/if}
 
 <style>
+  /* ── Frame: hairline grid on the bare ground ─────────────────────────── */
   .app-shell {
     position: fixed;
     top: var(--app-top);
     left: 0;
     width: 100%;
     height: var(--app-height, 100dvh);
-    background: var(--bg);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: calc(8px + var(--safe-top)) calc(8px + var(--safe-right))
-      calc(8px + var(--safe-bottom)) calc(8px + var(--safe-left));
-    box-sizing: border-box;
-    overflow: hidden;
-  }
-
-  .app-body {
-    flex: 1;
-    min-height: 0;
     display: grid;
-    grid-template-columns: 288px 1fr;
-    gap: 8px;
-    /* Contain the fallback entrance above the live player/footer. */
+    grid-template-columns: 244px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'side main'
+      'dock dock';
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+    background: var(--bg);
     overflow: hidden;
   }
 
   /* ── Sidebar ─────────────────────────────────────────────────────────── */
   .sidebar {
+    grid-area: side;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 28px;
+    padding: 16px 12px 12px;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
   }
-  .side-panel {
-    background: var(--panel);
-    border-radius: 14px;
-  }
-  .brand-panel {
-    padding: 20px 20px 18px;
-    flex-shrink: 0;
-  }
+
   .brand {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 10px;
-    background: none;
     min-height: 44px;
+    padding: 0 8px;
     border: none;
-    padding: 0;
+    border-radius: var(--radius-control);
+    background: none;
     cursor: pointer;
   }
   .brand-name {
     font-family: var(--font-display);
-    font-size: 25px;
-    font-weight: 800;
-    letter-spacing: -0.035em;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
     color: var(--text-bright);
   }
   .brand-ver {
+    margin-left: auto;
     font-family: var(--font-mono);
     font-size: 11px;
-    font-weight: 500;
     color: var(--muted-2);
   }
 
-  .nav {
+  .nav,
+  .side-group,
+  .side-foot {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    margin-top: 20px;
+    gap: 1px;
   }
-  .nav-item,
-  .sub-item {
-    min-height: 44px;
+  .nav-item {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: none;
+    gap: 10px;
+    width: 100%;
+    min-height: 36px;
+    padding: 0 10px;
     border: none;
+    border-radius: var(--radius-control);
+    background: none;
     color: var(--muted);
     font-family: var(--font-body);
     font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    width: 100%;
+    font-weight: 500;
     text-align: left;
-    transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+    cursor: pointer;
   }
-  .sub-item { padding: 9px 10px; }
-  .nav-item:hover,
-  .sub-item:hover { background: var(--surface); color: var(--text); }
-  .nav-item.active { background: var(--surface-2); color: var(--text-bright); box-shadow: inset 3px 0 var(--accent); }
-  .sub-item.active { background: var(--surface); color: var(--text-bright); box-shadow: inset 3px 0 var(--accent); }
-  .nav-item:active,
-  .sub-item:active { background: var(--surface-2); }
-  .nav-label { display: flex; align-items: center; gap: 11px; }
-  .nav-label .lni { font-size: 16px; color: inherit; }
-  .counts { display: flex; align-items: center; gap: 6px; }
+  .nav-item .pxi { font-size: 16px; color: var(--muted-2); }
+  .nav-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-item:hover { background: var(--surface); color: var(--text-bright); }
+  .nav-item.active { background: var(--surface-2); color: var(--text-bright); }
+  .nav-item.active .pxi { color: var(--accent); }
 
-  .library-panel {
-    flex: 1;
-    min-height: 0;
-    padding: 18px 20px;
+  .side-head {
     display: flex;
-    flex-direction: column;
-  }
-  .panel-head {
-    display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
-    margin-bottom: 14px;
-  }
-  .eyebrow {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+    gap: 8px;
+    margin: 0 0 6px;
+    padding: 0 10px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0;
     color: var(--muted-2);
   }
-  .sub-nav { display: flex; flex-direction: column; gap: 2px; }
-  .divider { height: 1px; background: var(--border-soft); margin: 18px 0; }
+  .side-count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
+  }
 
+  .queue-group { flex: 1; min-height: 0; }
   .queue {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-top: 14px;
-    overflow-y: auto;
+    gap: 10px;
     min-height: 0;
-    flex: 1;
+    padding: 4px 10px 0;
+    overflow-y: auto;
   }
-  .queue-empty { color: var(--muted-2); font-size: 13px; margin: 6px 0 0; }
-  .queue-row { display: flex; gap: 11px; align-items: center; }
+  .queue-empty { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted-2); }
+  .queue-row { display: flex; align-items: center; gap: 10px; }
   .queue-art {
-    width: 38px;
-    height: 38px;
-    border-radius: 5px;
-    background: linear-gradient(135deg, var(--surface-2), var(--surface));
-    background-size: cover;
-    background-position: center;
+    position: relative;
+    width: 32px;
+    height: 32px;
     flex-shrink: 0;
-    border: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted-2);
-    font-size: 15px;
+    overflow: hidden;
+    border-radius: 4px;
+    background: var(--surface);
+  }
+  .queue-art::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px var(--border);
   }
   .queue-meta { min-width: 0; }
-  .queue-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  .queue-title,
   .queue-artist {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--muted-2);
-    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
+  .queue-title { font-size: 13px; font-weight: 500; color: var(--text); }
+  .queue-artist { font-size: 12px; color: var(--muted-2); }
 
-  .side-links {
-    display: flex;
-    gap: 14px;
-    align-items: center;
-    flex-wrap: wrap;
-    margin-top: 18px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border-soft);
+  .side-foot {
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
   }
-  .side-link {
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: none;
-    border: none;
+  kbd {
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
     color: var(--muted-2);
-    font-family: var(--font-body);
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    padding: 0;
-    transition: color var(--motion-fast) var(--ease-out);
-  }
-  .side-link:hover { color: var(--text); }
-  .side-link .lni { font-size: 15px; }
-
-  /* ── Main content ────────────────────────────────────────────────────── */
-  .content-panel {
-    min-height: 0;
-    min-width: 0;
-    background: linear-gradient(var(--panel) 0, var(--panel) 100%);
-    border-radius: 14px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    scroll-padding-block: var(--space-page);
-    overscroll-behavior-y: contain;
-    display: flex;
-    view-transition-name: app-content;
-    flex-direction: column;
   }
 
-  /* ── Badges ──────────────────────────────────────────────────────────── */
+  /* Counts are data: mono, tabular, tinted by meaning. */
   .badge {
+    min-width: 20px;
+    padding: 0 6px;
+    border-radius: 4px;
     font-family: var(--font-mono);
     font-size: 11px;
     font-weight: 500;
-    padding: 2px 8px;
-    border-radius: 999px;
-    line-height: 1;
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
   }
-  .badge.sm { font-size: 10px; padding: 1px 7px; }
   .badge-amber { background: var(--warning-bg); color: var(--warning); }
-  .badge-red { background: var(--error-bg); color: var(--error); }
+  .badge-live { background: color-mix(in srgb, var(--live) 14%, transparent); color: var(--live); }
 
-  .mono { font-family: var(--font-mono); font-size: 11px; }
-  .dim { color: var(--muted-2); }
-
-  /* ── Player bar ──────────────────────────────────────────────────────── */
-  .footer-dock { flex-shrink: 0; }
-  .mobile-navigation { display: none; }
-  .player-bar {
-    height: 110px;
-    flex-shrink: 0;
-    background: var(--panel);
-    border-radius: 14px;
-    overflow: hidden;
+  /* ── Main content ────────────────────────────────────────────────────── */
+  .content-panel {
+    grid-area: main;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: var(--space-page);
+    background: var(--bg);
+    view-transition-name: app-content;
   }
+
+  /* ── Dock: player bar on desktop; player + tabs on phones ───────────── */
+  .footer-dock {
+    grid-area: dock;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .player-bar { height: var(--mini-player-height); }
+  .mobile-navigation { display: none; }
 
   .play-error {
     position: fixed;
     left: 50%;
     top: calc(var(--app-top) + var(--app-height) - var(--app-bottom-clearance));
-    bottom: auto;
     transform: translate(-50%, -100%);
-    max-height: calc(var(--app-height) - var(--app-bottom-clearance) - 2rem);
-    overflow-y: auto;
     z-index: 200;
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    max-width: min(560px, calc(100% - 32px));
-    padding: 0.55rem 0.9rem;
-    background: color-mix(in srgb, var(--error) 20%, var(--panel));
-    border: 1px solid color-mix(in srgb, var(--error) 55%, transparent);
-    border-radius: 12px;
+    gap: 10px;
+    /* Centered with left: 50%, so size to content explicitly instead of half the viewport. */
+    width: max-content;
+    max-width: min(560px, calc(100vw - 32px));
+    max-height: calc(var(--app-height) - var(--app-bottom-clearance) - 2rem);
+    overflow-y: auto;
+    padding: 6px 6px 6px 14px;
+    border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+    border-radius: var(--radius-control);
+    background: var(--float);
     box-shadow: var(--float-shadow);
     color: var(--text);
-    font-size: 0.85rem;
+    font-size: 14px;
   }
+  .play-error > .pxi { font-size: 16px; color: var(--error); }
   .play-error > span { min-width: 0; overflow-wrap: anywhere; }
   .play-error-x {
-    min-width: 44px;
-    min-height: 44px;
-    background: none;
+    display: grid;
+    place-items: center;
+    min-width: 36px;
+    min-height: 36px;
     border: none;
+    border-radius: var(--radius-chip);
+    background: none;
     color: var(--muted);
-    font-size: 1.1rem;
-    line-height: 1;
+    font-size: 16px;
     cursor: pointer;
-    padding: 0 0.2rem;
   }
-  .play-error-x:hover { color: var(--text); }
+  .play-error-x:hover { color: var(--text-bright); background: var(--surface-2); }
 
-
+  /* ── More sheet ──────────────────────────────────────────────────────── */
   .more-sheet::backdrop { background: var(--overlay); }
   .more-sheet {
     position: fixed;
@@ -598,126 +590,97 @@
     top: calc(var(--app-top) + var(--app-height));
     bottom: auto;
     transform: translateY(-100%);
-    margin: 0;
     width: auto;
     max-width: none;
     max-height: calc(var(--app-height) - var(--safe-top) - 16px);
+    margin: 0;
+    padding: 8px 16px calc(var(--safe-bottom) + 12px);
     overflow-y: auto;
+    border: none;
+    border-top: 1px solid var(--border-strong);
+    border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+    background: var(--panel);
     color: var(--text);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px 16px 0 0;
-    padding: 12px 16px calc(var(--safe-bottom) + 16px);
     box-shadow: var(--float-shadow);
   }
-  .more-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .more-close { min-width: 44px; min-height: 44px; border: none; background: none; color: var(--text); font-size: 24px; cursor: pointer; }
-  .more-title {
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    padding: 0 4px 6px;
+  .more-sheet[open] { animation: sheet-up var(--motion-sheet) var(--ease-drawer); }
+  @keyframes sheet-up {
+    from { translate: 0 100%; }
+    to { translate: 0 0; }
   }
-  .more-item {
-    width: 100%;
-    min-height: 44px;
+  .more-header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 12px;
-    background: none;
-    border: none;
-    color: var(--text);
-    font-size: 0.95rem;
-    font-weight: 500;
-    padding: 13px 8px;
-    border-radius: 10px;
-    cursor: pointer;
-    text-align: left;
-    transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+    padding-bottom: 4px;
   }
-  .more-item:hover,
-  .more-item:active { background: var(--surface-2); }
-  .more-item .lni { font-size: 19px; color: var(--muted); width: 22px; text-align: center; }
+  .more-title {
+    margin: 0;
+    padding-left: 4px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .more-close {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    border: none;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--muted);
+    font-size: 24px;
+    cursor: pointer;
+  }
+  .more-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 52px;
+    padding: 0 4px;
+    border: none;
+    border-top: 1px solid var(--border-soft);
+    background: none;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+  }
+  .more-item .pxi { font-size: 24px; color: var(--muted-2); }
+  .more-item:active { background: var(--surface); }
   .more-item .badge { margin-left: auto; }
 
   @media (prefers-reduced-motion: reduce) {
-    .nav-item, .sub-item, .side-link, .more-item {
-      transition: none;
-    }
+    .more-sheet[open] { animation: none; }
   }
 
-  /* ── Mobile ──────────────────────────────────────────────────────────── */
-
+  /* ── Phones ──────────────────────────────────────────────────────────── */
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    /* Edge-to-edge on phones: drop the desktop black frame + rounded panels. */
     .app-shell {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr);
+      grid-template-areas: 'main';
       padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
-      gap: 0;
     }
-    .app-body {
-      grid-template-columns: 1fr;
-    }
+    .sidebar { display: none; }
     .content-panel {
-      border-radius: 0;
       padding-bottom: var(--app-bottom-clearance);
       scroll-padding-bottom: var(--app-bottom-clearance);
     }
+    /* Docked, opaque, edge to edge: no blur layer over the scrolling grid. */
     .footer-dock {
       position: absolute;
       z-index: 100;
-      left: calc(var(--safe-left) + 12px);
-      right: calc(var(--safe-right) + 12px);
-      bottom: calc(var(--safe-bottom) + 8px);
-      max-width: 520px;
-      margin-inline: auto;
-      isolation: isolate;
-      border-radius: 30px;
-      box-shadow: var(--float-shadow);
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
     }
-    /* Keep the backdrop on a pseudo-element so Now Playing stays viewport-fixed. */
-    .footer-dock::before {
-      content: '';
-      position: absolute;
-      z-index: -1;
-      inset: 0;
-      border: 1px solid var(--glass-border);
-      border-radius: inherit;
-      background: var(--glass-tint);
-      -webkit-backdrop-filter: blur(12px) saturate(1.3);
-      backdrop-filter: blur(12px) saturate(1.3);
-      box-shadow: inset 0 1px 0 var(--glass-highlight);
-      pointer-events: none;
-    }
-    .footer-dock.loaded { border-radius: 28px; }
-    .player-bar {
-      border-radius: 0;
-      height: 64px;
-      background: transparent;
-    }
+    .player-bar { height: 64px; border-bottom: 1px solid var(--border-soft); }
     .player-bar.idle { display: none; }
-    .sidebar { display: none; }
     .mobile-navigation { display: block; }
-    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-      .footer-dock::before { background: var(--panel); }
-    }
-    @media (prefers-reduced-transparency: reduce) {
-      .footer-dock::before {
-        background: var(--panel);
-        -webkit-backdrop-filter: none;
-        backdrop-filter: none;
-      }
-    }
-    @media (forced-colors: active) {
-      .footer-dock { box-shadow: none; }
-      .footer-dock::before {
-        background: Canvas;
-        border-color: CanvasText;
-        -webkit-backdrop-filter: none;
-        backdrop-filter: none;
-      }
-    }
   }
 </style>

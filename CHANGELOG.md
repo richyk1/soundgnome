@@ -43,14 +43,32 @@ changed after that point.
 - Content-only page and collection transitions with native View Transition API
   support, a lightweight fallback, reduced-motion handling, and live player controls.
   Added consistent navigation feedback and dialog entry without animating scrolling.
-- A compact floating mobile glass dock with bounded SVG refraction on the moving
-  navigation selection, one translucent backdrop, and a player row only when a
-  track is loaded. Full Now Playing controls remain available from the track
-  identity; reduced transparency and high-contrast modes use solid selections.
-  Transition snapshots leave the live dock unobscured, and closing More restores
-  keyboard focus without triggering the page's playback shortcut.
+- A docked mobile bar with Home, Search, Library, and More: pixel icons, mono
+  labels, and a violet tick on the active tab, with a player row only when a track
+  is loaded. Full Now Playing controls remain available from the track identity.
+  The dock is opaque with a hairline rule (no blur layer over scrolling content),
+  transition snapshots leave it unobscured, and closing More restores keyboard
+  focus without triggering the page's playback shortcut.
+- Generated pixel covers: albums, tracks, artists, and playlists without artwork
+  show a deterministic dithered sprite seeded by the item, so the same album keeps
+  the same cover in the grid, its detail view, its tracks, and the player.
 - Documented frontend-only development against a remote API and corrected local
   startup prerequisites, automatic SQLite migrations, and optional server `.env`.
+
+### Changed
+
+- New visual identity inspired by [Stencil](https://stencil.so): black night and
+  white day grounds, hairline rules, Geist for the interface and Geist Mono for
+  counts, durations, and dates, violet for selection and cyan for what is playing
+  or running. Archivo, JetBrains Mono, and the Lineicons webfont are replaced by
+  Geist, Geist Mono, and [pixelarticons](https://github.com/halfmage/pixelarticons).
+- A pixel gnome mark, whose hat and beard mirror a waveform, replaces the
+  headphone logo in the sidebar, favicon, and Home Screen/PWA icons. Icons are
+  rendered from `apps/web/src/lib/brand-mark.js` at build time.
+- Now Playing on phones fits one screen without scrolling: the Up next list is
+  gone (the desktop queue keeps it) and the cover shrinks on short screens. EQ
+  and mute are hidden on iPhone and iPad, where native audio can't be processed
+  and the device buttons control volume; sessions there always start unmuted.
 
 ### Removed
 

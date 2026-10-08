@@ -1,3 +1,10 @@
+export type Theme = 'light' | 'dark';
+
+// Seeded by the pre-paint script in index.html; observeTheme keeps it current.
+export const theme = $state<{ current: Theme }>({
+  current: document.documentElement.dataset.theme === 'light' ? 'light' : 'dark',
+});
+
 export function observeTheme(): () => void {
   const root = document.documentElement;
   let timer: number | undefined;
@@ -6,11 +13,13 @@ export function observeTheme(): () => void {
     window.clearTimeout(timer);
     const now = new Date();
     const hour = now.getHours();
-    root.dataset.theme = hour >= 7 && hour < 19 ? 'light' : 'dark';
+    // Local daylight picks the theme: light 07:00–19:00, dark otherwise.
+    theme.current = hour >= 7 && hour < 19 ? 'light' : 'dark';
+    root.dataset.theme = theme.current;
     const background = getComputedStyle(root).getPropertyValue('--bg').trim();
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', background);
     document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
-      ?.setAttribute('content', root.dataset.theme === 'light' ? 'default' : 'black-translucent');
+      ?.setAttribute('content', theme.current === 'light' ? 'default' : 'black-translucent');
 
     const next = new Date(now);
     if (hour < 7) {

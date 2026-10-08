@@ -446,6 +446,17 @@
     }
   }
 
+  const headerMeta = $derived.by(() => {
+    const parts: string[] = [];
+    if (!syncLoading) parts.push(`${schedules.length} ${schedules.length === 1 ? 'schedule' : 'schedules'}`);
+    if (!scLoading && !spaLoading && !lfmLoading) {
+      const connected = [scStatus, spaStatus, lfmStatus].filter((st) => st?.connected).length;
+      parts.push(`${connected}/3 accounts connected`);
+    }
+    if (stats) parts.push(stats.total_formatted);
+    return parts.join(' · ');
+  });
+
   function toggleScrobble() {
     scrobbleOn = !scrobbleOn;
     setScrobbleEnabled(scrobbleOn);
@@ -455,6 +466,7 @@
 <div class="tools-page">
   <header class="page-header">
     <h1>Tools</h1>
+    {#if headerMeta}<p class="header-meta mono">{headerMeta}</p>{/if}
     <p class="lede">
       Connect external accounts, schedule automatic playlist syncs, and keep an eye on how your
       library uses disk.
@@ -463,22 +475,22 @@
 
   <div class="tabs" role="tablist">
     <button class="tab" class:active={activeTab === 'sync'} onclick={() => switchTab('sync')}>
-      <i class="lni lni-repeat-1" aria-hidden="true"></i>Sync
+      <i class="pxi pxi-refresh" aria-hidden="true"></i>Sync
     </button>
     <button class="tab" class:active={activeTab === 'storage'} onclick={() => switchTab('storage')}>
-      <i class="lni lni-database-2" aria-hidden="true"></i>Storage
+      <i class="pxi pxi-database" aria-hidden="true"></i>Storage
     </button>
     <button class="tab" class:active={activeTab === 'providers'} onclick={() => switchTab('providers')}>
-      <i class="lni lni-plug-1" aria-hidden="true"></i>Providers
+      <i class="pxi pxi-plug" aria-hidden="true"></i>Providers
     </button>
     <button class="tab" class:active={activeTab === 'artwork'} onclick={() => switchTab('artwork')}>
-      <i class="lni lni-gallery" aria-hidden="true"></i>Artwork
+      <i class="pxi pxi-image" aria-hidden="true"></i>Artwork
     </button>
     <button class="tab" class:active={activeTab === 'fingerprints'} onclick={() => switchTab('fingerprints')}>
-      <i class="lni lni-fingerprint-1" aria-hidden="true"></i>Fingerprints
+      <i class="pxi pxi-audio-waveform" aria-hidden="true"></i>Fingerprints
     </button>
     <button class="tab" class:active={activeTab === 'missing'} onclick={() => switchTab('missing')}>
-      <i class="lni lni-unlink" aria-hidden="true"></i>Missing files
+      <i class="pxi pxi-unlink" aria-hidden="true"></i>Missing files
     </button>
   </div>
 
@@ -488,7 +500,7 @@
       <BackfillPanel
         title="Embed artwork"
         description="Embed cover art into every library file in place so artwork travels with the audio and shows offline. Missing covers are resolved from each track's references (Spotify oEmbed or YouTube thumbnail). Audio is never re-downloaded or moved."
-        icon="gallery"
+        icon="image"
         taskType="EmbedArtworkBackfill"
         okLabel="embedded"
         skipHint="Skipped = no cover art could be resolved for the track, or the audio file is missing from disk."
@@ -504,7 +516,7 @@
       <BackfillPanel
         title="Fingerprint library"
         description="Compute an acoustic fingerprint (Chromaprint) for every library track so re-uploads of songs you already own are recognized and quality-compared, even when their tags differ. This needs to run once for tracks that predate fingerprinting."
-        icon="fingerprint-1"
+        icon="audio-waveform"
         taskType="FingerprintBackfill"
         okLabel="fingerprinted"
         skipHint="Skipped = the track is already fingerprinted (safe to re-run), or its audio file is missing from disk."
@@ -523,19 +535,19 @@
 
   <!-- ── Storage tab ─────────────────────────────────────────────────────────── -->
   {#if activeTab === 'storage'}
-    <section class="tab-content">
+    <section class="tab-content narrow">
       <div class="section-head">
         <h2>Library storage</h2>
         <div class="section-actions">
           <button class="btn-ghost btn-sm" onclick={loadStorage} disabled={storageLoading}>
-            {#if storageLoading}<span class="spinner"></span>{:else}<i class="lni lni-refresh-circle-1-clockwise" aria-hidden="true"></i>{/if}Refresh
+            {#if storageLoading}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>{:else}<i class="pxi pxi-refresh" aria-hidden="true"></i>{/if}Refresh
           </button>
         </div>
       </div>
 
       {#if storageError}
         <div class="callout callout-error" role="alert">
-          <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+          <i class="pxi pxi-square-alert" aria-hidden="true"></i>
           <div class="callout-body"><strong>Couldn't load storage statistics.</strong><span>{storageError}</span></div>
         </div>
       {/if}
@@ -551,24 +563,24 @@
           {/each}
         </ul>
       {:else if stats}
-        <div class="storage-summary">
+        <dl class="storage-summary">
           <div class="summary-item">
-            <span class="summary-label">Library size</span>
-            <span class="summary-value">{stats.total_formatted}</span>
+            <dt>Library size</dt>
+            <dd class="summary-value mono">{stats.total_formatted}</dd>
           </div>
           <div class="summary-item">
-            <span class="summary-label">Total bytes</span>
-            <span class="summary-mono">{stats.total_bytes.toLocaleString()}</span>
+            <dt>Total bytes</dt>
+            <dd class="mono">{stats.total_bytes.toLocaleString()}</dd>
           </div>
           <div class="summary-item">
-            <span class="summary-label">Artists</span>
-            <span class="summary-mono">{stats.artists.length}</span>
+            <dt>Artists</dt>
+            <dd class="mono">{stats.artists.length}</dd>
           </div>
-        </div>
+        </dl>
 
         {#if stats.artists.length === 0}
           <div class="empty">
-            <i class="lni lni-database-2" aria-hidden="true"></i>
+            <i class="pxi pxi-database" aria-hidden="true"></i>
             <p class="empty-title">No storage data yet</p>
             <p class="empty-hint">Download some tracks and their footprint will show up here.</p>
           </div>
@@ -580,7 +592,7 @@
                 <div class="bar-track" title="{artist.name}: {artist.percent.toFixed(1)}% ({formatBytes(artist.bytes)})">
                   <div class="bar-fill" style="transform: scaleX({Math.max(artist.percent, 2) / 100})"></div>
                 </div>
-                <span class="artist-meta">
+                <span class="artist-meta mono">
                   <span class="meta-pct">{artist.percent.toFixed(1)}%</span>
                   <span class="meta-size">{formatBytes(artist.bytes)}</span>
                 </span>
@@ -594,7 +606,7 @@
 
   <!-- ── Sync tab ────────────────────────────────────────────────────────────── -->
   {#if activeTab === 'sync'}
-    <section class="tab-content">
+    <section class="tab-content narrow">
       <div class="section-head">
         <h2>Add a schedule</h2>
       </div>
@@ -602,8 +614,9 @@
 
       <form class="create-panel" onsubmit={handleCreate}>
         <div class="field">
-          <i class="lni lni-cloud-download field-icon" aria-hidden="true"></i>
+          <i class="pxi pxi-download field-icon" aria-hidden="true"></i>
           <input
+            class="field-input"
             type="url"
             placeholder="Playlist URL (Spotify, SoundCloud, YouTube…)"
             bind:value={newUrl}
@@ -640,18 +653,18 @@
         {#if newScheduleType === 'interval'}
           <div class="create-row">
             <div class="interval-group">
-              <input type="number" min="0.25" step="0.25" bind:value={newIntervalHours} disabled={creating} />
+              <input class="mono" type="number" min="0.25" step="0.25" bind:value={newIntervalHours} disabled={creating} />
               <span class="unit">hours</span>
             </div>
             <button type="submit" class="btn-accent" disabled={creating || !newUrl.trim()}>
-              {#if creating}<span class="spinner"></span>Adding{:else}<i class="lni lni-calendar-plus" aria-hidden="true"></i>Add{/if}
+              {#if creating}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Adding{:else}<i class="pxi pxi-calendar" aria-hidden="true"></i>Add{/if}
             </button>
           </div>
         {:else}
           <div class="create-row">
             <input class="input" type="text" placeholder="Cron expression (e.g. '0 12 * * *' for daily at noon)" bind:value={newCronExpression} disabled={creating} />
             <button type="submit" class="btn-accent" disabled={creating || !newUrl.trim()}>
-              {#if creating}<span class="spinner"></span>Adding{:else}<i class="lni lni-calendar-plus" aria-hidden="true"></i>Add{/if}
+              {#if creating}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Adding{:else}<i class="pxi pxi-calendar" aria-hidden="true"></i>Add{/if}
             </button>
           </div>
         {/if}
@@ -663,25 +676,25 @@
 
       {#if triggerMsg}
         <div class="callout callout-info" role="status">
-          <i class="lni lni-repeat-1" aria-hidden="true"></i>
+          <i class="pxi pxi-refresh" aria-hidden="true"></i>
           <div class="callout-body"><span>{triggerMsg}</span></div>
         </div>
       {/if}
       {#if syncError}
         <div class="callout callout-error" role="alert">
-          <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+          <i class="pxi pxi-square-alert" aria-hidden="true"></i>
           <div class="callout-body"><span>{syncError}</span></div>
         </div>
       {/if}
 
       <div class="section-head">
-        <h2>Schedules{#if !syncLoading}<span class="count">{schedules.length}</span>{/if}</h2>
+        <h2>Schedules{#if !syncLoading}<span class="h-count mono">{schedules.length}</span>{/if}</h2>
       </div>
 
       {#if syncLoading}
         <ul class="schedule-list" aria-hidden="true">
           {#each { length: 3 } as _}
-            <li class="schedule-panel skeleton">
+            <li class="schedule-row skeleton">
               <span class="sk sk-name"></span>
               <span class="sk sk-sub"></span>
             </li>
@@ -689,45 +702,43 @@
         </ul>
       {:else if schedules.length === 0}
         <div class="empty">
-          <i class="lni lni-calendar-plus" aria-hidden="true"></i>
+          <i class="pxi pxi-calendar" aria-hidden="true"></i>
           <p class="empty-title">No schedules yet</p>
           <p class="empty-hint">Add a playlist above to sync it automatically.</p>
         </div>
       {:else}
         <ul class="schedule-list">
           {#each schedules as schedule (schedule.id)}
-            <li class="schedule-panel" class:disabled={!schedule.enabled}>
+            <li class="schedule-row" class:paused={!schedule.enabled}>
               <div class="schedule-top">
                 <div class="schedule-info">
                   <span class="schedule-label">{schedule.label ?? schedule.playlist_url}</span>
                   {#if schedule.label}
-                    <span class="schedule-url">{schedule.playlist_url}</span>
+                    <span class="schedule-url mono">{schedule.playlist_url}</span>
                   {/if}
                 </div>
-                <div class="schedule-meta">
-                  <span class="pill pill-neutral">{formatSchedule(schedule)}</span>
-                  <span class="pill" class:pill-success={schedule.enabled} class:pill-muted={!schedule.enabled}>
-                    {schedule.enabled ? 'Active' : 'Paused'}
-                  </span>
-                </div>
+                <span class="tag" class:tag-success={schedule.enabled}>
+                  {schedule.enabled ? 'Active' : 'Paused'}
+                </span>
               </div>
-              <div class="schedule-dates">
-                <span>Last run: {formatDate(schedule.last_run)}</span>
-                <span>Next run: {formatDate(schedule.next_run)}</span>
-              </div>
+              <dl class="schedule-data">
+                <div><dt>Interval</dt><dd class="mono">{formatSchedule(schedule)}</dd></div>
+                <div><dt>Next run</dt><dd class="mono">{formatDate(schedule.next_run)}</dd></div>
+                <div><dt>Last run</dt><dd class="mono">{formatDate(schedule.last_run)}</dd></div>
+              </dl>
               <div class="schedule-actions">
                 <button class="btn-ghost btn-sm" onclick={() => toggleEnabled(schedule)}>
-                  {#if schedule.enabled}<i class="lni lni-pause" aria-hidden="true"></i>Pause{:else}<i class="lni lni-play" aria-hidden="true"></i>Resume{/if}
+                  {#if schedule.enabled}<i class="pxi pxi-pause" aria-hidden="true"></i>Pause{:else}<i class="pxi pxi-play" aria-hidden="true"></i>Resume{/if}
                 </button>
                 <button class="btn-accent btn-sm" disabled={triggeringId === schedule.id} onclick={() => handleTrigger(schedule.id)}>
                   {#if triggeringId === schedule.id}
-                    <span class="spinner"></span>Syncing
+                    <i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Syncing
                   {:else}
-                    <i class="lni lni-repeat-1" aria-hidden="true"></i>Sync now
+                    <i class="pxi pxi-refresh" aria-hidden="true"></i>Sync now
                   {/if}
                 </button>
                 <button class="btn-danger btn-sm" onclick={() => handleDelete(schedule.id)}>
-                  <i class="lni lni-trash-3" aria-hidden="true"></i>Delete
+                  <i class="pxi pxi-trash" aria-hidden="true"></i>Delete
                 </button>
               </div>
             </li>
@@ -739,7 +750,7 @@
 
   <!-- ── Providers tab ───────────────────────────────────────────────────────── -->
   {#if activeTab === 'providers'}
-    <section class="tab-content">
+    <section class="tab-content narrow">
       <div class="section-head">
         <h2>Connected accounts</h2>
       </div>
@@ -749,12 +760,9 @@
 
       <div class="provider-panel">
         <div class="provider-head">
-          <div class="provider-title">
-            <i class="lni lni-soundcloud provider-brand" aria-hidden="true"></i>
-            <span class="provider-name">SoundCloud</span>
-          </div>
+          <h3 class="provider-name">SoundCloud</h3>
           {#if !scLoading}
-            <span class="pill" class:pill-success={scStatus?.connected} class:pill-muted={!scStatus?.connected}>
+            <span class="tag" class:tag-success={scStatus?.connected}>
               {scStatus?.connected ? 'Connected' : 'Not connected'}
             </span>
           {/if}
@@ -767,19 +775,19 @@
 
         {#if scError}
           <div class="callout callout-error" role="alert">
-            <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+            <i class="pxi pxi-square-alert" aria-hidden="true"></i>
             <div class="callout-body"><span>{scError}</span></div>
           </div>
         {/if}
         {#if scSuccess}
           <div class="callout callout-success" role="status">
-            <i class="lni lni-check-circle-1" aria-hidden="true"></i>
+            <i class="pxi pxi-check" aria-hidden="true"></i>
             <div class="callout-body"><span>{scSuccess}</span></div>
           </div>
         {/if}
 
         {#if scLoading}
-          <p class="provider-note">Loading…</p>
+          <p class="provider-note provider-loading"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Loading…</p>
         {:else if scStatus?.connected}
           <p class="provider-note">
             Connected as <strong>{scStatus.username ?? 'unknown account'}</strong>
@@ -791,10 +799,10 @@
           </p>
           <div class="provider-actions">
             <button class="btn-accent" disabled={scPending} onclick={handleSyncLikes}>
-              {#if scPending}<span class="spinner"></span>Working{:else}<i class="lni lni-heart" aria-hidden="true"></i>Sync my likes{/if}
+              {#if scPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Working{:else}<i class="pxi pxi-heart" aria-hidden="true"></i>Sync my likes{/if}
             </button>
             <button class="btn-danger" disabled={scPending} onclick={handleDisconnect}>
-              {#if scPending}<span class="spinner"></span>Disconnecting{:else}<i class="lni lni-plug-1" aria-hidden="true"></i>Disconnect{/if}
+              {#if scPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Disconnecting{:else}<i class="pxi pxi-unlink" aria-hidden="true"></i>Disconnect{/if}
             </button>
           </div>
         {:else}
@@ -809,7 +817,7 @@
               spellcheck="false"
             />
             <button type="submit" class="btn-accent" disabled={scPending || !scToken.trim()}>
-              {#if scPending}<span class="spinner"></span>Connecting{:else}<i class="lni lni-link-1-angular-right" aria-hidden="true"></i>Connect{/if}
+              {#if scPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Connecting{:else}<i class="pxi pxi-link" aria-hidden="true"></i>Connect{/if}
             </button>
           </form>
           <p class="provider-note">
@@ -822,12 +830,9 @@
 
       <div class="provider-panel">
         <div class="provider-head">
-          <div class="provider-title">
-            <i class="lni lni-spotify provider-brand" aria-hidden="true"></i>
-            <span class="provider-name">Spotify</span>
-          </div>
+          <h3 class="provider-name">Spotify</h3>
           {#if !spaLoading}
-            <span class="pill" class:pill-success={spaStatus?.connected} class:pill-muted={!spaStatus?.connected}>
+            <span class="tag" class:tag-success={spaStatus?.connected}>
               {spaStatus?.connected ? 'Connected' : 'Not connected'}
             </span>
           {/if}
@@ -841,19 +846,19 @@
 
         {#if spaError}
           <div class="callout callout-error" role="alert">
-            <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+            <i class="pxi pxi-square-alert" aria-hidden="true"></i>
             <div class="callout-body"><span>{spaError}</span></div>
           </div>
         {/if}
         {#if spaSuccess}
           <div class="callout callout-success" role="status">
-            <i class="lni lni-check-circle-1" aria-hidden="true"></i>
+            <i class="pxi pxi-check" aria-hidden="true"></i>
             <div class="callout-body"><span>{spaSuccess}</span></div>
           </div>
         {/if}
 
         {#if spaLoading}
-          <p class="provider-note">Loading…</p>
+          <p class="provider-note provider-loading"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Loading…</p>
         {:else if spaStatus?.connected}
           <p class="provider-note">
             Connected as <strong>{spaStatus.username ?? 'your Spotify account'}</strong>
@@ -864,10 +869,10 @@
           </p>
           <div class="provider-actions">
             <button class="btn-accent" disabled={spaPending} onclick={handleSpotifyAudioSyncLikes}>
-              {#if spaPending}<span class="spinner"></span>Working{:else}<i class="lni lni-heart" aria-hidden="true"></i>Sync my Liked Songs{/if}
+              {#if spaPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Working{:else}<i class="pxi pxi-heart" aria-hidden="true"></i>Sync my Liked Songs{/if}
             </button>
             <button class="btn-danger" disabled={spaPending} onclick={handleSpotifyAudioDisconnect}>
-              {#if spaPending}<span class="spinner"></span>Disconnecting{:else}<i class="lni lni-plug-1" aria-hidden="true"></i>Disconnect{/if}
+              {#if spaPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Disconnecting{:else}<i class="pxi pxi-unlink" aria-hidden="true"></i>Disconnect{/if}
             </button>
           </div>
         {:else}
@@ -885,13 +890,13 @@
                 disabled={spaPending}
               />
               <button type="submit" class="btn-accent" disabled={spaPending || !spaRedirectUrl.trim()}>
-                {#if spaPending}<span class="spinner"></span>Connecting{:else}<i class="lni lni-check" aria-hidden="true"></i>Complete connection{/if}
+                {#if spaPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Connecting{:else}<i class="pxi pxi-check" aria-hidden="true"></i>Complete connection{/if}
               </button>
             </form>
           {:else}
             <div class="provider-actions">
               <button class="btn-accent" disabled={spaPending} onclick={handleSpotifyAudioConnect}>
-                {#if spaPending}<span class="spinner"></span>Opening{:else}<i class="lni lni-spotify" aria-hidden="true"></i>Connect Spotify{/if}
+                {#if spaPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Opening{:else}<i class="pxi pxi-link" aria-hidden="true"></i>Connect Spotify{/if}
               </button>
             </div>
           {/if}
@@ -900,12 +905,9 @@
 
       <div class="provider-panel">
         <div class="provider-head">
-          <div class="provider-title">
-            <i class="lni lni-radio provider-brand" aria-hidden="true"></i>
-            <span class="provider-name">Last.fm</span>
-          </div>
+          <h3 class="provider-name">Last.fm</h3>
           {#if !lfmLoading}
-            <span class="pill" class:pill-success={lfmStatus?.connected} class:pill-muted={!lfmStatus?.connected}>
+            <span class="tag" class:tag-success={lfmStatus?.connected}>
               {lfmStatus?.connected ? 'Connected' : 'Not connected'}
             </span>
           {/if}
@@ -918,19 +920,19 @@
 
         {#if lfmError}
           <div class="callout callout-error" role="alert">
-            <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+            <i class="pxi pxi-square-alert" aria-hidden="true"></i>
             <div class="callout-body"><span>{lfmError}</span></div>
           </div>
         {/if}
         {#if lfmSuccess}
           <div class="callout callout-success" role="status">
-            <i class="lni lni-check-circle-1" aria-hidden="true"></i>
+            <i class="pxi pxi-check" aria-hidden="true"></i>
             <div class="callout-body"><span>{lfmSuccess}</span></div>
           </div>
         {/if}
 
         {#if lfmLoading}
-          <p class="provider-note">Loading…</p>
+          <p class="provider-note provider-loading"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Loading…</p>
         {:else if lfmStatus?.connected}
           <p class="provider-note">
             Connected as <strong>{lfmStatus.username ?? 'your account'}</strong>
@@ -941,7 +943,7 @@
           </label>
           <div class="provider-actions">
             <button class="btn-danger" disabled={lfmPending} onclick={handleLastfmDisconnect}>
-              {#if lfmPending}<span class="spinner"></span>Disconnecting{:else}<i class="lni lni-plug-1" aria-hidden="true"></i>Disconnect{/if}
+              {#if lfmPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Disconnecting{:else}<i class="pxi pxi-unlink" aria-hidden="true"></i>Disconnect{/if}
             </button>
           </div>
         {:else if lfmStatus?.configured}
@@ -953,14 +955,14 @@
             </p>
             <div class="provider-actions">
               <button class="btn-accent" disabled={lfmPending} onclick={handleLastfmComplete}>
-                {#if lfmPending}<span class="spinner"></span>Finishing{:else}<i class="lni lni-check-circle-1" aria-hidden="true"></i>I've approved, finish{/if}
+                {#if lfmPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Finishing{:else}<i class="pxi pxi-check" aria-hidden="true"></i>I've approved, finish{/if}
               </button>
               <button class="btn-ghost" disabled={lfmPending} onclick={clearPending}>Cancel</button>
             </div>
           {:else}
             <div class="provider-actions">
               <button class="btn-accent" disabled={lfmPending} onclick={handleLastfmConnect}>
-                {#if lfmPending}<span class="spinner"></span>Opening{:else}<i class="lni lni-radio" aria-hidden="true"></i>Connect Last.fm{/if}
+                {#if lfmPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Opening{:else}<i class="pxi pxi-link" aria-hidden="true"></i>Connect Last.fm{/if}
               </button>
             </div>
           {/if}
@@ -969,7 +971,7 @@
             <input class="input" type="text" placeholder="API key" bind:value={lfmKey} disabled={lfmPending} autocomplete="off" spellcheck="false" />
             <input class="input" type="password" placeholder="Shared secret" bind:value={lfmSecret} disabled={lfmPending} autocomplete="off" spellcheck="false" />
             <button type="submit" class="btn-accent" disabled={lfmPending || !lfmKey.trim() || !lfmSecret.trim()}>
-              {#if lfmPending}<span class="spinner"></span>Saving{:else}<i class="lni lni-link-1-angular-right" aria-hidden="true"></i>Save{/if}
+              {#if lfmPending}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Saving{:else}<i class="pxi pxi-link" aria-hidden="true"></i>Save{/if}
             </button>
           </form>
           <p class="provider-note">
@@ -990,745 +992,425 @@
     padding: var(--space-page);
     display: flex;
     flex-direction: column;
-    gap: 1.75rem;
+    gap: 24px;
   }
 
   /* ── Header ──────────────────────────────────────────────────────────── */
   .page-header {
-    display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.5rem;
-    max-width: 68ch;
-  }
-  h1 {
-    font-size: 1.25rem;
-    font-weight: 700;
+    justify-content: flex-start;
+    gap: 6px;
     margin: 0;
   }
-  @media (min-width: 768px) {
-    h1 {
-      font-size: 1.5rem;
-    }
+  .page-header h1 {
+    font-size: 32px;
+    line-height: 1.05;
+  }
+  .header-meta {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted-2);
   }
   .lede {
     margin: 0;
+    max-width: 64ch;
+    font-size: 14px;
+    line-height: 1.5;
     color: var(--muted);
-    font-size: 0.95rem;
-    line-height: 1.55;
   }
+  .page-header .lede { margin-top: 6px; }
 
-  /* ── Tabs ────────────────────────────────────────────────────────────── */
-  .tabs {
-    display: flex;
-    gap: 0.35rem;
-    padding: 0.3rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 10px;
-    align-self: flex-start;
-    flex-wrap: wrap;
-  }
-  .tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 0.5rem 0.95rem;
-    border: none;
-    border-radius: 7px;
-    background: transparent;
-    color: var(--muted);
-    font-family: inherit;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-      background 0.12s ease,
-      color 0.12s ease;
-  }
-  .tab .lni {
-    font-size: 15px;
-  }
-  .tab:hover:not(.active) {
-    color: var(--text);
-    background: var(--surface-2);
-  }
-  .tab.active {
-    background: var(--surface-2);
-    color: var(--text-bright);
-  }
+  .tabs { margin-bottom: 0; }
 
   .tab-content {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 16px;
+    min-width: 0;
   }
+  .tab-content.narrow { max-width: 880px; }
 
-  /* ── Section labels ──────────────────────────────────────────────────── */
+  /* ── Section heads ───────────────────────────────────────────────────── */
   .section-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 16px;
     flex-wrap: wrap;
   }
+  .section-head + .lede { margin-top: -8px; }
   h2 {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted-2);
+    align-items: baseline;
+    gap: 8px;
     margin: 0;
-  }
-  .count {
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    letter-spacing: 0;
-    padding: 0.1rem 0.4rem;
-    border-radius: 999px;
-    background: var(--surface-2);
-    color: var(--muted);
-  }
-  .section-actions {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-
-  /* ── Buttons ─────────────────────────────────────────────────────────── */
-  .btn-accent,
-  .btn-ghost,
-  .btn-danger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 0.55rem 1rem;
-    border-radius: 8px;
-    font-family: inherit;
-    font-size: 0.875rem;
-    font-weight: 600;
-    white-space: nowrap;
-    cursor: pointer;
-    transition:
-      filter 0.12s ease,
-      background 0.12s ease,
-      opacity 0.12s ease;
-  }
-  .btn-accent .lni,
-  .btn-ghost .lni,
-  .btn-danger .lni {
     font-size: 16px;
+    line-height: 1.35;
   }
-  .btn-accent {
-    border: none;
-    background: var(--accent);
-    color: var(--on-accent);
-  }
-  .btn-accent:hover:not(:disabled) {
-    filter: brightness(1.08);
-  }
-  .btn-ghost {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-  }
-  .btn-ghost:hover:not(:disabled) {
-    background: var(--surface-2);
-  }
-  .btn-danger {
-    background: transparent;
-    border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
-    color: var(--error);
-  }
-  .btn-danger:hover:not(:disabled) {
-    background: var(--error-bg);
-  }
-  .btn-accent:disabled,
-  .btn-ghost:disabled,
-  .btn-danger:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-  .btn-sm {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.82rem;
-  }
-
-  /* ── Inputs ──────────────────────────────────────────────────────────── */
-  .field {
-    display: flex;
-    align-items: center;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding-left: 12px;
-    transition:
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
-  }
-  .field:focus-within {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
-  }
-  .field-icon {
-    font-size: 17px;
+  .h-count {
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0;
     color: var(--muted-2);
-    flex-shrink: 0;
   }
-  .field:focus-within .field-icon {
-    color: var(--accent);
-  }
-  .field input {
-    flex: 1;
-    min-width: 0;
-    background: transparent;
-    border: none;
-    outline: none;
-    color: var(--text);
-    font-family: inherit;
-    font-size: 0.9rem;
-    padding: 0.7rem 0.7rem;
-  }
-  .field input::placeholder {
-    color: var(--muted);
-  }
-  .input {
-    min-width: 0;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font-family: inherit;
-    font-size: 0.9rem;
-    padding: 0.6rem 0.75rem;
-    outline: none;
-    transition:
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
-  }
-  .input::placeholder {
-    color: var(--muted);
-  }
-  .input:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
-  }
-  .input:disabled {
-    opacity: 0.6;
-  }
+  .tab-content > .section-head:not(:first-child) { margin-top: 12px; }
 
-  /* ── Create schedule form ────────────────────────────────────────────── */
+  /* ── Sync: create form ───────────────────────────────────────────────── */
   .create-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    padding: 1.1rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 12px;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
   }
+  .field { position: relative; }
+  .field-icon {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    translate: 0 -50%;
+    font-size: 16px;
+    color: var(--muted-2);
+    pointer-events: none;
+    transition: color var(--motion-fast) var(--ease-out);
+  }
+  .field:focus-within .field-icon { color: var(--accent); }
+  .field-input { padding-left: 38px; }
   .create-row {
     display: flex;
-    gap: 0.6rem;
+    align-items: center;
+    gap: 8px;
   }
-  .create-row .input {
-    flex: 1;
-  }
+  .create-row .input { flex: 1; }
   .seg {
     display: inline-flex;
-    padding: 3px;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
     flex-shrink: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-control);
+    overflow: hidden;
   }
   .seg-btn {
-    padding: 0.35rem 0.85rem;
-    border: none;
-    border-radius: 6px;
+    min-height: 36px;
+    padding: 0 14px;
+    border: 0;
     background: transparent;
-    color: var(--muted);
-    font-family: inherit;
-    font-size: 0.82rem;
-    font-weight: 600;
+    color: var(--muted-2);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     cursor: pointer;
-    transition:
-      background 0.12s ease,
-      color 0.12s ease;
   }
-  .seg-btn:hover:not(.active):not(:disabled) {
-    color: var(--text);
-  }
-  .seg-btn.active {
-    background: var(--accent);
-    color: var(--on-accent);
-  }
-  .seg-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
+  .seg-btn + .seg-btn { border-left: 1px solid var(--border-strong); }
+  .seg-btn:hover:not(.active):not(:disabled) { background: var(--surface-2); color: var(--text-bright); }
+  .seg-btn.active { background: var(--accent-muted); color: var(--text-bright); }
+  .seg-btn:disabled { opacity: 0.45; cursor: default; }
   .interval-group {
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 8px;
   }
-  .interval-group input {
-    width: 5rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font-family: var(--font-mono);
-    font-size: 0.9rem;
-    padding: 0.6rem 0.7rem;
-    outline: none;
-    transition: border-color 0.15s ease;
-  }
-  .interval-group input:focus {
-    border-color: var(--accent);
-  }
+  .interval-group input { width: 6.5rem; }
   .unit {
-    font-size: 0.85rem;
+    font-size: 14px;
     color: var(--muted);
   }
   .field-error {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 13px;
     color: var(--error);
+    overflow-wrap: anywhere;
   }
 
-  /* ── Callouts ────────────────────────────────────────────────────────── */
-  .callout {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.7rem;
-    padding: 0.85rem 1rem;
-    border-radius: 10px;
-    border: 1px solid transparent;
-    font-size: 0.9rem;
-  }
-  .callout .lni {
-    font-size: 19px;
-    flex-shrink: 0;
-    line-height: 1.35;
-  }
-  .callout-body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
-  }
-  .callout-body strong {
-    font-weight: 600;
-    color: var(--text-bright);
-  }
-  .callout-error {
-    background: var(--error-bg);
-    border-color: color-mix(in srgb, var(--error) 45%, transparent);
-    color: var(--error);
-  }
-  .callout-success {
-    background: color-mix(in srgb, var(--success) 16%, var(--panel));
-    border-color: color-mix(in srgb, var(--success) 45%, transparent);
-    color: var(--success);
-  }
-  .callout-info {
-    background: var(--accent-muted);
-    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-    color: var(--accent-2);
-  }
-
-  /* ── Status pills ────────────────────────────────────────────────────── */
-  .pill {
+  /* ── Status tags ─────────────────────────────────────────────────────── */
+  .tag {
     display: inline-flex;
     align-items: center;
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 0.15rem 0.6rem;
-    border-radius: 999px;
-    white-space: nowrap;
-  }
-  .pill-neutral {
-    background: var(--surface-2);
+    flex-shrink: 0;
+    min-height: 20px;
+    padding: 0 6px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
     color: var(--muted);
     font-family: var(--font-mono);
-    letter-spacing: 0;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
-  .pill-success {
-    background: color-mix(in srgb, var(--success) 18%, transparent);
+  .tag-success {
+    border-color: color-mix(in srgb, var(--success) 40%, transparent);
+    background: color-mix(in srgb, var(--success) 12%, transparent);
     color: var(--success);
   }
-  .pill-muted {
-    background: var(--surface-2);
-    color: var(--muted);
-  }
 
-  /* ── Storage summary ─────────────────────────────────────────────────── */
+  /* ── Storage ─────────────────────────────────────────────────────────── */
   .storage-summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem 2rem;
-    padding: 1rem 1.1rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 12px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
   }
   .summary-item {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 4px;
+    min-width: 0;
+    padding: 14px 16px 14px 0;
   }
-  .summary-label {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+  .summary-item + .summary-item {
+    padding-left: 16px;
+    border-left: 1px solid var(--border-soft);
+  }
+  dt {
+    font-size: 12px;
     color: var(--muted-2);
   }
+  dd {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
   .summary-value {
-    font-size: 1.05rem;
-    font-weight: 600;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.2;
     color: var(--text-bright);
   }
-  .summary-mono {
-    font-family: var(--font-mono);
-    font-size: 0.95rem;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-  }
 
-  /* ── Artists list ────────────────────────────────────────────────────── */
   .artists-list {
     list-style: none;
-    padding: 0;
     margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    padding: 0;
+    border-top: 1px solid var(--border);
   }
   .artist-row {
     display: grid;
     grid-template-columns: minmax(8rem, 1.2fr) 2fr auto;
     align-items: center;
-    gap: 0.85rem;
-    padding: 0.55rem 0.7rem;
-    border-radius: 8px;
-    transition: background 0.1s ease;
-  }
-  .artist-row:not(.skeleton):hover {
-    background: var(--surface);
+    gap: 16px;
+    min-height: 44px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-soft);
   }
   .artist-name {
-    font-size: 0.88rem;
+    min-width: 0;
+    font-size: 14px;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .bar-track {
-    height: 6px;
-    border-radius: 999px;
+    height: 4px;
     background: var(--surface-2);
     overflow: hidden;
   }
   .bar-fill {
-    height: 100%;
     width: 100%;
-    background: var(--accent);
-    border-radius: 999px;
+    height: 100%;
+    background: var(--live);
     transform-origin: left;
-    transition: transform 0.3s ease;
+    transition: transform var(--motion-normal) var(--ease-out);
   }
   .artist-meta {
     display: flex;
     align-items: baseline;
-    gap: 0.6rem;
     justify-content: flex-end;
+    gap: 12px;
+    font-size: 12px;
   }
-  .meta-pct {
-    font-family: var(--font-mono);
-    font-size: 0.78rem;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-  }
+  .meta-pct { color: var(--text); }
   .meta-size {
-    font-family: var(--font-mono);
-    font-size: 0.76rem;
-    color: var(--muted-2);
     min-width: 5.5rem;
     text-align: right;
+    color: var(--muted-2);
   }
 
-  /* ── Schedule list ───────────────────────────────────────────────────── */
+  /* ── Sync: schedule rows ─────────────────────────────────────────────── */
   .schedule-list {
     list-style: none;
-    padding: 0;
     margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--border);
+  }
+  .schedule-row {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-  }
-  .schedule-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 0.7rem;
-    padding: 1rem 1.1rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 12px;
-    transition: opacity 0.12s ease;
-  }
-  .schedule-panel.disabled {
-    opacity: 0.6;
+    gap: 10px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border-soft);
   }
   .schedule-top {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 16px;
   }
   .schedule-info {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 2px;
     min-width: 0;
   }
   .schedule-label {
-    font-size: 0.95rem;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 500;
     color: var(--text-bright);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .schedule-row.paused .schedule-label { color: var(--muted); }
   .schedule-url {
-    font-family: var(--font-mono);
-    font-size: 0.76rem;
+    font-size: 12px;
     color: var(--muted-2);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .schedule-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-shrink: 0;
-  }
-  .schedule-dates {
+  .schedule-data {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.35rem 1.25rem;
-    font-size: 0.8rem;
-    color: var(--muted);
+    gap: 6px 28px;
+    margin: 0;
   }
+  .schedule-data > div {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .schedule-data dd { font-size: 12px; }
   .schedule-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 8px;
   }
 
-  /* ── Provider panels ─────────────────────────────────────────────────── */
+  /* ── Providers ───────────────────────────────────────────────────────── */
   .provider-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    padding: 1.1rem 1.2rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 12px;
+    gap: 12px;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
   }
   .provider-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-  }
-  .provider-title {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-  }
-  .provider-brand {
-    font-size: 22px;
-    color: var(--text-bright);
+    gap: 16px;
   }
   .provider-name {
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-bright);
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.35;
   }
   .provider-note {
     margin: 0;
-    font-size: 0.86rem;
-    line-height: 1.55;
+    max-width: 68ch;
+    font-size: 14px;
+    line-height: 1.5;
     color: var(--muted);
   }
   .provider-note strong {
-    color: var(--text-bright);
     font-weight: 600;
+    color: var(--text-bright);
   }
-  .provider-note code {
-    font-family: var(--font-mono);
-    font-size: 0.8rem;
-    background: var(--surface-2);
-    padding: 0.1rem 0.35rem;
-    border-radius: 5px;
-    color: var(--text);
+  .provider-note a { color: var(--accent); }
+  .provider-note a:hover { color: var(--accent-2); }
+  .provider-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
+  .provider-loading .pxi { font-size: 16px; color: var(--muted-2); }
   .provider-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-
-  /* ── Empty + loading ─────────────────────────────────────────────────── */
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 0.35rem;
-    padding: 2.5rem 1rem;
-  }
-  .empty .lni {
-    font-size: 30px;
-    color: var(--muted-2);
-    margin-bottom: 0.3rem;
-  }
-  .empty-title {
-    margin: 0;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .empty-hint {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-
-  .sk {
-    height: 0.75rem;
-    border-radius: 4px;
-    background: var(--surface-2);
-    animation: sk-pulse 1.3s ease-in-out infinite;
-  }
-  .artist-row.skeleton {
-    grid-template-columns: minmax(8rem, 1.2fr) 2fr auto;
-  }
-  .sk-name {
-    width: 60%;
-  }
-  .sk-bar {
-    height: 6px;
-    width: 100%;
-  }
-  .sk-meta {
-    width: 4rem;
-    justify-self: end;
-  }
-  .schedule-panel.skeleton {
-    gap: 0.5rem;
-  }
-  .schedule-panel.skeleton .sk-name {
-    width: 40%;
-  }
-  .schedule-panel.skeleton .sk-sub {
-    width: 25%;
-    height: 0.6rem;
-  }
-  @keyframes sk-pulse {
-    50% {
-      opacity: 0.45;
-    }
-  }
-
-  .spinner {
-    width: 13px;
-    height: 13px;
-    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    flex-shrink: 0;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .sk,
-    .spinner,
-    .bar-fill {
-      animation: none;
-      transition: none;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .tools-page {
-      padding: var(--space-page);
-    }
-    .create-row {
-      flex-direction: column;
-    }
-    .seg {
-      align-self: stretch;
-    }
-    .seg-btn {
-      flex: 1;
-    }
-    .artist-row {
-      grid-template-columns: 1fr auto;
-      grid-template-areas:
-        "name meta"
-        "bar bar";
-      row-gap: 0.4rem;
-    }
-    .artist-name {
-      grid-area: name;
-    }
-    .bar-track {
-      grid-area: bar;
-    }
-    .artist-meta {
-      grid-area: meta;
-    }
+    gap: 8px;
   }
   .scrobble-toggle {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.875rem;
+    min-height: 36px;
+    font-size: 14px;
     color: var(--text);
     cursor: pointer;
-    margin: 0.25rem 0 0.6rem;
   }
   .scrobble-toggle input {
-    accent-color: var(--accent);
+    width: auto;
+    margin: 0;
     cursor: pointer;
   }
 
+  /* ── Skeletons ───────────────────────────────────────────────────────── */
+  .sk {
+    height: 10px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    animation: sk-pulse 1.3s steps(4) infinite;
+  }
+  .sk-name { width: 60%; }
+  .sk-bar { width: 100%; height: 4px; }
+  .sk-meta { width: 4rem; justify-self: end; }
+  .schedule-row.skeleton { gap: 8px; }
+  .schedule-row.skeleton .sk-name { width: 40%; }
+  .schedule-row.skeleton .sk-sub { width: 25%; height: 8px; }
+  @keyframes sk-pulse {
+    50% { opacity: 0.45; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sk { animation: none; }
+    .bar-fill { transition: none; }
+  }
+
+  /* ── Phones ──────────────────────────────────────────────────────────── */
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    button { min-height: 44px; min-width: 44px; }
-    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 16px; min-height: 44px; }
-    .tabs { max-width: 100%; overflow-x: auto; }
+    .page-header h1 { font-size: 28px; }
     .tab { flex-shrink: 0; }
-    .section-head, .provider-head, .schedule-top { flex-wrap: wrap; }
-    .provider-title, .schedule-info { min-width: 0; }
-    .schedule-info { flex-basis: 100%; }
-    .schedule-meta { flex-wrap: wrap; }
+    .create-panel { padding: 12px; }
     .create-row { flex-direction: column; align-items: stretch; }
     .create-row .input { flex: 0 0 auto; width: 100%; }
+    .seg { align-self: stretch; }
+    .seg-btn { flex: 1; min-height: 44px; }
+    .interval-group input { width: 7rem; }
+    .provider-panel { padding: 16px; }
+    .provider-head, .schedule-top { flex-wrap: wrap; }
+    .schedule-top { gap: 8px; }
+    .schedule-info { flex: 1 1 12rem; }
+    .schedule-data { flex-direction: column; }
+    .schedule-data dt { min-width: 4.5rem; }
+    .schedule-actions > button { flex: 1 1 auto; }
     .scrobble-toggle { min-height: 44px; }
-    .callout-body, .provider-note { overflow-wrap: anywhere; }
-    .artist-row, .artist-row.skeleton { grid-template-columns: minmax(0, 1fr) auto; }
+    .provider-note { overflow-wrap: anywhere; }
+    .storage-summary { grid-template-columns: 1fr 1fr; }
+    .summary-item:first-child {
+      grid-column: 1 / -1;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .summary-item:nth-child(2) { padding-left: 0; border-left: 0; }
+    .artist-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "name meta"
+        "bar bar";
+      row-gap: 8px;
+    }
+    .artist-name { grid-area: name; }
+    .bar-track, .sk-bar { grid-area: bar; }
+    .artist-meta, .sk-meta { grid-area: meta; }
+    .sk-name { grid-area: name; }
   }
 </style>

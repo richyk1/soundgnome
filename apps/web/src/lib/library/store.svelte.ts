@@ -16,6 +16,7 @@ import type {
   ReferenceDto, AddReferenceBody,
 } from '../types';
 import { type GlobalPlayer, type PlayerTrack } from '../player';
+import { trackCoverSeed } from '../pixel-art';
 
 export type Tab = 'artists' | 'albums' | 'tracks' | 'playlists';
 export type ViewMode = 'list' | 'grid';
@@ -63,6 +64,7 @@ export function toPlayerTrack(t: LibraryTrackDto): PlayerTrack {
     title: t.title,
     artist: t.artists.map((a) => a.name).join(', '),
     artwork: t.cover ?? ytThumb(t.references),
+    coverSeed: trackCoverSeed(t),
     waveformUrl: `/api/tracks/${t.id}/waveform`,
     spotifyUrl: spotifyTrackUrl(t.references),
     durationSecs: t.duration,

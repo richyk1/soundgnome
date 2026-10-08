@@ -1,11 +1,9 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
   import { lib } from './store.svelte';
   import VirtualCardGrid from './VirtualCardGrid.svelte';
   import CardActions from './CardActions.svelte';
+  import PixelCover from '../PixelCover.svelte';
   import { runNavigation } from '../navigation-motion';
-
-  let { cover }: { cover: Snippet<[string | null | undefined, string]> } = $props();
 
   function clearHoveredAlbum() {
     if (lib.hoveredItem?.type === 'album') lib.hoveredItem = null;
@@ -38,13 +36,15 @@
             else if (!lib.albumMergePicking) runNavigation(() => lib.drillIntoAlbum(a));
           } else if (e.key === ' ') { e.preventDefault(); lib.toggleAlbumSelection(a.id); }
         }}>
-        {@render cover(a.cover, a.title)}
+        <div class="cover-wrap">
+          <PixelCover src={a.cover && /^https?:\/\//.test(a.cover) ? a.cover : null} seed="album:{a.id}" alt={a.title} />
+        </div>
         <div class="card-body">
           <div class="card-title" title={a.title}>{a.title}</div>
           <div class="card-sub">{a.artists.map(x => x.name).join(', ') || '\u2014'}</div>
           {#if a.date}<div class="card-meta">{a.date.slice(0, 4)}</div>{/if}
         </div>
-        {#if sel}<span class="card-sel-badge">✓</span>{/if}
+        {#if sel}<span class="card-sel-badge" aria-label="Selected"><i class="pxi pxi-check" aria-hidden="true"></i></span>{/if}
         {#if !lib.albumMergePicking}
           <CardActions title={a.title} actions={[
             { label: sel ? 'Selected' : 'Select', pressed: sel, onSelect: () => lib.toggleAlbumSelection(a.id) },
@@ -57,18 +57,25 @@
 </VirtualCardGrid>
 
 <style>
-  /* Uniform metadata height keeps virtual rows stable, including albums without dates. */
-  .card-body { height: 6rem; box-sizing: border-box; }
-  .card { position: relative; }
-  .card-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* Fixed metadata height keeps virtual rows stable, including albums without dates. */
+  .card-body { height: 4.5rem; }
+  .card-selected :global(.cover-wrap)::after { box-shadow: inset 0 0 0 2px var(--accent); }
   .card-dimmed { opacity: 0.2; }
   .card-pickable { cursor: pointer; }
-  .card-pickable:hover { outline-color: var(--success) !important; background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
+  .card-pickable:hover :global(.cover-wrap)::after { box-shadow: inset 0 0 0 2px var(--success); }
   .card-sel-badge {
-    position: absolute; top: 0.5rem; left: 0.5rem; z-index: 2;
-    background: var(--accent); color: var(--on-accent); border-radius: 50%;
-    width: 1.2rem; height: 1.2rem; font-size: 0.65rem; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 16px;
   }
   .card-pickable .card-sel-badge { background: var(--success); color: var(--on-success); }
 </style>

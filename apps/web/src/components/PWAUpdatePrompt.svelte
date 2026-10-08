@@ -36,11 +36,11 @@
       <h3>Update available</h3>
       <p>A new version of Soundgnome is available.</p>
       <div class="pwa-update-actions">
-        <button class="btn-primary" on:click={handleUpdate}>
-          Update
-        </button>
         <button class="btn-secondary" on:click={handleDismiss}>
           Later
+        </button>
+        <button class="btn-primary" on:click={handleUpdate}>
+          <i class="pxi pxi-refresh" aria-hidden="true"></i>Update
         </button>
       </div>
     </div>
@@ -48,95 +48,59 @@
 {/if}
 
 <style>
+  /* Toast: a float panel above the phone dock, bottom-right on desktop. */
   .pwa-update-prompt {
     position: fixed;
-    bottom: 20px;
-    right: 20px;
+    right: calc(var(--safe-right) + 24px);
+    bottom: var(--app-bottom-clearance);
     z-index: 1000;
-    animation: slideIn 0.3s ease-in-out;
+    width: min(340px, calc(100vw - 48px));
+    animation: toast-in var(--motion-normal) var(--ease-out);
   }
 
   .pwa-update-content {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
     padding: 16px;
-    box-shadow: var(--shadow);
-    max-width: 320px;
+    background: var(--float);
+    border: 1px solid var(--float-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--float-shadow);
   }
 
   h3 {
-    margin: 0 0 8px 0;
-    font-size: 16px;
-    font-weight: 600;
+    margin: 0 0 4px;
+    font-size: 15px;
+    line-height: 1.35;
     color: var(--text-bright);
   }
 
   p {
-    margin: 0 0 16px 0;
+    margin: 0 0 14px;
     font-size: 14px;
+    line-height: 1.45;
     color: var(--muted);
   }
 
   .pwa-update-actions {
     display: flex;
+    justify-content: flex-end;
     gap: 8px;
   }
 
-  button {
-    flex: 1;
-    padding: 8px 12px;
-    border: none;
-    border-radius: 4px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
+  @keyframes toast-in {
+    from { opacity: 0; translate: 0 8px; }
+    to { opacity: 1; translate: 0 0; }
   }
 
-  .btn-primary {
-    background: var(--accent);
-    color: var(--on-accent);
-  }
-
-  .btn-primary:hover {
-    background: var(--accent-strong);
-  }
-
-  .btn-secondary {
-    background: var(--surface);
-    color: var(--text-bright);
-  }
-
-  .btn-secondary:hover {
-    background: var(--surface-2);
-  }
-
-  @keyframes slideIn {
-    from {
-      opacity: 0;
-      transform: translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @media (max-width: 480px) {
-    .pwa-update-prompt {
-      bottom: 10px;
-      right: 10px;
-      left: 10px;
-    }
-
-    .pwa-update-content {
-      max-width: none;
-    }
+  @media (prefers-reduced-motion: reduce) {
+    .pwa-update-prompt { animation: none; }
   }
 
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    button { min-height: 44px; min-width: 44px; }
-    .pwa-update-prompt { bottom: auto; top: calc(var(--app-top, 0px) + 1rem); left: 1rem; right: 1rem; max-height: calc(var(--app-height, 100dvh) - 2rem); overflow-y: auto; } .pwa-update-content { margin-left: auto; margin-right: auto; } button { min-height: 44px; }
+    .pwa-update-prompt {
+      left: calc(var(--safe-left) + 16px);
+      right: calc(var(--safe-right) + 16px);
+      width: auto;
+    }
+    .pwa-update-actions button { flex: 1; }
   }
 </style>

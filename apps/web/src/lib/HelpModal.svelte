@@ -21,9 +21,9 @@
   class="help-dialog"
 >
   <div class="dialog-header">
-    <h3>Soundgnome help</h3>
+    <h2>Soundgnome help</h2>
     <button class="dialog-close" onclick={onClose} aria-label="Close">
-      <i class="lni lni-xmark" aria-hidden="true"></i>
+      <i class="pxi pxi-close" aria-hidden="true"></i>
     </button>
   </div>
 
@@ -31,7 +31,7 @@
 
     <!-- ── Pages ────────────────────────────────────────────────────────── -->
     <section>
-      <h4>Pages</h4>
+      <h3>Pages</h3>
       <table class="help-table">
         <tbody>
           <tr>
@@ -60,9 +60,9 @@
 
     <!-- ── Keyboard shortcuts ───────────────────────────────────────────── -->
     <section>
-      <h4>Keyboard shortcuts</h4>
+      <h3>Keyboard shortcuts</h3>
 
-      <h5>Library</h5>
+      <h4>Library</h4>
       <table class="shortcut-table">
         <tbody>
           <tr><td><kbd>S</kbd></td><td>Focus the search field</td></tr>
@@ -74,7 +74,7 @@
         </tbody>
       </table>
 
-      <h5>Validations</h5>
+      <h4>Validations</h4>
       <table class="shortcut-table">
         <tbody>
           <tr><td><kbd>E</kbd></td><td>Open inline edit for the hovered card</td></tr>
@@ -82,7 +82,7 @@
         </tbody>
       </table>
 
-      <h5>Edit modal</h5>
+      <h4>Edit modal</h4>
       <table class="shortcut-table">
         <tbody>
           <tr><td><kbd>Enter</kbd></td><td>Save changes</td></tr>
@@ -90,7 +90,7 @@
         </tbody>
       </table>
 
-      <h5>Global</h5>
+      <h4>Global</h4>
       <table class="shortcut-table">
         <tbody>
           <tr><td><kbd>Space</kbd></td><td>Play / pause the current track</td></tr>
@@ -101,10 +101,10 @@
 
     <!-- ── Tips ─────────────────────────────────────────────────────────── -->
     <section>
-      <h4>Tips</h4>
+      <h3>Tips</h3>
       <ul class="tips-list">
         <li>Playlist URLs queue a background sync task. Follow progress in <strong>Tasks</strong>.</li>
-        <li>Tracks marked <span class="badge-warn">review</span> in the recent-downloads list are waiting in <strong>Validations</strong>.</li>
+        <li>Tracks marked <span class="tag-review">review</span> in the recent-downloads list are waiting in <strong>Validations</strong>.</li>
         <li>In the Validations page, <strong>Show matches</strong> fetches alternative metadata candidates when the reason is a partial match.</li>
         <li>In Library, under Artists or Albums, the <strong>Similar</strong> filter highlights items whose names or titles are close. This is useful for spotting duplicates before merging.</li>
         <li>Full API docs are available at <a href="/swagger" target="_blank" rel="noopener noreferrer">/swagger</a>.</li>
@@ -115,224 +115,174 @@
 </dialog>
 
 <style>
+  /* Float panel. Global CSS skips its default dialog animation for .help-dialog. */
   .help-dialog {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 14px;
+    position: fixed;
+    top: calc(var(--app-top, 0px) + 16px);
+    bottom: auto;
+    margin: 0 auto;
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(var(--app-height, 100dvh) - 32px);
     padding: 0;
-    width: min(560px, 94vw);
-    max-height: calc(var(--app-height, 100dvh) - 2rem);
     overflow-y: auto;
+    overscroll-behavior: contain;
+    box-sizing: border-box;
+    background: var(--float);
+    border: 1px solid var(--float-border);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--float-shadow);
     color: var(--text);
     font-family: var(--font-body);
-    box-shadow: var(--shadow);
   }
-
-  .help-dialog::backdrop {
-    background: var(--overlay);
-    backdrop-filter: blur(2px);
-  }
-
-  .help-dialog[open] {
-    animation: help-in 160ms ease-out;
-  }
-
-  .help-dialog[open]::backdrop {
-    animation: help-backdrop-in 160ms ease-out;
-  }
-
+  .help-dialog::backdrop { background: var(--overlay); }
+  .help-dialog[open] { animation: help-in var(--motion-normal) var(--ease-out); }
+  .help-dialog[open]::backdrop { animation: help-backdrop-in var(--motion-fast) var(--ease-out); }
   @keyframes help-in {
-    from { opacity: 0; transform: translateY(6px) scale(0.98); }
-    to { opacity: 1; transform: none; }
+    from { opacity: 0; translate: 0 8px; }
+    to { opacity: 1; translate: 0 0; }
   }
-
   @keyframes help-backdrop-in {
     from { opacity: 0; }
     to { opacity: 1; }
   }
-
   @media (prefers-reduced-motion: reduce) {
     .help-dialog[open],
-    .help-dialog[open]::backdrop {
-      animation: none;
-    }
+    .help-dialog[open]::backdrop { animation: none; }
   }
 
   .dialog-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    padding: 1.25rem 1.5rem 1rem;
-    border-bottom: 1px solid var(--border-soft);
-    position: sticky;
-    top: 0;
-    background: var(--panel);
-    z-index: 1;
+    gap: 16px;
+    padding: 16px 16px 14px 24px;
+    background: var(--float);
+    border-bottom: 1px solid var(--border);
   }
-
-  .dialog-header h3 {
+  .dialog-header h2 {
     margin: 0;
-    font-family: var(--font-display);
-    font-size: 1.15rem;
-    font-weight: 700;
-    color: var(--text-bright);
+    font-size: 18px;
+    line-height: 1.3;
   }
-
   .dialog-close {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    background: none;
     color: var(--muted);
-    font-size: 1.05rem;
-    line-height: 1;
+    font-size: 16px;
     cursor: pointer;
-    transition: background 120ms ease, color 120ms ease;
   }
-
-  .dialog-close:hover {
-    background: var(--surface-2);
-    color: var(--text-bright);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .dialog-close { transition: none; }
-  }
+  .dialog-close:hover { background: var(--surface-2); color: var(--text-bright); }
+  .dialog-close:active { border-color: var(--border-heavy); }
 
   .dialog-body {
-    padding: 1.25rem 1.5rem 1.5rem;
     display: flex;
     flex-direction: column;
-    gap: 1.75rem;
+    gap: 28px;
+    padding: 20px 24px 24px;
   }
-
   section {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 8px;
   }
-
-  h4 {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted-2);
+  h3 {
     margin: 0;
+    font-size: 15px;
+    line-height: 1.35;
+  }
+  h4 {
+    margin: 12px 0 0;
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--muted-2);
   }
 
-  h5 {
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--text);
-    margin: 0.5rem 0 0.1rem;
-  }
-
-  /* Pages table */
-  .help-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-
-  .help-table td {
-    padding: 0.5rem 0.65rem;
-    vertical-align: top;
-    border-bottom: 1px solid var(--border-soft);
-    color: var(--muted);
-    line-height: 1.5;
-  }
-
-  .help-table tr:last-child td {
-    border-bottom: none;
-  }
-
-  .page-name {
-    font-weight: 600;
-    white-space: nowrap;
-    width: 1%;
-    padding-right: 1.25rem;
-    color: var(--text-bright);
-  }
-
-  /* Shortcut table */
+  /* Hairline rows */
+  .help-table,
   .shortcut-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.875rem;
+    font-size: 14px;
+    line-height: 1.45;
   }
-
+  .help-table td,
   .shortcut-table td {
-    padding: 0.35rem 0.4rem;
-    vertical-align: middle;
+    padding: 10px 0;
+    vertical-align: top;
+    border-bottom: 1px solid var(--border-soft);
     color: var(--muted);
   }
-
+  .help-table tr:last-child td,
+  .shortcut-table tr:last-child td { border-bottom: none; }
+  .shortcut-table td { vertical-align: middle; padding: 8px 0; }
+  .page-name,
   .shortcut-table td:first-child {
-    white-space: nowrap;
     width: 1%;
-    padding-right: 1.5rem;
+    padding-right: 20px;
+    white-space: nowrap;
   }
+  .page-name { font-weight: 500; color: var(--text-bright); }
+  .shortcut-table td:first-child { color: var(--muted-2); font-size: 13px; }
 
   kbd {
     display: inline-block;
-    padding: 0.15rem 0.45rem;
-    background: var(--surface-2);
-    border: 1px solid var(--border-soft);
-    border-radius: 5px;
+    min-width: 22px;
+    padding: 1px 6px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text-bright);
     font-family: var(--font-mono);
-    font-size: 0.75rem;
-    line-height: 1.4;
-    color: var(--text);
+    font-size: 11px;
+    line-height: 18px;
+    text-align: center;
   }
 
-  /* Tips list */
+  /* Tips */
   .tips-list {
     margin: 0;
-    padding: 0 0 0 1.2rem;
+    padding: 0 0 0 18px;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    font-size: 0.875rem;
+    gap: 8px;
+    font-size: 14px;
+    line-height: 1.5;
     color: var(--muted);
   }
-
-  .tips-list li {
-    line-height: 1.55;
-  }
-
-  .tips-list strong {
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  .tips-list a {
-    color: var(--accent-2);
-    text-decoration: none;
-  }
-
-  .tips-list a:hover {
-    text-decoration: underline;
-  }
-
-  .badge-warn {
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    padding: 0.1rem 0.4rem;
-    background: var(--warning-bg);
+  .tips-list li::marker { color: var(--muted-2); }
+  .tips-list strong { font-weight: 600; color: var(--text); }
+  .tips-list a { color: var(--accent); }
+  .tips-list a:hover { color: var(--accent-2); }
+  .tag-review {
+    padding: 1px 5px;
     border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+    border-radius: 4px;
+    background: var(--warning-bg);
     color: var(--warning);
-    border-radius: 5px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
-  .help-dialog { position: fixed; top: calc(var(--app-top, 0px) + 1rem); bottom: auto; margin: 0 auto; max-height: calc(var(--app-height, 100dvh) - 2rem); overflow-y: auto; box-sizing: border-box; overscroll-behavior: contain; }
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    button { min-height: 44px; min-width: 44px; }
-    .dialog-header, .dialog-body { padding: 1rem; } .dialog-close { width: 44px; height: 44px; flex-shrink: 0; } .help-table td { padding: 0.5rem 0.3rem; } .page-name { white-space: normal; } .shortcut-table td:first-child { white-space: normal; padding-right: 0.75rem; }
+    .dialog-header { padding: 12px 12px 12px 16px; }
+    .dialog-body { padding: 16px; }
+    .dialog-close { width: 44px; height: 44px; font-size: 24px; }
+    .page-name { white-space: normal; }
+    .shortcut-table td:first-child { white-space: normal; padding-right: 12px; }
   }
 </style>
