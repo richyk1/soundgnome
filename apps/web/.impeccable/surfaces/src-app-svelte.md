@@ -19,7 +19,7 @@ OWN-WORLD: Pure black night ground and white paper day ground; near-black/near-w
 
 STORY: The visitor sees their library at once as a mosaic of real art and unique pixel sprites, reads state at a glance (amber needs review, cyan is running or playing), and plays, downloads, or reviews in one or two taps.
 
-FIRST VIEWPORT: Phone: 28px title with a mono count line and icon chips, mono underline section tabs, search, then a two-column cover grid; the mini player and tab bar dock at the bottom (pixel icons, mono labels, violet tick on the active tab). Desktop: 244px hairline sidebar with the mark, navigation, mono counts, and queue; 32px title; six-column grid; 96px player dock.
+FIRST VIEWPORT: Phone: 28px title with a mono count line and icon chips, mono underline section tabs, search, then a two-column cover grid; an icon-only tab bar (pixel icons, violet tick on the active tab) docks at the bottom with a floating player card above it that morphs into Now Playing. Desktop: 244px hairline sidebar with the mark, navigation, mono counts, and queue; 32px title; six-column grid; 96px player dock.
 
 FORM: Pinned by the user: "retro yet professional, clean", modeled on stencil.so; position 1 of 1. No concept roll: the user pinned the world and asked for impeccable after the redesign, so there is no seed key.
 

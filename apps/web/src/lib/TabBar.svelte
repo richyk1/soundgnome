@@ -20,13 +20,14 @@
       type="button"
       class="tab-item"
       class:selected={item.selected}
+      aria-label={item.label}
+      title={item.label}
       aria-current={item.current ? 'page' : undefined}
       aria-expanded={item.expanded}
       aria-controls={item.controls}
       onclick={(event) => item.onSelect(event.currentTarget)}
     >
       <i class="pxi pxi-{item.icon}" aria-hidden="true"></i>
-      <span class="tab-label">{item.label}</span>
     </button>
   {/each}
 </nav>
@@ -38,13 +39,12 @@
     height: var(--nav-height);
   }
 
+  /* Icons only: the label is the button's accessible name and tooltip. */
   .tab-item {
     position: relative;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 5px;
     min-width: 0;
     padding: 0;
     border: 0;
@@ -54,14 +54,6 @@
   }
   /* 24px keeps every icon pixel on whole device pixels at 2× and 3×. */
   .tab-item .pxi { font-size: 24px; }
-  .tab-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 500;
-    line-height: 1;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
 
   /* Selection: a short violet bar riding the dock's top hairline. */
   .tab-item::before {

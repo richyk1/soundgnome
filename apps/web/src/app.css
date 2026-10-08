@@ -150,7 +150,8 @@ html {
     --mini-player-height: 0px;
     --nav-height: 56px;
   }
-  :root[data-player-loaded] { --mini-player-height: 64px; }
+  /* The floating player card: 64px plus the 8px gap above the tabs. */
+  :root[data-player-loaded] { --mini-player-height: 72px; }
 }
 
 body {
@@ -243,6 +244,30 @@ button,
   animation: app-page-enter-a var(--motion-normal) var(--ease-out) both;
   mix-blend-mode: normal;
 }
+
+/* Now Playing morph (AudioPlayer adds .np-morph while it runs): the floating bar
+   grows into the full-screen sheet and its thumbnail into the big cover. The
+   page underneath holds still, and nothing is clipped to the dock. */
+:root.np-morph::view-transition { clip-path: none; }
+:root.np-morph::view-transition-old(app-content) { display: none; }
+:root.np-morph::view-transition-new(app-content) { animation: none; }
+:root.np-morph::view-transition-group(np-surface),
+:root.np-morph::view-transition-group(np-cover) {
+  animation-duration: var(--motion-sheet);
+  animation-timing-function: var(--ease-drawer);
+}
+/* The surface keeps its corners and clips the full sheet while it is card-sized. */
+:root.np-morph::view-transition-group(np-surface) {
+  overflow: clip;
+  border-radius: var(--radius-card);
+}
+:root.np-morph::view-transition-old(np-surface),
+:root.np-morph::view-transition-new(np-surface) {
+  block-size: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+:root.np-morph::view-transition-group(np-cover) { border-radius: var(--radius-card); overflow: clip; }
 .content-panel.navigation-enter-a {
   animation: app-page-enter-a var(--motion-normal) var(--ease-out);
 }

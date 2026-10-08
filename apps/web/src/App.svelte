@@ -673,17 +673,30 @@
       padding-bottom: var(--app-bottom-clearance);
       scroll-padding-bottom: var(--app-bottom-clearance);
     }
-    /* Docked, opaque, edge to edge: no blur layer over the scrolling grid. */
+    /* The tabs are docked and opaque; the player floats above them as a card,
+       with the page showing in the gutters. No blur layer over the scrolling grid. */
     .footer-dock {
       position: absolute;
       z-index: 100;
       left: 0;
       right: 0;
       bottom: 0;
-      padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+      border-top: 0;
+      background: none;
+      pointer-events: none;
     }
-    .player-bar { height: 64px; border-bottom: 1px solid var(--border-soft); }
+    .player-bar,
+    .mobile-navigation { pointer-events: auto; }
+    .player-bar {
+      height: 64px;
+      margin: 0 calc(8px + var(--safe-right)) 8px calc(8px + var(--safe-left));
+    }
     .player-bar.idle { display: none; }
-    .mobile-navigation { display: block; }
+    .mobile-navigation {
+      display: block;
+      padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+      border-top: 1px solid var(--border);
+      background: var(--bg);
+    }
   }
 </style>

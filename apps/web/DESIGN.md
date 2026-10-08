@@ -193,7 +193,7 @@ A monochrome instrument with two signal lamps; status colours appear only where 
 - **Headline** (600, 22px): now-playing title in the full player.
 - **Title** (600, 14–15px, -0.01em): section titles, empty-state titles.
 - **Body** (400–500, 13–14px, 1.35–1.45): card titles (14/500), card subs and buttons (13), callouts and tables (14). Hints max 40ch.
-- **Label** (Geist Mono 500, 11px, 0.06–0.08em, uppercase): tabs, filter chips, table heads, tab-bar labels.
+- **Label** (Geist Mono 500, 11px, 0.06–0.08em, uppercase): tabs, filter chips, table heads.
 - **Data** (Geist Mono 400, 12px, tabular-nums): counts, header meta line, durations, dates.
 
 ### Named Rules
@@ -205,7 +205,7 @@ A monochrome instrument with two signal lamps; status colours appear only where 
 
 ## Layout
 
-Desktop: a 244px hairline sidebar (mark, navigation, mono counts, queue) beside the main column, with a 96px player dock spanning the bottom. Page padding `--space-page` is 32px. Phone (≤860px or coarse pointer): sidebar collapses, padding drops to 16px, a 56px tab bar and a 64px mini player dock at the bottom, and a More sheet holds secondary destinations. Card grid: `minmax(110–168px, 1fr)` auto-fill, gaps 20/12px on phone and 28/20px from 768px. Headers stack below 640px. Rhythm runs on 4/8 steps (4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 48). Touch targets are at least 44px.
+Desktop: a 244px hairline sidebar (mark, navigation, mono counts, queue) beside the main column, with a 96px player dock spanning the bottom. Page padding `--space-page` is 32px. Phone (≤860px or coarse pointer): sidebar collapses, padding drops to 16px, a 56px icon-only tab bar docks at the bottom with a 64px floating player card 8px above it, and a More sheet holds secondary destinations. Card grid: `minmax(110–168px, 1fr)` auto-fill, gaps 20/12px on phone and 28/20px from 768px. Headers stack below 640px. Rhythm runs on 4/8 steps (4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 48). Touch targets are at least 44px.
 
 **Direction (not a rule):** Stencil's hairline data-row rhythm could carry more of the list views.
 
@@ -255,7 +255,8 @@ Quiet instruments: hairline-framed, mono-labelled, with ink keys for primary act
 ### Navigation
 - **Tabs:** mono 11px uppercase muted labels over a hairline, 44px tall, 24px gaps; active turns ink with a 2px violet underline that scales in.
 - **Sidebar:** 244px hairline-separated; nav items with 16px icons and mono counts.
-- **Tab bar (phone):** 24px pixel icons, mono labels, violet tick on the active tab.
+- **Tab bar (phone):** 24px pixel icons only (the label is the accessible name and tooltip), violet tick on the active tab.
+- **Floating player (phone):** a 64px `--float` card with a hairline border and float shadow, inset 8px above the tab bar; tapping it morphs into Now Playing (View Transition API).
 - **Breadcrumb:** 14px muted crumbs, ink current item.
 
 ### Badges, Callouts, Empty States

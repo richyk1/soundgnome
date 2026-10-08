@@ -46,12 +46,14 @@ changed after that point.
 - Content-only page and collection transitions with native View Transition API
   support, a lightweight fallback, reduced-motion handling, and live player controls.
   Added consistent navigation feedback and dialog entry without animating scrolling.
-- A docked mobile bar with Home, Search, Library, and More: pixel icons, mono
-  labels, and a violet tick on the active tab, with a player row only when a track
-  is loaded. Full Now Playing controls remain available from the track identity.
-  The dock is opaque with a hairline rule (no blur layer over scrolling content),
-  transition snapshots leave it unobscured, and closing More restores keyboard
-  focus without triggering the page's playback shortcut.
+- A mobile tab bar with Home, Search, Library, and More: icon-only pixel tabs
+  (labels are their accessible names) with a violet tick on the active one, and a
+  floating player card above it only when a track is loaded. Tapping the card
+  morphs it into Now Playing with the View Transition API (the card grows into
+  the sheet, the thumbnail into the big cover) and closing morphs back, from
+  wherever a swipe-down left the sheet; elsewhere the sheet slides. The tab bar
+  is opaque with a hairline rule (no blur layer over scrolling content), and
+  closing More restores focus without triggering the page's playback shortcut.
 - Generated pixel covers: albums, tracks, artists, and playlists without artwork
   show a deterministic dithered sprite seeded by the item, so the same album keeps
   the same cover in the grid, its detail view, its tracks, and the player.

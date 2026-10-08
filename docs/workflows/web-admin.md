@@ -27,13 +27,16 @@ another checkout does not update that server's website.
 
 ## Mobile layout and playback
 
-- Phones use a docked bottom bar with Home, Search, Library, and **More**:
-  pixel icons, mono labels, and a violet tick on the active tab. A compact player
-  row sits above it only when a track is loaded, including while paused. Tap the
-  artwork/title for full Now Playing controls; the row keeps Play/Pause within
-  reach. More opens a bottom sheet and restores focus to its trigger on close.
-- The dock is opaque with a hairline top rule rather than a translucent blur
-  layer, so the full-screen Now Playing sheet keeps its viewport positioning and
+- Phones use a bottom tab bar with Home, Search, Library, and **More**: icon-only
+  pixel tabs (each labelled for screen readers and as a tooltip) and a violet
+  tick on the active tab. A floating player card sits above it only when a track
+  is loaded, including while paused. Tap the artwork/title for full Now Playing
+  controls: the card morphs into the sheet and its thumbnail into the big cover
+  (View Transition API, Safari 18+ and Chromium; otherwise the sheet slides).
+  The card keeps Play/Pause within reach. More opens a bottom sheet and restores
+  focus to its trigger on close.
+- The tab bar and player card are opaque rather than a translucent blur layer,
+  so the full-screen Now Playing sheet keeps its viewport positioning and
   scrolling large grids adds no compositing work. Forced colors keep a readable
   native selected state.
 - Albums, tracks, artists, and playlists without artwork show a generated pixel

@@ -24,7 +24,7 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import type { PlayerTrack, TrackSource } from './player';
   import { usesNativeAudio } from './player';
   import Waveform from './Waveform.svelte';
@@ -855,14 +855,44 @@
   const reduceMotion =
     typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // Opening and closing morph the floating bar into the sheet, and the small
+  // cover into the big one, with the View Transition API. The browser snapshots
+  // both states and animates between them, while `morphing` holds the live sheet
+  // still. Without the API, or with reduced motion, the sheet slides as before.
+  let morphing = $state(false);
+  async function setExpanded(next: boolean) {
+    const settle = async () => {
+      expanded = next;
+      dragging = false;
+      dragY = 0;
+      await tick();
+    };
+    if (reduceMotion || typeof document.startViewTransition !== 'function') {
+      await settle();
+      return;
+    }
+    const root = document.documentElement;
+    morphing = true;
+    root.classList.add('np-morph'); // names the morphing pair; see app.css
+    try {
+      const transition = document.startViewTransition(settle);
+      void transition.ready.catch(() => {});
+      await transition.finished.catch(() => {});
+    } catch {
+      // The API can exist yet refuse to snapshot; the state still has to change.
+      await settle();
+    } finally {
+      morphing = false;
+      root.classList.remove('np-morph');
+    }
+  }
   function openNP() {
     // Only a listening affordance on phones; the desktop bar is already complete.
     if (typeof window !== 'undefined' && window.innerWidth > 860) return;
-    if (current) expanded = true;
+    if (current) void setExpanded(true);
   }
   function closeNP() {
-    expanded = false;
-    dragY = 0;
+    void setExpanded(false);
   }
 
   // Swipe-down-to-dismiss: track 1:1, project momentum on release (apple-design),
@@ -892,10 +922,14 @@
   }
   function onSheetPointerUp() {
     if (!dragging) return;
-    dragging = false;
     const projected = dragY + velY * 0.12;
-    if (projected > (sheetH || 500) * 0.3 || velY > 900) closeNP();
-    else dragY = 0;
+    // Closing keeps `dragging` until the morph snapshots the sheet where the finger left it.
+    if (projected > (sheetH || 500) * 0.3 || velY > 900) {
+      closeNP();
+      return;
+    }
+    dragging = false;
+    dragY = 0;
   }
 
   // Swipe the Now Playing cover sideways to change track, like Spotify: left is
@@ -1023,7 +1057,7 @@
 
 <!-- Inline player: fills the shell's bottom dock with a bound native <audio>
   element and custom controls in a three-column CSS grid. -->
-<div class="player" class:idle={!current}>
+<div class="player" class:idle={!current} class:collapsed={!expanded}>
   <audio
     bind:this={audio}
     preload="metadata"
@@ -1158,7 +1192,7 @@
     class:open={expanded}
     class:dragging
     bind:clientHeight={sheetH}
-    style="transform: translateY({dragging ? dragY + 'px' : expanded ? '0px' : '100%'}); opacity: {reduceMotion ? (expanded ? 1 : 0) : 1}; transition: {dragging ? 'none' : reduceMotion ? 'opacity 200ms var(--ease-out)' : 'transform var(--motion-sheet) var(--ease-drawer)'}; pointer-events: {expanded ? 'auto' : 'none'}"
+    style="transform: translateY({dragging ? dragY + 'px' : expanded ? '0px' : '100%'}); opacity: {reduceMotion ? (expanded ? 1 : 0) : 1}; transition: {dragging || morphing ? 'none' : reduceMotion ? 'opacity 200ms var(--ease-out)' : 'transform var(--motion-sheet) var(--ease-drawer)'}; pointer-events: {expanded ? 'auto' : 'none'}"
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -1549,9 +1583,17 @@
     outline-offset: 2px;
   }
 
-  /* ── Phones: a 64px mini player row inside the dock ──────────────────── */
+  /* ── Phones: a 64px floating card above the tabs ──────────────────────── */
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    .player { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 0 8px 0 12px; }
+    .player {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      padding: 0 8px 0 12px;
+      border: 1px solid var(--float-border);
+      border-radius: var(--radius-card);
+      background: var(--float);
+      box-shadow: var(--float-shadow);
+    }
     .pl-center { display: flex; width: auto; }
     .transport { gap: 0; }
     .pl-identity { gap: 12px; width: 100%; min-height: 44px; cursor: pointer; }
@@ -1562,6 +1604,13 @@
     .player .tbtn { width: 44px; height: 44px; }
     .player .play { width: 44px; height: 44px; background: transparent; color: var(--text-bright); }
     .player .play:hover, .player .play:active { background: var(--surface-2); }
+
+    /* Named only while opening or closing, so page transitions leave them alone:
+       the card becomes the sheet, the thumbnail becomes the big cover. */
+    :global(:root.np-morph) .player.collapsed:not(.idle) { view-transition-name: np-surface; }
+    :global(:root.np-morph) .player.collapsed .player-thumb { view-transition-name: np-cover; }
+    :global(:root.np-morph) .np.open { view-transition-name: np-surface; }
+    :global(:root.np-morph) .np.open .np-art { view-transition-name: np-cover; }
   }
 
   /* ── Mobile Now Playing (full-screen sheet) ────────────────────────────── */
