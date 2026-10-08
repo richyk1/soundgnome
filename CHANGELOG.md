@@ -55,6 +55,10 @@ changed after that point.
 - Generated pixel covers: albums, tracks, artists, and playlists without artwork
   show a deterministic dithered sprite seeded by the item, so the same album keeps
   the same cover in the grid, its detail view, its tracks, and the player.
+- Tactile feedback: buttons dip on press and spring back on release, toggles
+  (like, play/pause, shuffle, repeat, EQ) pop when their state changes, and
+  touch presses play a light haptic (Vibration API on Android; the native switch
+  haptic on iOS Safari 18+). Reduced motion turns off the movement.
 - Documented frontend-only development against a remote API and corrected local
   startup prerequisites, automatic SQLite migrations, and optional server `.env`.
 

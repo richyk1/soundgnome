@@ -4,6 +4,7 @@
   import { lib, LIBRARY_PLAYER, type LibraryPlayer } from './store.svelte';
   import PixelCover from '../PixelCover.svelte';
   import { trackCoverSeed } from '../pixel-art';
+  import { pop } from '../motion';
 
   let { tracks, showAlbumCol = true, showDelete = false }: {
     tracks: LibraryTrackDto[];
@@ -115,7 +116,7 @@
       <div class="cover-wrap trow-art">
         <PixelCover src={coverUrl(t)} seed={trackCoverSeed(t)} />
         {#if player && t.file_path}
-          <span class="trow-play" aria-hidden="true"><i class="pxi {player.isPlaying(t.id) ? 'pxi-pause' : 'pxi-play'}"></i></span>
+          <span class="trow-play" aria-hidden="true"><i class="pxi {player.isPlaying(t.id) ? 'pxi-pause' : 'pxi-play'}" use:pop={player.isPlaying(t.id)}></i></span>
         {/if}
       </div>
 
@@ -143,7 +144,7 @@
           aria-label="Like"
           aria-pressed={t.rating === 'liked'}
           onclick={(e) => { e.stopPropagation(); lib.setRating(t, t.rating === 'liked' ? null : 'liked'); }}
-        ><i class="pxi pxi-thumbs-up" aria-hidden="true"></i></button>
+        ><i class="pxi pxi-thumbs-up" aria-hidden="true" use:pop={t.rating === 'liked'}></i></button>
         <button
           class="btn-rate"
           class:active-dislike={t.rating === 'disliked'}
@@ -151,7 +152,7 @@
           aria-label="Dislike"
           aria-pressed={t.rating === 'disliked'}
           onclick={(e) => { e.stopPropagation(); lib.setRating(t, t.rating === 'disliked' ? null : 'disliked'); }}
-        ><i class="pxi pxi-thumbs-down" aria-hidden="true"></i></button>
+        ><i class="pxi pxi-thumbs-down" aria-hidden="true" use:pop={t.rating === 'disliked'}></i></button>
       </div>
     </div>
   {/each}

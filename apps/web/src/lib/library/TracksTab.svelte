@@ -8,6 +8,7 @@
   import SortDropdown from './SortDropdown.svelte';
   import PixelCover from '../PixelCover.svelte';
   import { trackCoverSeed } from '../pixel-art';
+  import { pop } from '../motion';
 
   const player = getContext<LibraryPlayer | undefined>(LIBRARY_PLAYER);
 
@@ -92,7 +93,7 @@
             <span class="play-slot" title={t.file_path ? undefined : 'Not downloaded yet'}>
               <button class="artwork-play" aria-label={`${player.isPlaying(t.id) ? 'Pause' : 'Play'} ${t.title}`}
                 onclick={() => player?.play(t, lib.filteredTracks)} disabled={!t.file_path}>
-                <i class="pxi {player.isPlaying(t.id) ? 'pxi-pause' : 'pxi-play'}" aria-hidden="true"></i>
+                <i class="pxi {player.isPlaying(t.id) ? 'pxi-pause' : 'pxi-play'}" aria-hidden="true" use:pop={player.isPlaying(t.id)}></i>
               </button>
             </span>
           {/if}

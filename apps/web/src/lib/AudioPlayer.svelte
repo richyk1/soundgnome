@@ -30,6 +30,7 @@
   import Waveform from './Waveform.svelte';
   import EqPanel from './EqPanel.svelte';
   import PixelCover from './PixelCover.svelte';
+  import { pop } from './motion';
   import { Equalizer, loadEqState, saveEqState, type EqState } from './equalizer';
   import * as scrobbler from './scrobbler';
   import { lib } from './library/store.svelte';
@@ -976,19 +977,19 @@
       </button>
       {#if currentLibTrack}
         <div class="pl-rate">
-          <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} title="Like" aria-label="Like"><i class="pxi pxi-thumbs-up" aria-hidden="true"></i></button>
-          <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} title="Dislike" aria-label="Dislike"><i class="pxi pxi-thumbs-down" aria-hidden="true"></i></button>
+          <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} title="Like" aria-label="Like"><i class="pxi pxi-thumbs-up" aria-hidden="true" use:pop={currentLibTrack.rating === 'liked'}></i></button>
+          <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} title="Dislike" aria-label="Dislike"><i class="pxi pxi-thumbs-down" aria-hidden="true" use:pop={currentLibTrack.rating === 'disliked'}></i></button>
         </div>
       {/if}
     </div>
 
     <div class="pl-center">
       <div class="transport">
-        <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} title="Shuffle" aria-label="Shuffle" aria-pressed={shuffle}><i class="pxi pxi-shuffle" aria-hidden="true"></i></button>
+        <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} title="Shuffle" aria-label="Shuffle" aria-pressed={shuffle}><i class="pxi pxi-shuffle" aria-hidden="true" use:pop={shuffle}></i></button>
         <button class="tbtn previous" onclick={prev} disabled={!canStep} title="Previous" aria-label="Previous"><i class="pxi pxi-skip-back" aria-hidden="true"></i></button>
-        <button class="play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="pxi {paused ? 'pxi-play' : 'pxi-pause'}" aria-hidden="true"></i></button>
+        <button class="play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="pxi {paused ? 'pxi-play' : 'pxi-pause'}" aria-hidden="true" use:pop={paused}></i></button>
         <button class="tbtn" onclick={next} disabled={!canStep} title="Next" aria-label="Next"><i class="pxi pxi-skip-forward" aria-hidden="true"></i></button>
-        <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} title={'Repeat: ' + repeat} aria-label="Repeat"><i class="pxi pxi-reload" aria-hidden="true"></i>{#if repeat === 'one'}<span class="rep-one" aria-hidden="true">1</span>{/if}</button>
+        <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} title={'Repeat: ' + repeat} aria-label="Repeat"><i class="pxi pxi-reload" aria-hidden="true" use:pop={repeat}></i>{#if repeat === 'one'}<span class="rep-one" aria-hidden="true">1</span>{/if}</button>
       </div>
 
       <div class="progress-row">
@@ -1017,7 +1018,7 @@
             aria-label="Equalizer"
             aria-expanded={eqOpen}
           >
-            <i class="pxi pxi-sliders-vertical" aria-hidden="true"></i>
+            <i class="pxi pxi-sliders-vertical" aria-hidden="true" use:pop={eqOpen}></i>
           </button>
           {#if eqOpen && !expanded}
             <button
@@ -1115,20 +1116,20 @@
     </div>
 
     <div class="np-transport">
-      <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} aria-label="Shuffle"><i class="pxi pxi-shuffle" aria-hidden="true"></i></button>
+      <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} aria-label="Shuffle"><i class="pxi pxi-shuffle" aria-hidden="true" use:pop={shuffle}></i></button>
       <button class="tbtn" onclick={prev} disabled={!canStep} aria-label="Previous"><i class="pxi pxi-skip-back" aria-hidden="true"></i></button>
-      <button class="np-play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="pxi {paused ? 'pxi-play' : 'pxi-pause'}" aria-hidden="true"></i></button>
+      <button class="np-play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="pxi {paused ? 'pxi-play' : 'pxi-pause'}" aria-hidden="true" use:pop={paused}></i></button>
       <button class="tbtn" onclick={next} disabled={!canStep} aria-label="Next"><i class="pxi pxi-skip-forward" aria-hidden="true"></i></button>
-      <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} aria-label="Repeat"><i class="pxi pxi-reload" aria-hidden="true"></i>{#if repeat === 'one'}<span class="rep-one" aria-hidden="true">1</span>{/if}</button>
+      <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} aria-label="Repeat"><i class="pxi pxi-reload" aria-hidden="true" use:pop={repeat}></i>{#if repeat === 'one'}<span class="rep-one" aria-hidden="true">1</span>{/if}</button>
     </div>
 
     <div class="np-secondary">
       {#if currentLibTrack}
-        <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} aria-label="Like"><i class="pxi pxi-thumbs-up" aria-hidden="true"></i></button>
-        <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} aria-label="Dislike"><i class="pxi pxi-thumbs-down" aria-hidden="true"></i></button>
+        <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} aria-label="Like"><i class="pxi pxi-thumbs-up" aria-hidden="true" use:pop={currentLibTrack.rating === 'liked'}></i></button>
+        <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} aria-label="Dislike"><i class="pxi pxi-thumbs-down" aria-hidden="true" use:pop={currentLibTrack.rating === 'disliked'}></i></button>
       {/if}
       {#if !nativeAudio}
-        <button class="eq-btn" class:on={eqState.enabled} onclick={() => (eqOpen = !eqOpen)} aria-label="Equalizer" aria-expanded={eqOpen}><i class="pxi pxi-sliders-vertical" aria-hidden="true"></i></button>
+        <button class="eq-btn" class:on={eqState.enabled} onclick={() => (eqOpen = !eqOpen)} aria-label="Equalizer" aria-expanded={eqOpen}><i class="pxi pxi-sliders-vertical" aria-hidden="true" use:pop={eqOpen}></i></button>
       {/if}
       {#if !nativeAudio}
         <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}><i class="pxi {muted || volume === 0 ? 'pxi-volume-x' : volume < 0.5 ? 'pxi-volume-1' : 'pxi-volume-3'}" aria-hidden="true"></i></button>

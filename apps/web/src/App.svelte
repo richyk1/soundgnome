@@ -19,6 +19,7 @@
   import PixelCover from './lib/PixelCover.svelte';
   import { observeViewport } from './lib/viewport';
   import { observeTheme } from './lib/theme.svelte';
+  import { installHaptics } from './lib/haptics';
   import { runNavigation } from './lib/navigation-motion';
   import {
     GLOBAL_PLAYER,
@@ -75,6 +76,7 @@
   onMount(() => {
     const stopViewport = observeViewport();
     const stopTheme = observeTheme();
+    const stopHaptics = installHaptics();
     refreshCounts();
     lib.loadAll();
     getVersion().then((v) => (version = v));
@@ -101,6 +103,7 @@
     return () => {
       stopViewport();
       stopTheme();
+      stopHaptics();
       clearInterval(interval);
       document.removeEventListener('keydown', onKeydown);
       document.documentElement.removeAttribute('data-player-loaded');
