@@ -59,6 +59,9 @@ changed after that point.
   (like, play/pause, shuffle, repeat, EQ) pop when their state changes, and
   touch presses play a light haptic (Vibration API on Android; the native switch
   haptic on iOS Safari 18+). Reduced motion turns off the movement.
+- A glow behind the Now Playing cover, taken from the cover's own colors: a
+  pixel mosaic that dithers out into the dark theme, and a faint blurred halo in
+  the light theme that fades into the status bar. Off with Reduce Transparency.
 - Documented frontend-only development against a remote API and corrected local
   startup prerequisites, automatic SQLite migrations, and optional server `.env`.
 

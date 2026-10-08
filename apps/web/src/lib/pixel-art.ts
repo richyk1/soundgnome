@@ -107,3 +107,31 @@ export function pixelCover(seed: string, theme: Theme): string {
   cache.set(key, url);
   return url;
 }
+
+const MASK_CELLS = 40;
+let fadeMask: string | undefined;
+
+/**
+ * A radial fade rendered as an ordered dither: solid in the middle, dissolving
+ * into scattered pixels toward the edge. Used as a CSS mask so a glow breaks
+ * up like the sprites instead of blurring. Same for every cover, so built once.
+ */
+export function ditherFadeMask(): string {
+  if (fadeMask) return fadeMask;
+  const center = MASK_CELLS / 2;
+  const solid = MASK_CELLS * 0.3; // fully on inside this radius (under the art)
+  const edge = MASK_CELLS * 0.5;
+  let path = '';
+  for (let y = 0; y < MASK_CELLS; y++) {
+    for (let x = 0; x < MASK_CELLS; x++) {
+      const distance = Math.hypot(x + 0.5 - center, y + 0.5 - center);
+      const fade = Math.min(1, Math.max(0, (distance - solid) / (edge - solid)));
+      if ((BAYER[y % 4][x % 4] + 0.5) / 16 >= fade) path += `M${x} ${y}h1v1h-1z`;
+    }
+  }
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${MASK_CELLS} ${MASK_CELLS}" shape-rendering="crispEdges">` +
+    `<path fill="#fff" d="${path}"/></svg>`;
+  fadeMask = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  return fadeMask;
+}

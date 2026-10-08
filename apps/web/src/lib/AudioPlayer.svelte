@@ -30,6 +30,7 @@
   import Waveform from './Waveform.svelte';
   import EqPanel from './EqPanel.svelte';
   import PixelCover from './PixelCover.svelte';
+  import ArtGlow from './ArtGlow.svelte';
   import { pop } from './motion';
   import { Equalizer, loadEqState, saveEqState, type EqState } from './equalizer';
   import * as scrobbler from './scrobbler';
@@ -1088,8 +1089,11 @@
       <div class="np-grabber"></div>
     </div>
 
-    <div class="np-art cover-wrap">
-      <PixelCover src={npArt} seed={coverSeed} loading="eager" />
+    <div class="np-stage">
+      <ArtGlow src={npArt} seed={coverSeed} />
+      <div class="np-art cover-wrap">
+        <PixelCover src={npArt} seed={coverSeed} loading="eager" />
+      </div>
     </div>
 
     <div class="np-meta">
@@ -1481,17 +1485,19 @@
     background: var(--bg);
     padding: calc(var(--safe-top) + 4px) calc(var(--space-page) + var(--safe-right)) calc(var(--safe-bottom) + 24px) calc(var(--space-page) + var(--safe-left));
     /* Everything fits one screen; only the opened EQ (non-iOS) may need to scroll. */
-    overflow-y: hidden;
+    overflow: hidden;
     overscroll-behavior: contain;
     will-change: transform;
   }
   .np:has(.np-eq) {
+    overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
   .np > * { flex-shrink: 0; }
   .np-head {
     position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1499,6 +1505,19 @@
     min-height: 48px;
     touch-action: none;
     cursor: grab;
+  }
+  /* By day the art halo rises past the sheet's top edge; fade it into the page
+     colour (which the white status bar also uses) instead of cutting it off. */
+  :global([data-theme='light']) .np-head::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    top: calc(-1 * (var(--safe-top) + 4px));
+    bottom: -12px;
+    left: calc(-1 * (var(--space-page) + var(--safe-left)));
+    right: calc(-1 * (var(--space-page) + var(--safe-right)));
+    background: linear-gradient(var(--bg) 20%, transparent);
+    pointer-events: none;
   }
   .np-grabber { width: 36px; height: 4px; background: var(--border-heavy); }
   .np-close {
@@ -1519,10 +1538,25 @@
   }
   .np-close .pxi { font-size: 24px; }
   .np-close:hover { color: var(--text-bright); background: var(--surface-2); }
-  .np-art {
+  /* The art sits on its own glow; everything after the stage stacks above it. */
+  .np-stage {
     /* The art takes whatever height the controls leave, so the sheet never needs to scroll. */
-    width: min(100%, 360px, calc(var(--app-height, 100dvh) - 440px));
+    --np-art-size: min(100%, 360px, calc(var(--app-height, 100dvh) - 440px));
+    /* The glow rises from the cover: larger than it and centered a little above. */
+    --glow-size: calc(var(--np-art-size) * 1.55);
+    --glow-y: 44%;
+    position: relative;
+    z-index: 0;
+    display: flex;
+    justify-content: center;
+    width: 100%;
     margin-top: 16px;
+  }
+  .np-stage ~ * { position: relative; z-index: 1; }
+  .np-art {
+    position: relative;
+    z-index: 1;
+    width: var(--np-art-size);
     border-radius: var(--radius-card);
   }
   .np-meta { width: 100%; margin-top: 24px; text-align: center; }
