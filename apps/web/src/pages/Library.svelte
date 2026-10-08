@@ -89,6 +89,8 @@
 </script>
 
 <div class="library-page">
+  <!-- Title row and section tabs stay pinned while the collection scrolls. -->
+  <div class="lib-top">
   <header class="page-header">
     <div class="header-titles">
       <h1>{lib.tab === 'artists' ? 'Artists' : lib.tab === 'albums' ? 'Albums' : lib.tab === 'tracks' ? 'Tracks' : 'Playlists'}</h1>
@@ -114,6 +116,7 @@
       <button class="lib-tab" class:active={lib.tab === t.id} aria-current={lib.tab === t.id ? 'page' : undefined} onclick={() => runNavigation(() => lib.switchTab(t.id))}>{t.label}</button>
     {/each}
   </nav>
+  </div>
 
 
   {#if (lib.tab === 'artists' || lib.tab === 'albums') && (lib.batchFetchingArtists || lib.batchFetchingAlbums || lib.batchFetchResult)}
@@ -190,13 +193,22 @@
     padding: var(--space-page);
   }
 
+  /* Pinned to the top of the scrolling content panel: it spans the page
+     padding edge to edge on an opaque ground so rows pass cleanly beneath. */
+  .lib-top {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    margin: calc(-1 * var(--space-page)) calc(-1 * var(--space-page)) 20px;
+    padding: var(--space-page) var(--space-page) 16px;
+    background: var(--bg);
+  }
   .page-header {
     display: flex;
     flex-direction: row;
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;
-    margin-bottom: 24px;
   }
   .header-titles { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   h1 {
@@ -288,6 +300,7 @@
 
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
     .library-page { min-width: 0; }
+    .lib-top { margin-bottom: 12px; padding-top: 12px; padding-bottom: 0; }
     .page-header { align-items: center; gap: 8px; margin-bottom: 4px; }
     h1 { font-size: 28px; }
     .header-sub, .refresh-label { display: none; }
@@ -307,7 +320,7 @@
     .lib-tabs {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      margin: 0 calc(-1 * var(--space-page)) 16px;
+      margin: 0 calc(-1 * var(--space-page));
       padding: 0 var(--space-page);
       border-bottom: 1px solid var(--border);
     }

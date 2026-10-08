@@ -9,6 +9,7 @@
   import PixelCover from '../PixelCover.svelte';
   import { trackCoverSeed } from '../pixel-art';
   import { pop } from '../motion';
+  import { phone } from '../viewport.svelte';
 
   const player = getContext<LibraryPlayer | undefined>(LIBRARY_PLAYER);
 
@@ -110,11 +111,14 @@
             {/if}
           </div>
           {#if t.needs_validation}<span class="card-badge badge-warn" title="Awaiting validation" aria-label="Awaiting validation"><i class="pxi pxi-warning-diamond" aria-hidden="true"></i></span>{/if}
-          <CardActions title={t.title} actions={[
-            { label: t.rating === 'liked' ? 'Remove like' : 'Like track', pressed: t.rating === 'liked', onSelect: () => lib.setRating(t, t.rating === 'liked' ? null : 'liked') },
-            { label: t.rating === 'disliked' ? 'Remove dislike' : 'Dislike track', pressed: t.rating === 'disliked', onSelect: () => lib.setRating(t, t.rating === 'disliked' ? null : 'disliked') },
-            { label: 'Edit track', onSelect: () => lib.startEditTrack(t) },
-          ]} />
+          <!-- Phones: rate in Now Playing, edit on desktop; nothing else to offer here. -->
+          {#if !phone.current}
+            <CardActions title={t.title} actions={[
+              { label: t.rating === 'liked' ? 'Remove like' : 'Like track', pressed: t.rating === 'liked', onSelect: () => lib.setRating(t, t.rating === 'liked' ? null : 'liked') },
+              { label: t.rating === 'disliked' ? 'Remove dislike' : 'Dislike track', pressed: t.rating === 'disliked', onSelect: () => lib.setRating(t, t.rating === 'disliked' ? null : 'disliked') },
+              { label: 'Edit track', onSelect: () => lib.startEditTrack(t) },
+            ]} />
+          {/if}
         </div>
       {/each}
     </div>

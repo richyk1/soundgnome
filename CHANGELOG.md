@@ -85,6 +85,11 @@ changed after that point.
   gone (the desktop queue keeps it) and the cover shrinks on short screens. EQ
   and mute are hidden on iPhone and iPad, where native audio can't be processed
   and the device buttons control volume; sessions there always start unmuted.
+- The Library title row and section tabs stay pinned while lists scroll, and
+  phone track lists are cozier: one 52px row per track (cover, title, artist,
+  duration). On phones, lists no longer offer track editing or like/dislike;
+  rate a track from Now Playing while it plays and edit track info on desktop.
+  Off-screen rows reserve their real height, so long lists no longer shift.
 
 ### Removed
 

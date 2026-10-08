@@ -5,6 +5,7 @@
   import PixelCover from '../PixelCover.svelte';
   import { trackCoverSeed } from '../pixel-art';
   import { pop } from '../motion';
+  import { phone } from '../viewport.svelte';
 
   let { tracks, showAlbumCol = true, showDelete = false }: {
     tracks: LibraryTrackDto[];
@@ -132,6 +133,12 @@
       <span class="trow-fmt">{qualityLabel(t)}</span>
       <span class="trow-dur">{lib.fmtDuration(t.duration)}</span>
 
+      {#if phone.current}
+        <!-- Phones: no editing or rating from lists (rate in Now Playing, edit on desktop). -->
+        {#if showDelete}
+          <button class="btn-delete btn-sm trow-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeleteTrack(t.id); }}>Delete</button>
+        {/if}
+      {:else}
       <div class="trow-actions">
         <button class="btn-edit btn-sm trow-hover" onclick={(e) => { e.stopPropagation(); lib.startEditTrack(t); }}>Edit</button>
         {#if showDelete}
@@ -154,6 +161,7 @@
           onclick={(e) => { e.stopPropagation(); lib.setRating(t, t.rating === 'disliked' ? null : 'disliked'); }}
         ><i class="pxi pxi-thumbs-down" aria-hidden="true" use:pop={t.rating === 'disliked'}></i></button>
       </div>
+      {/if}
     </div>
   {/each}
 </div>
@@ -174,7 +182,8 @@
        list scrolls and re-renders cheaply without a virtual-list library.
        `auto` lets the browser remember each row's real height once measured. */
     content-visibility: auto;
-    contain-intrinsic-size: auto 56px;
+    /* Content-box height (the 40px cover); padding is added on top. */
+    contain-intrinsic-size: auto 40px;
   }
   .trow.playable { cursor: pointer; }
   .trow:hover { background: var(--surface); }
@@ -281,15 +290,15 @@
   .trow:hover .trow-fmt,
   .trow:hover .trow-dur { display: none; }
 
-  /* ── Mobile: artwork-led list, tap to play ─────────────────────────────── */
+  /* ── Phones: artwork-led cozy list, tap to play ────────────────────────── */
   @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    .trow { gap: 12px; padding: 8px 2px; border-radius: 0; }
+    .trow {
+      gap: 12px;
+      padding: 6px 0;
+      border-radius: 0;
+    }
     .trow-idx,
-    .trow-fmt,
-    .trow-actions { display: none; }
-  }
-
-  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
-    .trow { flex-wrap: wrap; } .trow-actions { display: flex; flex: 1 1 100%; justify-content: flex-end; flex-wrap: wrap; gap: 4px; padding-bottom: 6px; } .trow-hover { display: inline-flex; align-items: center; } .trow-dur { display: block; } .trow:hover .trow-dur { display: block; }
+    .trow-fmt { display: none; }
+    .trow-delete { flex: 0 0 auto; }
   }
 </style>

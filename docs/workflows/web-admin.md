@@ -39,6 +39,10 @@ another checkout does not update that server's website.
   so the full-screen Now Playing sheet keeps its viewport positioning and
   scrolling large grids adds no compositing work. Forced colors keep a readable
   native selected state.
+- The Library title row and section tabs stay pinned while lists scroll. Phone
+  track rows are single, cozy 52px rows with no Edit or like/dislike controls:
+  rate the playing track from Now Playing, and edit track info from a desktop
+  browser. The Disliked list keeps its Delete button on phones.
 - Albums, tracks, artists, and playlists without artwork show a generated pixel
   sprite seeded by the item (`apps/web/src/lib/pixel-art.ts`), so an album keeps
   the same cover everywhere it appears. Real artwork replaces it when available.
