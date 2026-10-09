@@ -293,20 +293,23 @@
   <header class="page-header">
     <div class="header-text">
       <h1>Ingest</h1>
+      {#if response}
+        <p class="header-sub">{response.files.length} file{response.files.length === 1 ? '' : 's'} in ingest directory{#if up.total > 0} · {up.total} queued for upload{/if}</p>
+      {/if}
       <p class="lede">
         Upload songs or whole folders from your device, or ingest files already in the server's
         ingest directory. Duplicates are detected and sorted from new tracks automatically.
       </p>
     </div>
     <div class="header-actions">
-      <button class="btn-ghost" onclick={loadFiles} disabled={loadingFiles}>
-        {#if loadingFiles}<span class="spinner"></span>{/if}Refresh
+      <button class="btn-secondary" onclick={loadFiles} disabled={loadingFiles}>
+        <i class="pxi {loadingFiles ? 'pxi-loader pxi-spin' : 'pxi-refresh'}" aria-hidden="true"></i>Refresh
       </button>
-      <button class="btn-accent" disabled={batchIngesting || loadingFiles} onclick={handleIngestAll}>
+      <button class="btn-primary" disabled={batchIngesting || loadingFiles} onclick={handleIngestAll}>
         {#if batchIngesting}
-          <span class="spinner"></span>Ingesting
+          <i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Ingesting
         {:else}
-          <i class="lni lni-cloud-upload" aria-hidden="true"></i>Ingest all
+          <i class="pxi pxi-upload" aria-hidden="true"></i>Ingest all
         {/if}
       </button>
     </div>
@@ -329,15 +332,15 @@
       ondragleave={() => (dragOver = false)}
       ondrop={droppedFiles}
     >
-      <i class="lni lni-cloud-upload dz-icon" aria-hidden="true"></i>
+      <i class="pxi pxi-upload dz-icon" aria-hidden="true"></i>
       <p class="dz-title">Drop songs or folders here</p>
       <p class="dz-hint">MP3, FLAC, M4A, OGG, WAV and more. Duplicates are sorted out on ingest.</p>
       <div class="dz-actions">
-        <button class="btn-accent" onclick={(e) => { e.stopPropagation(); fileInput.click(); }}>
-          Choose files
+        <button class="btn-secondary" onclick={(e) => { e.stopPropagation(); fileInput.click(); }}>
+          <i class="pxi pxi-file" aria-hidden="true"></i>Choose files
         </button>
-        <button class="btn-ghost" onclick={(e) => { e.stopPropagation(); folderInput.click(); }}>
-          Choose folder
+        <button class="btn-secondary" onclick={(e) => { e.stopPropagation(); folderInput.click(); }}>
+          <i class="pxi pxi-folder" aria-hidden="true"></i>Choose folder
         </button>
       </div>
     </div>
@@ -359,7 +362,7 @@
       onchange={pickedFiles}
     />
     {#if pickNote}
-      <p class="pick-note">{pickNote}</p>
+      <p class="pick-note" role="status">{pickNote}</p>
     {/if}
 
     {#if up.total > 0}
@@ -367,26 +370,33 @@
         <div class="up-head">
           <div class="up-status">
             {#if up.phase === 'uploading'}
-              <span class="spinner"></span>Uploading {up.uploadedCount}/{up.total}
+              <span class="status-tag running"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Uploading</span>
+              <span class="up-count">{up.uploadedCount}/{up.total}</span>
             {:else if up.phase === 'ingesting'}
-              <span class="spinner"></span>Ingesting…
+              <span class="status-tag running"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Ingesting…</span>
             {:else if up.phase === 'done'}
-              <i class="lni lni-check-circle-1" aria-hidden="true"></i>Upload complete
+              <span class="status-tag completed"><i class="pxi pxi-check" aria-hidden="true"></i>Upload complete</span>
             {:else}
-              {up.total} file{up.total === 1 ? '' : 's'} ready · {formatBytes(up.totalBytes)}
+              <span class="up-ready">{up.total} file{up.total === 1 ? '' : 's'} ready · {formatBytes(up.totalBytes)}</span>
             {/if}
           </div>
           <div class="up-actions">
             {#if up.phase === 'idle'}
-              <button class="btn-ghost btn-sm" onclick={() => up.reset()}>Clear</button>
-              <button class="btn-accent btn-sm" onclick={() => up.start()}>Upload {up.total}</button>
+              <button class="btn-secondary btn-sm" onclick={() => up.reset()}>Clear</button>
+              <button class="btn-primary btn-sm" onclick={() => up.start()}>
+                <i class="pxi pxi-upload" aria-hidden="true"></i>Upload {up.total}
+              </button>
             {:else if up.phase === 'uploading'}
-              <button class="btn-ghost btn-sm" onclick={() => up.cancel()}>Cancel</button>
+              <button class="btn-ghost btn-sm" onclick={() => up.cancel()}>
+                <i class="pxi pxi-close" aria-hidden="true"></i>Cancel
+              </button>
             {:else if up.phase === 'done'}
               {#if up.errorCount > 0}
-                <button class="btn-ghost btn-sm" onclick={() => up.retryFailed()}>Retry {up.errorCount} failed</button>
+                <button class="btn-secondary btn-sm" onclick={() => up.retryFailed()}>
+                  <i class="pxi pxi-redo" aria-hidden="true"></i>Retry {up.errorCount} failed
+                </button>
               {/if}
-              <button class="btn-ghost btn-sm" onclick={() => up.reset()}>Clear</button>
+              <button class="btn-secondary btn-sm" onclick={() => up.reset()}>Clear</button>
             {/if}
           </div>
         </div>
@@ -404,15 +414,15 @@
           {/if}
           {#if t?.stats}
             <div class="stats-row">
-              <span class="stat stat-ok">{t.stats.downloaded} added</span>
-              <span class="stat stat-neutral">{t.stats.skipped} duplicate{t.stats.skipped === 1 ? '' : 's'}</span>
-              <span class="stat stat-warn">{t.stats.to_validate} to review</span>
-              {#if t.stats.errors.length > 0}<span class="stat stat-err">{t.stats.errors.length} errors</span>{/if}
+              <span class="stat stat-ok"><i class="pxi pxi-check" aria-hidden="true"></i>{t.stats.downloaded} added</span>
+              <span class="stat stat-neutral"><i class="pxi pxi-copy" aria-hidden="true"></i>{t.stats.skipped} duplicate{t.stats.skipped === 1 ? '' : 's'}</span>
+              <span class="stat stat-warn"><i class="pxi pxi-flag" aria-hidden="true"></i>{t.stats.to_validate} to review</span>
+              {#if t.stats.errors.length > 0}<span class="stat stat-err"><i class="pxi pxi-square-alert" aria-hidden="true"></i>{t.stats.errors.length} errors</span>{/if}
             </div>
           {/if}
           {#if up.ingestError}
             <div class="callout callout-error" role="alert">
-              <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+              <i class="pxi pxi-square-alert" aria-hidden="true"></i>
               <div class="callout-body"><strong>Ingest failed to start.</strong><span>{up.ingestError}</span></div>
             </div>
           {/if}
@@ -422,7 +432,7 @@
           <ul class="up-list">
             {#each up.uploading as it (it.id)}
               <li class="up-row">
-                <i class="lni lni-file-audio up-ic" aria-hidden="true"></i>
+                <i class="pxi pxi-file up-ic" aria-hidden="true"></i>
                 <div class="up-file">
                   <span class="up-name">{it.relativePath}</span>
                   <div class="mini-track"><div class="mini-fill" style="transform: scaleX({it.size ? it.loaded / it.size : 0})"></div></div>
@@ -432,7 +442,7 @@
             {/each}
             {#each up.errored as it (it.id)}
               <li class="up-row err">
-                <i class="lni lni-xmark-circle up-ic" aria-hidden="true"></i>
+                <i class="pxi pxi-square-alert up-ic" aria-hidden="true"></i>
                 <div class="up-file">
                   <span class="up-name">{it.relativePath}</span>
                   <span class="up-err">{it.error}</span>
@@ -451,7 +461,7 @@
 
   {#if batchError}
     <div class="callout callout-error" role="alert">
-      <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+      <i class="pxi pxi-square-alert" aria-hidden="true"></i>
       <div class="callout-body"><strong>Batch ingest failed.</strong><span>{batchError}</span></div>
     </div>
   {/if}
@@ -461,28 +471,37 @@
       <div class="task-head">
         <span class="task-label">Task #{batchTask.id}</span>
         <span
-          class="status-badge"
-          class:ok={batchTask.status === 'Completed'}
+          class="status-tag"
+          class:completed={batchTask.status === 'Completed'}
           class:running={batchTask.status === 'Running' || batchTask.status === 'Pending'}
-          class:error={batchTask.status === 'Failed'}
+          class:failed={batchTask.status === 'Failed'}
         >
+          {#if batchTask.status === 'Running' || batchTask.status === 'Pending'}
+            <i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>
+          {:else if batchTask.status === 'Completed'}
+            <i class="pxi pxi-check" aria-hidden="true"></i>
+          {:else if batchTask.status === 'Failed'}
+            <i class="pxi pxi-square-alert" aria-hidden="true"></i>
+          {/if}
           {batchTask.status}
         </span>
       </div>
 
       {#if batchTask.total !== null && batchTask.total > 0}
-        <div class="progress-track">
-          <div class="progress-fill" style="transform: scaleX({taskProgress(batchTask) / 100})"></div>
+        <div class="progress-row">
+          <div class="progress-track">
+            <div class="progress-fill" style="transform: scaleX({taskProgress(batchTask) / 100})"></div>
+          </div>
+          <span class="progress-label">{batchTask.progress} / {batchTask.total}</span>
         </div>
-        <span class="progress-label">{batchTask.progress} / {batchTask.total}</span>
       {/if}
 
       {#if batchTask.stats}
         <div class="stats-row">
-          <span class="stat stat-ok">{batchTask.stats.downloaded} ingested</span>
-          <span class="stat stat-warn">{batchTask.stats.to_validate} to validate</span>
+          <span class="stat stat-ok"><i class="pxi pxi-check" aria-hidden="true"></i>{batchTask.stats.downloaded} ingested</span>
+          <span class="stat stat-warn"><i class="pxi pxi-flag" aria-hidden="true"></i>{batchTask.stats.to_validate} to validate</span>
           {#if batchTask.stats.errors.length > 0}
-            <span class="stat stat-err">{batchTask.stats.errors.length} errors</span>
+            <span class="stat stat-err"><i class="pxi pxi-square-alert" aria-hidden="true"></i>{batchTask.stats.errors.length} errors</span>
           {/if}
         </div>
       {/if}
@@ -494,6 +513,7 @@
   {/if}
 
   <section class="schedule">
+    <i class="pxi pxi-clock schedule-ic" aria-hidden="true"></i>
     <label class="switch-label">
       <input type="checkbox" bind:checked={pollEnabled} onchange={applyPollSchedule} />
       <span>Auto-ingest every</span>
@@ -520,18 +540,20 @@
       /><span class="unit">m</span>
     </div>
     <span class="schedule-note">Runs in your browser; resets on reload.</span>
-    {#if pollMsg}<span class="schedule-msg">{pollMsg}</span>{/if}
+    {#if pollMsg}<span class="schedule-msg" role="status">{pollMsg}</span>{/if}
   </section>
 
   <section class="files">
     <div class="files-head">
-      <h2>Ingest directory{#if response}<span class="count">{response.files.length}</span>{/if}</h2>
-      {#if response}<code class="dir-path">{response.ingest_dir}</code>{/if}
+      <h2>Ingest directory{#if response}<span class="count-num">{response.files.length}</span>{/if}</h2>
+      {#if response}
+        <span class="dir-path"><i class="pxi pxi-folder" aria-hidden="true"></i><span class="dir-text">{response.ingest_dir}</span></span>
+      {/if}
     </div>
 
     {#if filesError}
       <div class="callout callout-error" role="alert">
-        <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+        <i class="pxi pxi-square-alert" aria-hidden="true"></i>
         <div class="callout-body"><strong>Couldn't read the ingest directory.</strong><span>{filesError}</span></div>
       </div>
     {:else if loadingFiles}
@@ -546,7 +568,7 @@
       </ul>
     {:else if !response || response.files.length === 0}
       <div class="empty">
-        <i class="lni lni-folder-1" aria-hidden="true"></i>
+        <i class="pxi pxi-folder" aria-hidden="true"></i>
         <p class="empty-title">Nothing to ingest</p>
         <p class="empty-hint">Drop audio files into the ingest directory, then refresh.</p>
       </div>
@@ -556,7 +578,7 @@
           {@const result = fileResults[file.path]}
           {@const expanded = expandedPath === file.path}
 
-          <li class="file-row" class:done={result?.ok} class:failed={result && !result.ok}>
+          <li class="file-row" class:expanded class:done={result?.ok} class:failed={result && !result.ok}>
             <div class="file-header">
               <button
                 type="button"
@@ -564,8 +586,14 @@
                 aria-expanded={expanded}
                 onclick={() => toggleExpand(file.path)}
               >
-                <i class="lni lni-chevron-right chevron" class:open={expanded} aria-hidden="true"></i>
-                <i class="lni lni-file-audio file-ic" aria-hidden="true"></i>
+                <i class="pxi {expanded ? 'pxi-chevron-down' : 'pxi-chevron-right'} chevron" aria-hidden="true"></i>
+                {#if result?.ok}
+                  <i class="pxi pxi-check file-ic ok" aria-hidden="true"></i>
+                {:else if result}
+                  <i class="pxi pxi-square-alert file-ic error" aria-hidden="true"></i>
+                {:else}
+                  <i class="pxi pxi-file file-ic" aria-hidden="true"></i>
+                {/if}
                 <span class="file-text">
                   <span class="file-name">
                     {#if file.relative_path !== file.name}
@@ -573,7 +601,7 @@
                     {/if}{file.name}
                   </span>
                   <span class="file-meta">
-                    <span>{formatBytes(file.size_bytes)}</span>
+                    <span class="file-size">{formatBytes(file.size_bytes)}</span>
                     {#if file.tags?.title}
                       <span class="file-tag">{file.tags.artists.length > 0 ? `${file.tags.artists[0]} — ` : ''}{file.tags.title}</span>
                     {/if}
@@ -589,16 +617,17 @@
                   <span class="result-msg" class:ok={result.ok} class:error={!result.ok}>{result.message}</span>
                 {/if}
                 <button
-                  class="btn-accent btn-sm"
+                  class="btn-secondary btn-sm"
                   disabled={!!ingestingFile || !!result?.ok}
+                  aria-busy={ingestingFile === file.path}
                   onclick={(e) => handleIngestFile(e, file)}
                 >
                   {#if ingestingFile === file.path}
-                    <span class="spinner"></span>
+                    <i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Ingest
                   {:else if result?.ok}
-                    <i class="lni lni-check" aria-hidden="true"></i>Done
+                    <i class="pxi pxi-check" aria-hidden="true"></i>Done
                   {:else}
-                    Ingest
+                    <i class="pxi pxi-upload" aria-hidden="true"></i>Ingest
                   {/if}
                 </button>
               </div>
@@ -612,17 +641,17 @@
                     {#if t.title}<dt>Title</dt><dd>{t.title}</dd>{/if}
                     {#if t.artists.length > 0}<dt>Artists</dt><dd>{t.artists.join(', ')}</dd>{/if}
                     {#if t.album}<dt>Album</dt><dd>{t.album}</dd>{/if}
-                    {#if t.date}<dt>Date</dt><dd>{t.date}</dd>{/if}
+                    {#if t.date}<dt>Date</dt><dd class="num">{t.date}</dd>{/if}
                     {#if t.genre}<dt>Genre</dt><dd>{t.genre}</dd>{/if}
-                    {#if t.track_number}<dt>Track #</dt><dd>{t.track_number}</dd>{/if}
-                    {#if t.duration_secs}<dt>Duration</dt><dd>{formatSeconds(t.duration_secs)}</dd>{/if}
+                    {#if t.track_number}<dt>Track #</dt><dd class="num">{t.track_number}</dd>{/if}
+                    {#if t.duration_secs}<dt>Duration</dt><dd class="num">{formatSeconds(t.duration_secs)}</dd>{/if}
                   </dl>
                 {:else}
                   <p class="no-tags">No readable tags found in this file.</p>
                 {/if}
                 <div class="detail-path">
                   <span class="detail-path-label">Path</span>
-                  <code>{file.path}</code>
+                  <span class="detail-path-text">{file.path}</span>
                 </div>
               </div>
             {/if}
@@ -635,216 +664,153 @@
 
 <style>
   .ingest-page {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 1.5rem 2rem 2rem;
     display: flex;
     flex-direction: column;
-    gap: 1.75rem;
+    gap: 24px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-page);
   }
 
   /* ── Header ──────────────────────────────────────────────────────────── */
   .page-header {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
+    margin: 0;
+    justify-content: space-between;
   }
   @media (min-width: 640px) {
-    .page-header {
-      flex-direction: row;
-      align-items: flex-start;
-      justify-content: space-between;
-    }
+    .page-header { align-items: flex-start; }
   }
   .header-text {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 6px;
     max-width: 60ch;
   }
   h1 {
-    font-size: 1.25rem;
-    font-weight: 700;
     margin: 0;
+    font-size: 32px;
+    line-height: 1.05;
   }
-  @media (min-width: 768px) {
-    h1 {
-      font-size: 1.5rem;
-    }
+  .header-sub {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
   }
   .lede {
-    margin: 0;
+    margin: 4px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
     color: var(--muted);
-    font-size: 0.95rem;
-    line-height: 1.55;
   }
   .header-actions {
     display: flex;
-    gap: 0.6rem;
+    gap: 8px;
     flex-shrink: 0;
   }
 
-  /* ── Buttons ─────────────────────────────────────────────────────────── */
-  .btn-accent,
-  .btn-ghost {
+  /* ── Mono status tag (shared look with Activity) ─────────────────────── */
+  .status-tag {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.55rem 1rem;
-    border-radius: 8px;
-    font-family: inherit;
-    font-size: 0.875rem;
-    font-weight: 600;
+    gap: 6px;
+    min-height: 24px;
+    padding: 0 8px;
+    border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+    border-radius: var(--radius-chip);
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     white-space: nowrap;
-    cursor: pointer;
-    transition:
-      filter 0.12s ease,
-      background 0.12s ease,
-      opacity 0.12s ease;
   }
-  .btn-accent {
-    border: none;
-    background: var(--accent);
-    color: #fff;
+  .status-tag .pxi { font-size: 16px; }
+  .status-tag.running { color: var(--live); }
+  .status-tag.completed { color: var(--success); }
+  .status-tag.failed { color: var(--error); }
+
+  /* ── Progress: thin hairline track, live fill ────────────────────────── */
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
   }
-  .btn-accent .lni {
-    font-size: 16px;
+  .progress-track {
+    flex: 1;
+    height: 4px;
+    overflow: hidden;
+    background: var(--border);
   }
-  .btn-accent:hover:not(:disabled) {
-    filter: brightness(1.08);
+  .progress-fill,
+  .mini-fill {
+    width: 100%;
+    height: 100%;
+    background: var(--live);
+    transform-origin: left;
+    transition: transform var(--motion-normal) var(--ease-out);
   }
-  .btn-ghost {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-  }
-  .btn-ghost:hover:not(:disabled) {
-    background: var(--surface-2);
-  }
-  .btn-accent:disabled,
-  .btn-ghost:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-  .btn-sm {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.82rem;
+  .progress-label {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
   }
 
-  /* ── Callout (errors) ────────────────────────────────────────────────── */
-  .callout {
+  /* ── Stats: pixel icon + mono tabular figure ─────────────────────────── */
+  .stats-row {
     display: flex;
-    align-items: flex-start;
-    gap: 0.7rem;
-    padding: 0.85rem 1rem;
-    border-radius: 10px;
-    border: 1px solid transparent;
-    font-size: 0.9rem;
+    flex-wrap: wrap;
+    gap: 6px 16px;
   }
-  .callout .lni {
-    font-size: 19px;
-    flex-shrink: 0;
+  .stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
   }
-  .callout-body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
+  .stat .pxi {
+    font-size: 16px;
+    color: var(--muted-2);
   }
-  .callout-body strong {
-    font-weight: 600;
-    color: var(--text-bright);
-  }
-  .callout-error {
-    background: var(--error-bg);
-    border-color: color-mix(in srgb, var(--error) 45%, transparent);
-    color: var(--error);
-  }
+  .stat-ok .pxi { color: var(--success); }
+  .stat-warn .pxi { color: var(--warning); }
+  .stat-neutral { color: var(--muted); }
+  .stat-err,
+  .stat-err .pxi { color: var(--error); }
 
   /* ── Batch task panel ────────────────────────────────────────────────── */
   .task-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
-    padding: 1rem 1.1rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 12px;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
   }
   .task-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
   }
   .task-label {
     font-family: var(--font-mono);
-    font-size: 0.8rem;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
     color: var(--muted);
-  }
-  .status-badge {
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 0.15rem 0.55rem;
-    border-radius: 999px;
-    background: var(--surface-2);
-    color: var(--muted);
-  }
-  .status-badge.ok {
-    background: color-mix(in srgb, var(--success) 20%, transparent);
-    color: var(--success);
-  }
-  .status-badge.running {
-    background: var(--accent-muted);
-    color: var(--accent-2);
-  }
-  .status-badge.error {
-    background: var(--error-bg);
-    color: var(--error);
-  }
-  .progress-track {
-    height: 6px;
-    border-radius: 999px;
-    background: var(--surface-2);
-    overflow: hidden;
-  }
-  .progress-fill {
-    height: 100%;
-    width: 100%;
-    background: var(--accent);
-    transform-origin: left;
-    transition: transform 0.3s ease;
-  }
-  .progress-label {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    color: var(--muted-2);
-  }
-  .stats-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-  }
-  .stat {
-    font-size: 0.75rem;
-    font-weight: 500;
-    padding: 0.15rem 0.55rem;
-    border-radius: 999px;
-  }
-  .stat-ok {
-    background: color-mix(in srgb, var(--success) 16%, transparent);
-    color: var(--success);
-  }
-  .stat-warn {
-    background: var(--warning-bg);
-    color: var(--warning);
-  }
-  .stat-err {
-    background: var(--error-bg);
-    color: var(--error);
   }
   .task-error {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 14px;
+    line-height: 1.45;
     color: var(--error);
   }
 
@@ -853,178 +819,177 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 0.75rem 1rem;
-    padding: 0.75rem 1rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 12px;
+    gap: 12px 16px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+  }
+  .schedule-ic {
+    font-size: 16px;
+    color: var(--muted);
   }
   .switch-label {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.9rem;
+    gap: 8px;
+    font-size: 14px;
     color: var(--text);
     cursor: pointer;
   }
   .switch-label input {
     width: 16px;
     height: 16px;
-    accent-color: var(--accent);
+    margin: 0;
     cursor: pointer;
   }
   .interval {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
-    transition: opacity 0.12s ease;
+    gap: 6px;
+    transition: opacity var(--motion-fast) var(--ease-out);
   }
   .interval.disabled {
     opacity: 0.5;
   }
   .interval input {
-    width: 3rem;
-    padding: 0.35rem 0.4rem;
-    text-align: center;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text);
+    width: 56px;
+    padding: 6px 8px;
     font-family: var(--font-mono);
-    font-size: 0.85rem;
-    outline: none;
-  }
-  .interval input:focus {
-    border-color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
   }
   .unit {
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: 12px;
     color: var(--muted);
   }
   .schedule-note {
-    font-size: 0.8rem;
+    font-size: 13px;
     color: var(--muted-2);
   }
   .schedule-msg {
     margin-left: auto;
-    font-size: 0.8rem;
+    font-size: 13px;
     color: var(--muted);
   }
 
-  /* ── Files ───────────────────────────────────────────────────────────── */
+  /* ── Ingest directory: hairline tree rows ────────────────────────────── */
   .files {
     display: flex;
     flex-direction: column;
-    gap: 0.85rem;
+    gap: 12px;
   }
   .files-head {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 16px;
   }
   h2 {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted-2);
+    align-items: baseline;
+    gap: 10px;
     margin: 0;
+    font-size: 18px;
+    line-height: 1.3;
   }
-  .count {
+  .count-num {
     font-family: var(--font-mono);
-    font-size: 0.7rem;
+    font-size: 12px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
     letter-spacing: 0;
-    padding: 0.1rem 0.4rem;
-    border-radius: 999px;
-    background: var(--surface-2);
-    color: var(--muted);
+    color: var(--muted-2);
   }
   .dir-path {
-    font-family: var(--font-mono);
-    font-size: 0.78rem;
-    color: var(--muted);
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    padding: 0.2rem 0.55rem;
-    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
     max-width: 55%;
+    color: var(--muted);
+  }
+  .dir-path .pxi {
+    flex-shrink: 0;
+    font-size: 16px;
+    color: var(--muted-2);
+  }
+  .dir-text {
     overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 12px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .file-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--border);
   }
   .file-row {
+    border-bottom: 1px solid var(--border-soft);
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+  .file-row:hover,
+  .file-row.expanded {
     background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 10px;
-    overflow: hidden;
-    transition: border-color 0.12s ease;
-  }
-  .file-row.done {
-    background: color-mix(in srgb, var(--success) 7%, var(--surface));
-  }
-  .file-row.failed {
-    background: color-mix(in srgb, var(--error) 7%, var(--surface));
   }
   .file-header {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.6rem 0.8rem;
+    gap: 12px;
+    min-height: 56px;
+    padding: 8px 8px 8px 4px;
   }
   .file-expand {
-    flex: 1;
-    min-width: 0;
     display: flex;
+    flex: 1;
     align-items: center;
-    gap: 0.6rem;
-    background: none;
+    gap: 8px;
+    min-width: 0;
+    padding: 4px;
     border: none;
-    padding: 0;
-    text-align: left;
+    border-radius: var(--radius-chip);
+    background: none;
     color: inherit;
     font-family: inherit;
+    text-align: left;
     cursor: pointer;
   }
   .chevron {
-    font-size: 14px;
-    color: var(--muted-2);
     flex-shrink: 0;
-    transition: transform 0.15s ease;
+    font-size: 16px;
+    color: var(--muted-2);
+    transition: color var(--motion-fast) var(--ease-out);
   }
-  .chevron.open {
-    transform: rotate(90deg);
+  .file-expand:hover .chevron,
+  .file-row.expanded .chevron {
+    color: var(--text-bright);
   }
   .file-ic {
-    font-size: 18px;
-    color: var(--muted-2);
     flex-shrink: 0;
+    font-size: 16px;
+    color: var(--muted-2);
   }
+  .file-ic.ok { color: var(--success); }
+  .file-ic.error { color: var(--error); }
   .file-text {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 2px;
     min-width: 0;
   }
   .file-name {
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: var(--text);
-    white-space: nowrap;
     overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-bright);
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .file-subdir {
     color: var(--muted-2);
@@ -1032,124 +997,102 @@
   .file-meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.75rem;
-    font-size: 0.78rem;
-    color: var(--muted);
+    gap: 2px 12px;
     min-width: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .file-size,
+  .file-dur {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
   }
   .file-tag {
+    max-width: 40ch;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 40ch;
-  }
-  .file-dur {
-    font-family: var(--font-mono);
-    color: var(--muted-2);
   }
   .file-actions {
     display: flex;
-    align-items: center;
-    gap: 0.6rem;
     flex-shrink: 0;
+    align-items: center;
+    gap: 10px;
   }
   .result-msg {
-    font-size: 0.78rem;
     max-width: 26ch;
     overflow: hidden;
+    font-size: 13px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .result-msg.ok {
-    color: var(--success);
-  }
-  .result-msg.error {
-    color: var(--error);
-  }
+  .result-msg.ok { color: var(--success); }
+  .result-msg.error { color: var(--error); }
 
   .file-detail {
-    padding: 0 0.9rem 0.9rem 2.15rem;
     display: flex;
     flex-direction: column;
-    gap: 0.8rem;
+    gap: 12px;
+    padding: 4px 16px 16px 56px;
   }
   .tags-grid {
     display: grid;
     grid-template-columns: max-content 1fr;
-    gap: 0.3rem 1rem;
+    gap: 6px 16px;
     margin: 0;
   }
-  .tags-grid dt {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted-2);
+  .tags-grid dt,
+  .detail-path-label {
     align-self: baseline;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted-2);
   }
   .tags-grid dd {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 14px;
     color: var(--text);
+  }
+  .num {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
   .no-tags {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 14px;
     color: var(--muted);
   }
   .detail-path {
     display: flex;
-    align-items: center;
-    gap: 0.6rem;
+    align-items: baseline;
+    gap: 16px;
     min-width: 0;
   }
   .detail-path-label {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted-2);
     flex-shrink: 0;
   }
-  .detail-path code {
-    font-family: var(--font-mono);
-    font-size: 0.78rem;
-    color: var(--muted);
-    background: var(--surface-2);
-    padding: 0.15rem 0.5rem;
-    border-radius: 5px;
+  .detail-path-text {
+    min-width: 0;
     overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  /* ── Empty + loading ─────────────────────────────────────────────────── */
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 0.35rem;
-    padding: 2.5rem 1rem;
-  }
-  .empty .lni {
-    font-size: 30px;
-    color: var(--muted-2);
-    margin-bottom: 0.3rem;
-  }
-  .empty-title {
-    margin: 0;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .empty-hint {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
   .file-row.skeleton .file-header {
-    padding: 0.85rem 0.8rem;
+    min-height: 56px;
+    padding: 0 8px;
   }
   .sk {
-    height: 0.75rem;
+    height: 12px;
     border-radius: 4px;
     background: var(--surface-2);
     animation: sk-pulse 1.3s ease-in-out infinite;
@@ -1158,31 +1101,14 @@
     width: 45%;
   }
   @keyframes sk-pulse {
-    50% {
-      opacity: 0.45;
-    }
-  }
-
-  .spinner {
-    width: 13px;
-    height: 13px;
-    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    flex-shrink: 0;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+    50% { opacity: 0.45; }
   }
 
   /* ── Browser upload ──────────────────────────────────────────────────── */
   .upload {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 16px;
   }
   .hidden-input {
     display: none;
@@ -1191,195 +1117,201 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    gap: 6px;
+    padding: 40px 24px;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-card);
+    background: transparent;
     text-align: center;
-    gap: 0.4rem;
-    padding: 2.25rem 1.5rem;
-    border: 1.5px dashed var(--border);
-    border-radius: 14px;
-    background: var(--surface);
     cursor: pointer;
     transition:
-      border-color 0.15s ease,
-      background 0.15s ease;
+      border-color var(--motion-fast) var(--ease-out),
+      background-color var(--motion-fast) var(--ease-out);
   }
   .dropzone:hover {
-    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    border-color: var(--border-heavy);
+    background: var(--surface);
   }
   .dropzone.drag {
     border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    background: var(--accent-muted);
   }
   .dz-icon {
-    font-size: 34px;
+    margin-bottom: 10px;
+    font-size: 48px;
+    color: var(--muted-2);
+    transition: color var(--motion-fast) var(--ease-out);
+  }
+  .dropzone:hover .dz-icon {
+    color: var(--text);
+  }
+  .dropzone.drag .dz-icon {
     color: var(--accent);
-    margin-bottom: 0.3rem;
   }
   .dz-title {
     margin: 0;
+    font-size: 15px;
     font-weight: 600;
     color: var(--text-bright);
   }
   .dz-hint {
     margin: 0;
-    font-size: 0.85rem;
+    max-width: 48ch;
+    font-size: 14px;
+    line-height: 1.45;
     color: var(--muted);
   }
   .dz-actions {
     display: flex;
-    gap: 0.6rem;
-    margin-top: 0.7rem;
+    gap: 8px;
+    margin-top: 12px;
   }
 
   .upload-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.7rem;
-    padding: 1rem 1.1rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 12px;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
   }
   .up-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 12px;
     flex-wrap: wrap;
   }
   .up-status {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--text);
+    gap: 10px;
   }
-  .up-status .lni {
-    color: var(--success);
-    font-size: 18px;
+  .up-count,
+  .up-ready {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+  .up-ready {
+    color: var(--text);
   }
   .up-actions {
     display: flex;
-    gap: 0.5rem;
+    gap: 8px;
   }
   .up-sub {
-    font-size: 0.8rem;
-    color: var(--muted);
     font-family: var(--font-mono);
-  }
-  .stat-neutral {
-    background: var(--surface-2);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
     color: var(--muted);
   }
   .up-list {
-    list-style: none;
-    margin: 0.2rem 0 0;
-    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
     max-height: 320px;
+    margin: 0;
+    padding: 0;
     overflow-y: auto;
+    list-style: none;
+    border-top: 1px solid var(--border);
   }
   .up-row {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
-    padding: 0.4rem 0.5rem;
-    border-radius: 8px;
-    background: var(--surface-2);
-  }
-  .up-row.err {
-    background: color-mix(in srgb, var(--error) 10%, var(--surface-2));
+    gap: 10px;
+    padding: 8px 2px;
+    border-bottom: 1px solid var(--border-soft);
   }
   .up-ic {
+    flex-shrink: 0;
     font-size: 16px;
     color: var(--muted-2);
-    flex-shrink: 0;
   }
   .up-row.err .up-ic {
     color: var(--error);
   }
   .up-file {
-    flex: 1;
-    min-width: 0;
     display: flex;
+    flex: 1;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 6px;
+    min-width: 0;
   }
   .up-name {
-    font-size: 0.82rem;
-    color: var(--text);
-    white-space: nowrap;
     overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text);
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .up-err {
-    font-size: 0.75rem;
-    color: var(--error);
-    white-space: nowrap;
     overflow: hidden;
+    font-size: 12px;
+    color: var(--error);
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .mini-track {
-    height: 3px;
-    border-radius: 999px;
-    background: var(--border);
+    height: 2px;
     overflow: hidden;
+    background: var(--border);
   }
   .mini-fill {
-    height: 100%;
-    width: 100%;
-    transform-origin: left;
-    background: var(--accent);
-    transition: transform 0.15s ease;
+    transition-duration: var(--motion-fast);
   }
   .up-pct {
-    font-size: 0.75rem;
-    font-family: var(--font-mono);
-    color: var(--muted-2);
     flex-shrink: 0;
-    min-width: 2.5rem;
+    min-width: 40px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
     text-align: right;
+    color: var(--muted-2);
   }
   .up-more {
     margin: 0;
-    font-size: 0.8rem;
+    font-size: 13px;
     color: var(--muted-2);
+  }
+  .pick-note {
+    margin: 0;
+    font-size: 14px;
+    color: var(--muted);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .sk,
-    .spinner,
-    .progress-fill,
-    .mini-fill,
-    .chevron {
-      animation: none;
-      transition: none;
-    }
+    .sk { animation: none; }
   }
 
   @media (max-width: 640px) {
-    .ingest-page {
-      padding: 1.25rem 1rem 1.5rem;
-    }
     .header-actions {
       width: 100%;
     }
-    .header-actions .btn-accent {
+    .header-actions .btn-primary {
       flex: 1;
-      justify-content: center;
-    }
-    .dir-path {
-      display: none;
     }
     .result-msg {
       display: none;
     }
   }
-  .pick-note {
-    margin: 0.75rem 0 0;
-    font-size: 0.85rem;
-    color: var(--muted);
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    h1 { font-size: 28px; }
+    .interval input { min-height: 44px; }
+    .dropzone { padding: 32px 16px; }
+    .header-actions, .dz-actions, .up-actions { flex-wrap: wrap; }
+    .file-header { flex-wrap: wrap; padding: 8px 4px; }
+    .file-expand { flex-basis: 100%; min-height: 44px; }
+    .file-actions { flex-wrap: wrap; width: 100%; justify-content: flex-end; }
+    .file-detail { padding: 0 8px 16px 36px; }
+    .tags-grid { grid-template-columns: minmax(0, max-content) minmax(0, 1fr); }
+    .tags-grid dd, .callout-body { overflow-wrap: anywhere; }
+    .files-head { flex-wrap: wrap; }
+    .dir-path { max-width: 100%; }
+    .switch-label { min-height: 44px; }
+    .result-msg { display: block; white-space: normal; overflow-wrap: anywhere; }
   }
 </style>

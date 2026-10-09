@@ -127,6 +127,13 @@
     );
   }
 
+  const runningCount = $derived(tasks.filter((t) => t.status === 'Running' || t.status === 'Pending').length);
+  const failedCount = $derived(tasks.filter((t) => t.status === 'Failed').length);
+
+  function statusIcon(status: TaskDto['status']) {
+    return { Pending: 'pxi-hourglass', Running: 'pxi-loader pxi-spin', Completed: 'pxi-check', Failed: 'pxi-square-alert', Cancelled: 'pxi-close', Cancelling: 'pxi-loader pxi-spin' }[status] ?? '';
+  }
+
   function reasonLabel(reason: string | null): string {
     if (reason === 'soundcloud_drm_protected') return 'DRM protected';
     if (reason === 'metadata_partial_match') return 'partial metadata match';
@@ -139,6 +146,9 @@
   <header class="page-header">
     <div class="header-text">
       <h1>Activity</h1>
+      {#if !loading}
+        <p class="header-sub">{tasks.length} task{tasks.length === 1 ? '' : 's'} · {runningCount} running{failedCount > 0 ? ` · ${failedCount} failed` : ''}</p>
+      {/if}
       <p class="lede">Background sync and download tasks, with live progress and per-track results.</p>
     </div>
   </header>
@@ -155,7 +165,7 @@
     </ul>
   {:else if tasks.length === 0}
     <div class="empty">
-      <i class="lni lni-list-music-4" aria-hidden="true"></i>
+      <i class="pxi pxi-bulletlist" aria-hidden="true"></i>
       <p class="empty-title">No activity yet</p>
       <p class="empty-hint">Downloads and syncs you start will show up here with live progress.</p>
     </div>
@@ -167,35 +177,38 @@
             <div class="task-ident">
               <span class="task-label">{taskLabel(task)}</span>
               <span class="task-id">#{task.id}</span>
+              <span class="status-tag {statusClass(task.status)}">
+                <i class="pxi {statusIcon(task.status)}" aria-hidden="true"></i>{statusLabel(task.status)}
+              </span>
             </div>
             <div class="task-actions">
               {#if canCancel(task.status)}
                 <button
-                  class="btn-danger btn-sm"
+                  class="btn-ghost btn-sm"
                   disabled={cancelling.has(task.id)}
                   onclick={() => handleCancel(task)}
                 >
                   {#if cancelling.has(task.id)}
-                    <span class="spinner"></span> Cancelling…
+                    <i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i> Cancelling…
                   {:else}
-                    <i class="lni lni-xmark" aria-hidden="true"></i> Cancel
+                    <i class="pxi pxi-close" aria-hidden="true"></i> Cancel
                   {/if}
                 </button>
               {/if}
               {#if canRetry(task.status)}
                 <button
-                  class="btn-ghost btn-sm"
+                  class="btn-secondary btn-sm"
                   disabled={retrying.has(task.id)}
+                  aria-busy={retrying.has(task.id)}
                   onclick={() => handleRetry(task)}
                 >
                   {#if retrying.has(task.id)}
-                    <span class="spinner"></span>
+                    <i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i> Retry
                   {:else}
-                    <i class="lni lni-redo" aria-hidden="true"></i> Retry
+                    <i class="pxi pxi-redo" aria-hidden="true"></i> Retry
                   {/if}
                 </button>
               {/if}
-              <span class="status-badge {statusClass(task.status)}">{statusLabel(task.status)}</span>
             </div>
           </div>
 
@@ -215,14 +228,14 @@
 
           {#if task.status === 'Running' && task.stats?.ai_curation && task.source_platform === 'soundcloud'}
             <div class="status-line">
-              <span class="spinner"></span>
+              <i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>
               <span>
-                Curating metadata with AI: {task.stats.ai_curation.processed} / {task.stats.ai_curation.total} tracks
+                Curating metadata with AI: <span class="num">{task.stats.ai_curation.processed} / {task.stats.ai_curation.total}</span> tracks
               </span>
             </div>
           {:else if task.status === 'Running' && (task.stats?.downloaded ?? 0) === 0}
             <div class="status-line">
-              <span class="spinner"></span>
+              <i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>
               <span>Fetching tracks…</span>
             </div>
           {/if}
@@ -231,7 +244,7 @@
             <div class="stats-row">
               {#if task.stats!.downloaded > 0}
                 <span class="stat stat-ok">
-                  <i class="lni lni-check-circle-1" aria-hidden="true"></i>
+                  <i class="pxi pxi-check" aria-hidden="true"></i>
                   {task.stats!.downloaded} downloaded
                 </span>
               {/if}
@@ -240,11 +253,12 @@
                   <button
                     class="stat stat-warn stat-btn"
                     onclick={() => toggleValidations(task.id)}
+                    aria-expanded={expandedValidations.has(task.id)}
                     title="View tracks pending validation"
                   >
-                    <i class="lni lni-flag-1" aria-hidden="true"></i>
+                    <i class="pxi pxi-flag" aria-hidden="true"></i>
                     {task.stats!.to_validate} pending validation
-                    <i class="lni {expandedValidations.has(task.id) ? 'lni-chevron-down' : 'lni-chevron-right'} chevron" aria-hidden="true"></i>
+                    <i class="pxi {expandedValidations.has(task.id) ? 'pxi-chevron-down' : 'pxi-chevron-right'} chevron" aria-hidden="true"></i>
                   </button>
                 {:else}
                   <button
@@ -252,14 +266,15 @@
                     onclick={() => onNavigateValidations?.()}
                     title="Go to Validations"
                   >
-                    <i class="lni lni-flag-1" aria-hidden="true"></i>
+                    <i class="pxi pxi-flag" aria-hidden="true"></i>
                     {task.stats!.to_validate} pending validation
+                    <i class="pxi pxi-arrow-right chevron" aria-hidden="true"></i>
                   </button>
                 {/if}
               {/if}
               {#if task.stats!.skipped > 0}
                 <span class="stat stat-muted">
-                  <i class="lni lni-undo" aria-hidden="true"></i>
+                  <i class="pxi pxi-minus" aria-hidden="true"></i>
                   {task.stats!.skipped} skipped
                 </span>
               {/if}
@@ -267,11 +282,12 @@
                 <button
                   class="stat stat-err stat-btn"
                   onclick={() => toggleErrors(task.id)}
+                  aria-expanded={expandedErrors.has(task.id)}
                   title="View error details"
                 >
-                  <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+                  <i class="pxi pxi-square-alert" aria-hidden="true"></i>
                   {task.stats!.errors.length} error{task.stats!.errors.length > 1 ? 's' : ''}
-                  <i class="lni {expandedErrors.has(task.id) ? 'lni-chevron-down' : 'lni-chevron-right'} chevron" aria-hidden="true"></i>
+                  <i class="pxi {expandedErrors.has(task.id) ? 'pxi-chevron-down' : 'pxi-chevron-right'} chevron" aria-hidden="true"></i>
                 </button>
               {/if}
             </div>
@@ -282,8 +298,8 @@
                   <li class="detail-row error-row">
                     {#if err.provider_url}
                       <a href={err.provider_url} target="_blank" rel="noopener noreferrer" class="detail-track detail-link">
-                        {err.track}
-                        <i class="lni lni-share-1 ext-icon" aria-hidden="true"></i>
+                        <span class="detail-text">{err.track}</span>
+                        <i class="pxi pxi-external-link ext-icon" aria-hidden="true"></i>
                       </a>
                     {:else}
                       <span class="detail-track">{err.track}</span>
@@ -303,8 +319,8 @@
                   </li>
                 {/each}
                 <li class="detail-row detail-action">
-                  <button class="btn-ghost btn-sm" onclick={() => onNavigateValidations?.()}>
-                    Review in Validations <i class="lni lni-arrow-right" aria-hidden="true"></i>
+                  <button class="btn-secondary btn-sm" onclick={() => onNavigateValidations?.()}>
+                    Review in Validations <i class="pxi pxi-arrow-right" aria-hidden="true"></i>
                   </button>
                 </li>
               </ul>
@@ -313,7 +329,7 @@
 
           {#if task.error}
             <div class="callout callout-error" role="alert">
-              <i class="lni lni-error-circle" aria-hidden="true"></i>
+              <i class="pxi pxi-square-alert" aria-hidden="true"></i>
               <div class="callout-body"><span>{task.error}</span></div>
             </div>
           {/if}
@@ -329,432 +345,311 @@
 
 <style>
   .tasks-page {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 1.5rem 2rem 2rem;
     display: flex;
     flex-direction: column;
-    gap: 1.75rem;
+    gap: 24px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-page);
   }
 
   /* ── Header ──────────────────────────────────────────────────────────── */
   .page-header {
-    display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 1rem;
+    margin: 0;
   }
   .header-text {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 6px;
     max-width: 60ch;
   }
   h1 {
-    font-size: 1.25rem;
-    font-weight: 700;
     margin: 0;
+    font-size: 32px;
+    line-height: 1.05;
   }
-  @media (min-width: 768px) {
-    h1 {
-      font-size: 1.5rem;
-    }
+  .header-sub {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
   }
   .lede {
-    margin: 0;
+    margin: 4px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
     color: var(--muted);
-    font-size: 0.95rem;
-    line-height: 1.55;
-  }
-
-  /* ── Buttons ─────────────────────────────────────────────────────────── */
-  .btn-ghost,
-  .btn-danger {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.55rem 1rem;
-    border-radius: 8px;
-    font-family: inherit;
-    font-size: 0.875rem;
-    font-weight: 600;
-    white-space: nowrap;
-    cursor: pointer;
-    transition:
-      filter 0.12s ease,
-      background 0.12s ease,
-      opacity 0.12s ease;
-  }
-  .btn-ghost {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--text);
-  }
-  .btn-ghost:hover:not(:disabled) {
-    background: var(--surface-2);
-  }
-  .btn-danger {
-    background: transparent;
-    border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
-    color: var(--error);
-  }
-  .btn-danger:hover:not(:disabled) {
-    background: var(--error-bg);
-  }
-  .btn-ghost:disabled,
-  .btn-danger:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-  .btn-ghost .lni,
-  .btn-danger .lni {
-    font-size: 15px;
-  }
-  .btn-sm {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.82rem;
   }
 
   /* ── Task list + panels ──────────────────────────────────────────────── */
   .task-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
   .task-panel {
     display: flex;
     flex-direction: column;
-    gap: 0.7rem;
-    padding: 1rem 1.1rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 12px;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    transition: border-color var(--motion-fast) var(--ease-out);
+  }
+  .task-panel:hover {
+    border-color: var(--border-strong);
   }
   .task-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: 12px;
     flex-wrap: wrap;
   }
   .task-ident {
     display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
     min-width: 0;
   }
   .task-label {
-    font-size: 0.95rem;
+    min-width: 0;
+    font-size: 15px;
     font-weight: 600;
+    line-height: 1.35;
     color: var(--text-bright);
   }
   .task-id {
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
     color: var(--muted-2);
   }
   .task-actions {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 8px;
     flex-shrink: 0;
   }
 
-  /* ── Status badge ────────────────────────────────────────────────────── */
-  .status-badge {
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    background: var(--surface-2);
+  /* ── Status tag: mono uppercase, tinted by its own color ─────────────── */
+  .status-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+    padding: 0 8px;
+    border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+    border-radius: var(--radius-chip);
+    background: color-mix(in srgb, currentColor 10%, transparent);
     color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     white-space: nowrap;
   }
-  .status-badge.completed {
-    background: color-mix(in srgb, var(--success) 18%, transparent);
-    color: var(--success);
+  .status-tag .pxi {
+    font-size: 16px;
   }
-  .status-badge.running,
-  .status-badge.pending {
-    background: var(--accent-muted);
-    color: var(--accent-2);
-  }
-  .status-badge.failed {
-    background: var(--error-bg);
-    color: var(--error);
-  }
-  .status-badge.cancelled,
-  .status-badge.cancelling {
-    background: var(--surface-2);
-    color: var(--muted);
-  }
+  .status-tag.running { color: var(--live); }
+  .status-tag.completed { color: var(--success); }
+  .status-tag.failed { color: var(--error); }
+  .status-tag.pending,
+  .status-tag.cancelled,
+  .status-tag.cancelling { color: var(--muted); }
 
   /* ── Progress ────────────────────────────────────────────────────────── */
   .progress-row {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 12px;
   }
   .progress-track {
     flex: 1;
-    height: 6px;
-    border-radius: 999px;
-    background: var(--surface-2);
+    height: 4px;
     overflow: hidden;
+    background: var(--border);
   }
   .progress-fill {
-    height: 100%;
     width: 100%;
-    background: var(--accent);
+    height: 100%;
+    background: var(--live);
     transform-origin: left;
-    transition: transform 0.3s ease;
+    transition: transform var(--motion-normal) var(--ease-out);
   }
-  .progress-fill.completed {
-    background: var(--success);
-  }
-  .progress-fill.cancelled {
-    background: var(--muted-2);
-  }
+  .progress-fill.completed { background: var(--success); }
+  .progress-fill.cancelled { background: var(--muted-2); }
   .progress-label {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    color: var(--muted-2);
     flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
   }
 
   /* ── Transient status line ───────────────────────────────────────────── */
   .status-line {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
+    gap: 8px;
+    font-size: 13px;
     color: var(--muted);
   }
+  .status-line .pxi {
+    flex-shrink: 0;
+    font-size: 16px;
+    color: var(--live);
+  }
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
 
-  /* ── Stat pills ──────────────────────────────────────────────────────── */
+  /* ── Stats: pixel icon + mono tabular figure ─────────────────────────── */
   .stats-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
+    align-items: center;
+    gap: 4px 16px;
   }
   .stat {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
+    gap: 6px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
-  .stat .lni {
-    font-size: 13px;
+  .stat .pxi {
+    font-size: 16px;
+    color: var(--muted-2);
   }
   .stat-btn {
-    border: none;
-    font-family: inherit;
+    min-height: 30px;
+    margin: 0 -6px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: var(--radius-chip);
+    background: none;
     cursor: pointer;
-    transition: filter 0.12s ease;
   }
   .stat-btn:hover {
-    filter: brightness(1.12);
-  }
-  .stat-ok {
-    background: color-mix(in srgb, var(--success) 16%, transparent);
-    color: var(--success);
-  }
-  .stat-warn {
-    background: var(--warning-bg);
-    color: var(--warning);
-  }
-  .stat-muted {
     background: var(--surface-2);
-    color: var(--muted);
+    color: var(--text-bright);
   }
-  .stat-err {
-    background: var(--error-bg);
-    color: var(--error);
-  }
-  .stat .chevron {
-    font-size: 11px;
-  }
+  .stat-ok .pxi { color: var(--success); }
+  .stat-warn .pxi { color: var(--warning); }
+  .stat-muted { color: var(--muted); }
+  .stat-err { color: var(--error); }
+  .stat-err .pxi { color: var(--error); }
+  .stat .chevron { color: var(--muted-2); }
 
   /* ── Detail lists (errors + validations) ─────────────────────────────── */
   .detail-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
   }
   .detail-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.4rem 0.65rem;
-    border-radius: 8px;
-    font-size: 0.82rem;
+    gap: 12px;
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 13px;
   }
-  .error-row {
-    background: color-mix(in srgb, var(--error) 10%, var(--panel));
-    border: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
-  }
-  .validation-row {
-    background: color-mix(in srgb, var(--warning) 10%, var(--panel));
-    border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
+  .detail-row + .detail-row {
+    border-top: 1px solid var(--border-soft);
   }
   .detail-track {
-    color: var(--text);
     min-width: 0;
     overflow: hidden;
+    color: var(--text);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .detail-link {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 6px;
     text-decoration: none;
   }
+  .detail-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .detail-link:hover {
-    color: var(--text-bright);
+    color: var(--accent);
+  }
+  .detail-link:hover .detail-text {
+    text-decoration: underline;
   }
   .ext-icon {
-    font-size: 12px;
-    color: var(--muted-2);
     flex-shrink: 0;
+    font-size: 16px;
+    color: var(--muted-2);
+  }
+  .detail-link:hover .ext-icon {
+    color: var(--accent);
   }
   .detail-reason {
-    font-size: 0.75rem;
-    color: var(--muted);
     flex-shrink: 0;
+    font-size: 12px;
     text-align: right;
+    color: var(--muted);
   }
+  .error-row .detail-reason { color: var(--error); }
   .detail-action {
     justify-content: flex-end;
-    padding: 0.25rem 0;
-    background: none;
-    border: none;
-  }
-
-  /* ── Task error callout ──────────────────────────────────────────────── */
-  .callout {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.7rem;
-    padding: 0.7rem 0.9rem;
-    border-radius: 10px;
-    border: 1px solid transparent;
-    font-size: 0.88rem;
-  }
-  .callout .lni {
-    font-size: 18px;
-    flex-shrink: 0;
-  }
-  .callout-body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
-  }
-  .callout-error {
-    background: var(--error-bg);
-    border-color: color-mix(in srgb, var(--error) 45%, transparent);
-    color: var(--error);
   }
 
   .task-date {
     margin: 0;
     font-family: var(--font-mono);
-    font-size: 0.72rem;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
     color: var(--muted-2);
-  }
-
-  /* ── Empty state ─────────────────────────────────────────────────────── */
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 0.35rem;
-    padding: 3rem 1rem;
-  }
-  .empty .lni {
-    font-size: 30px;
-    color: var(--muted-2);
-    margin-bottom: 0.3rem;
-  }
-  .empty-title {
-    margin: 0;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .empty-hint {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--muted);
-    max-width: 40ch;
   }
 
   /* ── Loading skeleton ────────────────────────────────────────────────── */
-  .task-panel.skeleton {
-    gap: 0.85rem;
-  }
   .sk {
-    border-radius: 6px;
+    border-radius: 4px;
     background: var(--surface-2);
     animation: sk-pulse 1.3s ease-in-out infinite;
   }
-  .sk-head {
-    height: 1rem;
-    width: 40%;
-  }
-  .sk-bar {
-    height: 6px;
-    width: 100%;
-  }
-  .sk-stats {
-    height: 0.9rem;
-    width: 60%;
-  }
+  .sk-head { width: 40%; height: 16px; }
+  .sk-bar { width: 100%; height: 4px; }
+  .sk-stats { width: 60%; height: 14px; }
   @keyframes sk-pulse {
-    50% {
-      opacity: 0.45;
-    }
-  }
-
-  .spinner {
-    width: 13px;
-    height: 13px;
-    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    flex-shrink: 0;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+    50% { opacity: 0.45; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .sk,
-    .spinner,
-    .progress-fill,
-    .chevron {
-      animation: none;
-      transition: none;
-    }
+    .sk { animation: none; }
   }
 
-  @media (max-width: 640px) {
-    .tasks-page {
-      padding: 1.25rem 1rem 1.5rem;
-    }
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    h1 { font-size: 28px; }
+    .stat-btn { min-height: 44px; }
+    .task-ident { flex: 1 1 100%; }
+    .task-actions { flex-wrap: wrap; }
+    .detail-row { flex-wrap: wrap; }
+    .detail-reason { text-align: left; overflow-wrap: anywhere; }
+    .callout-body { overflow-wrap: anywhere; }
   }
 </style>

@@ -78,6 +78,8 @@
 </script>
 
 <script lang="ts">
+  import { theme } from './theme.svelte';
+
   let {
     waveformUrl,
     srcUrl,
@@ -169,10 +171,12 @@
     return () => ro.disconnect();
   });
 
-  // Redraw on peaks, progress or resize changes.
+  // Canvas pixels do not inherit CSS changes: redraw on peaks, progress, resize,
+  // and theme switches (the bar colors are read from CSS tokens at draw time).
   $effect(() => {
     sizeTick;
     void loading;
+    void theme.current;
     draw();
   });
 
@@ -227,50 +231,49 @@
     const cssH = cvs.clientHeight;
     if (cssW === 0 || cssH === 0) return;
 
+    // Draw in device pixels so every bar edge lands on a whole pixel.
     const dpr = window.devicePixelRatio || 1;
-    if (cvs.width !== Math.round(cssW * dpr) || cvs.height !== Math.round(cssH * dpr)) {
-      cvs.width = Math.round(cssW * dpr);
-      cvs.height = Math.round(cssH * dpr);
+    const w = Math.round(cssW * dpr);
+    const h = Math.round(cssH * dpr);
+    if (cvs.width !== w || cvs.height !== h) {
+      cvs.width = w;
+      cvs.height = h;
     }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssW, cssH);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
 
     const styles = getComputedStyle(cvs);
-    const playedColor = styles.getPropertyValue('--accent').trim() || '#7c6ef5';
-    const restColor = styles.getPropertyValue('--muted-2').trim() || '#6e6e78';
+    const playedColor = styles.getPropertyValue('--live').trim();
+    const restColor = styles.getPropertyValue('--border-heavy').trim();
 
-    // Chunky, rounded "voice-memo" bars.
-    const barWidth = 4;
-    const gap = 3;
-    const step = barWidth + gap;
-    const radius = barWidth / 2;
-    const bars = Math.max(1, Math.floor((cssW + gap) / step));
-    const mid = cssH / 2;
-    const bar = (x: number, y: number, h: number) => {
-      if (ctx.roundRect) {
-        ctx.beginPath();
-        ctx.roundRect(x, y, barWidth, h, radius);
-        ctx.fill();
-      } else {
-        ctx.fillRect(x, y, barWidth, h);
-      }
+    // Square, crisp bars stepped like an LCD level meter: widths, gaps, and
+    // heights are whole device pixels; heights snap to an even unit so each bar
+    // sits symmetrically about the centre line.
+    const px = Math.max(1, Math.round(dpr));
+    const barW = 3 * px;
+    const gap = 2 * px;
+    const step = barW + gap;
+    const unit = 2 * px;
+    const bars = Math.max(1, Math.floor((w + gap) / step));
+    const snap = (v: number) => Math.min(h, Math.max(unit, Math.round(v / unit) * unit));
+    const bar = (i: number, height: number) => {
+      const bh = snap(height);
+      ctx.fillRect(i * step, Math.round((h - bh) / 2), barW, bh);
     };
 
+    const skeletonH = h * 0.22;
     const p = peaks;
     if (!p || p.length === 0) {
       // Skeleton while peaks are still computing: flat low bars so the scrubber
       // already reads as a waveform and the real peaks fill in subtly instead of
       // jumping from a plain line.
       ctx.fillStyle = restColor;
-      const h = Math.max(barWidth, cssH * 0.22);
-      for (let i = 0; i < bars; i += 1) bar(i * step, mid - h / 2, h);
+      for (let i = 0; i < bars; i += 1) bar(i, skeletonH);
       return;
     }
 
     const played = progress;
-    const minH = barWidth; // quiet passages still show a dot rather than vanish
     const r = reveal;
-    const skeletonH = Math.max(barWidth, cssH * 0.22);
     const stagger = 0.35; // fraction of the timeline spread across bars (left->right)
     for (let i = 0; i < bars; i += 1) {
       const start = Math.floor((i / bars) * p.length);
@@ -278,14 +281,15 @@
       let sum = 0;
       for (let j = start; j < end && j < p.length; j += 1) sum += p[j];
       const value = sum / (end - start);
-      let height = Math.max(minH, value * cssH);
+      // Quiet passages still show a low step rather than vanish (snap's floor).
+      let height = value * h;
       if (r < 1) {
         const localT = Math.min(1, Math.max(0, (r - (i / bars) * stagger) / (1 - stagger)));
         height = skeletonH + (height - skeletonH) * easeOut(localT);
       }
       const centre = (i + 0.5) / bars;
       ctx.fillStyle = centre <= played ? playedColor : restColor;
-      bar(i * step, mid - height / 2, height);
+      bar(i, height);
     }
   }
 
@@ -309,7 +313,7 @@
 
   function onPointerUp(e: PointerEvent) {
     dragging = false;
-    canvas?.releasePointerCapture(e.pointerId);
+    if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -319,6 +323,12 @@
       e.preventDefault();
     } else if (e.key === 'ArrowLeft') {
       onSeek(Math.max(0, currentTime - 5));
+      e.preventDefault();
+    } else if (e.key === 'Home') {
+      onSeek(0);
+      e.preventDefault();
+    } else if (e.key === 'End') {
+      onSeek(duration);
       e.preventDefault();
     }
   }
@@ -335,6 +345,7 @@
     aria-valuemin={0}
     aria-valuemax={Math.round(duration)}
     aria-valuenow={Math.round(currentTime)}
+    aria-valuetext={`${Math.floor(currentTime)} of ${Math.floor(duration)} seconds`}
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
@@ -344,10 +355,12 @@
 {/if}
 
 <style>
+  /* Fills the caller's slot; the player sets the slot height (28px bar, 48px sheet). */
   .waveform {
     display: block;
     width: 100%;
-    height: 42px;
+    height: 100%;
+    min-height: 24px;
     cursor: pointer;
     touch-action: none;
   }
@@ -359,6 +372,5 @@
   .waveform:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    border-radius: 3px;
   }
 </style>

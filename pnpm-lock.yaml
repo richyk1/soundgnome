@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      headroom-ai:
-        specifier: ^0.1.0
-        version: 0.1.0
       openrtk:
         specifier: ^0.1.0
         version: 0.1.0(@opencode-ai/plugin@1.15.13)
@@ -20,10 +17,6 @@ importers:
         version: 9.2.1
 
   apps/web:
-    dependencies:
-      media-chrome:
-        specifier: ^4.19.2
-        version: 4.19.2(react@19.2.8)
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.0.0
@@ -37,6 +30,12 @@ importers:
       '@vite-pwa/assets-generator':
         specifier: ^1.0.2
         version: 1.0.2(@types/node@24.12.2)
+      pixelarticons:
+        specifier: 2.4.2
+        version: 2.4.2(react@19.3.0)
+      postcss:
+        specifier: ^8.5.12
+        version: 8.5.12
       sharp:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@24.12.2)
@@ -1335,11 +1334,6 @@ packages:
   caniuse-lite@1.0.30001806:
     resolution: {integrity: sha512-72Cuvd95zbSYPKq6Fhg8eDJRlzgWDf7/mtoZv6Qe/DYNCEBdNxoA3+rZAU2ZhGCpZlns3EssFavaZomckT5Uuw==}
 
-  ce-la-react@0.3.2:
-    resolution: {integrity: sha512-QJ6k4lOD/btI08xG8jBPxRCGXvCnusGGkTsiXk0u3NqUu/W+BXRnFD4PYjwtqh8AWmGa5LDbGk0fLQsqr0nSMA==}
-    peerDependencies:
-      react: '>=17.0.0'
-
   chalk@4.1.2:
     resolution: {integrity: sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==}
     engines: {node: '>=10'}
@@ -1652,24 +1646,6 @@ packages:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
 
-  headroom-ai@0.1.0:
-    resolution: {integrity: sha512-SM5i2kptwsO+KnQqpaLThZVx1ZrmobVw5JRXwF5OvnMvhV/3WbwUI+VvXHTwTCvVq+AAyhkhuVcNXod1piAVuQ==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      '@ai-sdk/provider': '>=1.0.0'
-      '@anthropic-ai/sdk': '>=0.30.0'
-      ai: '>=6.0.0'
-      openai: '>=4.0.0'
-    peerDependenciesMeta:
-      '@ai-sdk/provider':
-        optional: true
-      '@anthropic-ai/sdk':
-        optional: true
-      ai:
-        optional: true
-      openai:
-        optional: true
-
   ico-endec@0.1.6:
     resolution: {integrity: sha512-ZdLU38ZoED3g1j3iEyzcQj+wAkY2xfWNkymszfJPoxucIUhK7NayQ+/C4Kv0nDFMIsbtbEHldv3V8PU494/ueQ==}
 
@@ -1940,9 +1916,6 @@ packages:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
 
-  media-chrome@4.19.2:
-    resolution: {integrity: sha512-4ai1ITN8wBhwugQcRgqe3tN0z6OSKGOXqHLNrS04MgKFfsLqu6Dm8MPq02pI9Y9ZKoXtFjIl85jOryIW9es3BA==}
-
   minimatch@10.2.5:
     resolution: {integrity: sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==}
     engines: {node: 18 || 20 || >=22}
@@ -2030,6 +2003,12 @@ packages:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
     engines: {node: '>=12'}
 
+  pixelarticons@2.4.2:
+    resolution: {integrity: sha512-BZKSU5ckLuioZCzES4fEmdQfnI8XEiQlHljdIVk+N6+KH7vTBQJNtMs+V0LQF7nC7cZbKT0qBXFOsT35sl8uhg==}
+    hasBin: true
+    peerDependencies:
+      react: '>=16'
+
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
     engines: {node: '>= 0.4'}
@@ -2052,8 +2031,8 @@ packages:
   quansync@1.0.0:
     resolution: {integrity: sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA==}
 
-  react@19.2.8:
-    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
+  react@19.3.0:
+    resolution: {integrity: sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==}
     engines: {node: '>=0.10.0'}
 
   readdirp@4.1.2:
@@ -3829,10 +3808,6 @@ snapshots:
 
   caniuse-lite@1.0.30001806: {}
 
-  ce-la-react@0.3.2(react@19.2.8):
-    dependencies:
-      react: 19.2.8
-
   chalk@4.1.2:
     dependencies:
       ansi-styles: 4.3.0
@@ -4206,8 +4181,6 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  headroom-ai@0.1.0: {}
-
   ico-endec@0.1.6: {}
 
   idb@7.1.1: {}
@@ -4441,12 +4414,6 @@ snapshots:
 
   math-intrinsics@1.1.0: {}
 
-  media-chrome@4.19.2(react@19.2.8):
-    dependencies:
-      ce-la-react: 0.3.2(react@19.2.8)
-    transitivePeerDependencies:
-      - react
-
   minimatch@10.2.5:
     dependencies:
       brace-expansion: 5.0.7
@@ -4528,6 +4495,10 @@ snapshots:
 
   picomatch@4.0.4: {}
 
+  pixelarticons@2.4.2(react@19.3.0):
+    dependencies:
+      react: 19.3.0
+
   possible-typed-array-names@1.1.0: {}
 
   postcss@8.5.12:
@@ -4544,7 +4515,7 @@ snapshots:
 
   quansync@1.0.0: {}
 
-  react@19.2.8: {}
+  react@19.3.0: {}
 
   readdirp@4.1.2: {}
 

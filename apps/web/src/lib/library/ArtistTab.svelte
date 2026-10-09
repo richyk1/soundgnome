@@ -2,107 +2,119 @@
   import { lib } from './store.svelte';
   import TrackTable from './TrackTable.svelte';
   import SortDropdown from './SortDropdown.svelte';
+  import VirtualCardGrid from './VirtualCardGrid.svelte';
+  import CardActions from './CardActions.svelte';
+  import LibraryOptions from './LibraryOptions.svelte';
+  import PixelCover from '../PixelCover.svelte';
+  import { runNavigation } from '../navigation-motion';
+  import type { LibraryAlbumDto, LibraryTrackDto } from '../types';
 
-  function musicIcon() { return '\u266B'; } // unused, inline SVGs below
+  function clearHoveredArtist() {
+    if (lib.hoveredItem?.type === 'artist') lib.hoveredItem = null;
+  }
 
   const artistSortOptions = [
     { value: 'name', label: 'Name' },
     { value: 'track_count', label: 'Tracks' },
     { value: 'album_count', label: 'Albums' },
   ];
+
+  function remoteCover(src: string | null | undefined): string | null {
+    return src && /^https?:\/\//.test(src) ? src : null;
+  }
+
+  /** Total running time, e.g. 48:31 or 1:12:05. */
+  function totalDuration(tracks: LibraryTrackDto[]): string | null {
+    const secs = tracks.reduce((sum, t) => sum + (t.duration ?? 0), 0);
+    if (secs <= 0) return null;
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = String(Math.floor(secs % 60)).padStart(2, '0');
+    return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+  }
+
+  function plural(n: number, word: string): string {
+    return `${n} ${word}${n !== 1 ? 's' : ''}`;
+  }
+
+  function albumMeta(a: LibraryAlbumDto): string {
+    const parts: (string | null | undefined)[] = [a.album_type, a.date?.slice(0, 4)];
+    if (!lib.tracksLoading) parts.push(plural(lib.albumTracks.length, 'track'), totalDuration(lib.albumTracks));
+    return parts.filter(Boolean).join(' · ');
+  }
+
+  function artistMeta(): string {
+    const parts: (string | null)[] = ['artist'];
+    if (!lib.albumsLoading) parts.push(plural(lib.artistAlbums.length, 'album'));
+    if (!lib.tracksLoading) parts.push(plural(lib.artistTracks.length, 'track'), totalDuration(lib.artistTracks));
+    return parts.filter(Boolean).join(' · ');
+  }
 </script>
-
-{#snippet coverWrap(src: string | null | undefined, alt: string)}
-  <div class="cover-wrap">
-    {#if src && (src.startsWith('http://') || src.startsWith('https://'))}
-      <img {src} {alt} class="cover-img" loading="lazy" />
-    {:else}
-      <div class="cover-ph">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <path d="M9 18V5l12-2v13"/>
-          <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-        </svg>
-      </div>
-    {/if}
-  </div>
-{/snippet}
-
-{#snippet artistCover(src: string | null | undefined, alt: string)}
-  <div class="cover-wrap artist-avatar">
-    {#if src && (src.startsWith('http://') || src.startsWith('https://'))}
-      <img {src} {alt} class="cover-img" loading="lazy" />
-    {:else}
-      <div class="cover-ph">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-          <circle cx="12" cy="7" r="4"/>
-        </svg>
-      </div>
-    {/if}
-  </div>
-{/snippet}
 
 <!-- ── ALBUM DETAIL (within artist context) ──────────────────────────────── -->
 {#if lib.drillArtist && lib.drillAlbum}
-  <div class="detail-hero">
-    <div class="detail-cover">{@render coverWrap(lib.drillAlbum.cover, lib.drillAlbum.title)}</div>
+  {@const album = lib.drillAlbum}
+  <header class="detail-hero">
+    <div class="cover-wrap detail-cover">
+      <PixelCover src={remoteCover(album.cover)} seed="album:{album.id}" alt={album.title} loading="eager" />
+    </div>
     <div class="detail-info">
-      <div class="detail-type">{lib.drillAlbum.album_type}</div>
-      <h2>{lib.drillAlbum.title}</h2>
-      <div class="detail-sub">{lib.drillAlbum.artists.map(a => a.name).join(', ')}</div>
-      {#if lib.drillAlbum.date}<div class="detail-sub">{lib.drillAlbum.date}</div>{/if}
+      <h2>{album.title}</h2>
+      {#if album.artists.length}<p class="detail-sub">{album.artists.map(a => a.name).join(', ')}</p>{/if}
+      <p class="detail-meta">{albumMeta(album)}</p>
       <div class="detail-actions">
-        <button class="btn-edit" onclick={() => lib.startEditAlbum(lib.drillAlbum!)}>Edit</button>
-        <button class="btn-delete" onclick={() => lib.handleDeleteAlbum(lib.drillAlbum!.id)}>Delete</button>
+        <button class="btn-edit" onclick={() => lib.startEditAlbum(album)}><i class="pxi pxi-pencil" aria-hidden="true"></i>Edit</button>
+        <button class="btn-delete" onclick={() => lib.handleDeleteAlbum(album.id)}><i class="pxi pxi-trash" aria-hidden="true"></i>Delete</button>
       </div>
     </div>
-  </div>
-  <div class="section-title">
-    {#if lib.tracksLoading}Loading tracks…{:else}{lib.albumTracks.length} track{lib.albumTracks.length !== 1 ? 's' : ''}{/if}
-  </div>
+  </header>
+  <h3 class="section-title">
+    Tracks
+    {#if lib.tracksLoading}<i class="pxi pxi-loader pxi-spin section-count" aria-label="Loading tracks"></i>{:else}<span class="section-count">{lib.albumTracks.length}</span>{/if}
+  </h3>
   <TrackTable tracks={lib.albumTracks} showAlbumCol={false} />
   {#if !lib.tracksLoading && lib.albumTracks.length === 0}<p class="status">No tracks in this album.</p>{/if}
 
 <!-- ── ARTIST DETAIL ─────────────────────────────────────────────────────── -->
 {:else if lib.drillArtist}
-  <div class="detail-hero">
-    {@render artistCover(lib.drillArtist.icon, lib.drillArtist.name)}
+  {@const artist = lib.drillArtist}
+  <header class="detail-hero">
+    <div class="cover-wrap artist-avatar detail-cover">
+      <PixelCover src={remoteCover(artist.icon)} seed="artist:{artist.id}" alt={artist.name} loading="eager" />
+    </div>
     <div class="detail-info">
-      <div class="detail-type">Artist</div>
-      <h2>{lib.drillArtist.name}</h2>
-      <div class="detail-sub">
-        {#if lib.albumsLoading}…{:else}{lib.artistAlbums.length} album{lib.artistAlbums.length !== 1 ? 's' : ''}{/if}
-        &nbsp;·&nbsp;
-        {#if lib.tracksLoading}…{:else}{lib.artistTracks.length} track{lib.artistTracks.length !== 1 ? 's' : ''}{/if}
-      </div>
+      <h2>{artist.name}</h2>
+      <p class="detail-meta">{artistMeta()}</p>
       <div class="detail-actions">
-        <button class="btn-edit" onclick={() => lib.startEditArtist(lib.drillArtist!)}>Edit</button>
-        <button class="btn-delete" onclick={() => lib.handleDeleteArtist(lib.drillArtist!.id)}>Delete</button>
+        <button class="btn-edit" onclick={() => lib.startEditArtist(artist)}><i class="pxi pxi-pencil" aria-hidden="true"></i>Edit</button>
+        <button class="btn-delete" onclick={() => lib.handleDeleteArtist(artist.id)}><i class="pxi pxi-trash" aria-hidden="true"></i>Delete</button>
       </div>
     </div>
-  </div>
+  </header>
 
   <!-- Albums compact grid -->
   {#if lib.albumsLoading}
-    <p class="status" style="padding:1rem 0">Loading albums…</p>
+    <p class="status"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i> Loading albums…</p>
   {:else if lib.artistAlbums.length > 0}
-    <div class="section-title">Albums</div>
-    <div class="card-grid compact" style="margin-bottom:1.5rem">
+    <h3 class="section-title">Albums <span class="section-count">{lib.artistAlbums.length}</span></h3>
+    <div class="card-grid compact artist-albums">
       {#each lib.artistAlbums as a (a.id)}
         <div class="card clickable"
           onmouseenter={() => (lib.hoveredItem = { type: 'album', id: a.id })}
           onmouseleave={() => (lib.hoveredItem = null)}
-          onclick={() => lib.drillIntoAlbum(a)} role="button" tabindex="0"
-          onkeydown={(e) => e.key === 'Enter' && lib.drillIntoAlbum(a)}>
-          {@render coverWrap(a.cover, a.title)}
+          onclick={() => runNavigation(() => lib.drillIntoAlbum(a))} role="button" tabindex="0"
+          onkeydown={(e) => { if (e.target === e.currentTarget && e.key === 'Enter') runNavigation(() => lib.drillIntoAlbum(a)); }}>
+          <div class="cover-wrap">
+            <PixelCover src={remoteCover(a.cover)} seed="album:{a.id}" alt={a.title} />
+          </div>
           <div class="card-body">
             <div class="card-title" title={a.title}>{a.title}</div>
             {#if a.date}<div class="card-meta">{a.date.slice(0, 4)}</div>{/if}
           </div>
-          <div class="card-hover-actions">
-            <button class="btn-edit" onclick={(e) => { e.stopPropagation(); lib.startEditAlbum(a); }}>Edit</button>
-            <button class="btn-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeleteAlbum(a.id); }}>Del</button>
-          </div>
+          <CardActions title={a.title} actions={[
+            { label: 'Edit album', onSelect: () => lib.startEditAlbum(a) },
+            { label: 'Delete album', danger: true, onSelect: () => lib.handleDeleteAlbum(a.id) },
+          ]} />
         </div>
       {/each}
     </div>
@@ -110,20 +122,22 @@
 
   <!-- Tracks grouped by album -->
   {#if lib.tracksLoading}
-    <p class="status" style="padding:1rem 0">Loading tracks…</p>
+    <p class="status"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i> Loading tracks…</p>
   {:else if lib.artistTracksByAlbum.length > 0}
-    <div class="section-title">Tracks</div>
+    <h3 class="section-title tracks-title">Tracks <span class="section-count">{lib.artistTracks.length}</span></h3>
     {#each lib.artistTracksByAlbum as group (group.albumId ?? '__none__')}
-      <div class="album-section">
+      <section class="album-section">
         <div class="album-section-header">
           {#if group.albumId != null}
-            <div class="album-section-thumb">{@render coverWrap(group.albumCover, group.albumTitle ?? '')}</div>
+            <div class="cover-wrap album-section-thumb">
+              <PixelCover src={remoteCover(group.albumCover)} seed="album:{group.albumId}" alt="" />
+            </div>
             {@const fullAlbum = lib.albums.find(x => x.id === group.albumId)}
             {#if fullAlbum}
               <span class="album-section-name title-link"
-                onclick={() => lib.drillIntoAlbum(fullAlbum)}
+                onclick={() => runNavigation(() => lib.drillIntoAlbum(fullAlbum))}
                 role="button" tabindex="0"
-                onkeydown={(e) => e.key === 'Enter' && lib.drillIntoAlbum(fullAlbum)}>
+                onkeydown={(e) => e.key === 'Enter' && runNavigation(() => lib.drillIntoAlbum(fullAlbum))}>
                 {group.albumTitle}
               </span>
             {:else}
@@ -132,66 +146,70 @@
           {:else}
             <span class="album-section-name muted">No album</span>
           {/if}
-          <span class="album-section-count">{group.tracks.length} track{group.tracks.length !== 1 ? 's' : ''}</span>
+          <span class="section-count album-section-count">{plural(group.tracks.length, 'track')}</span>
         </div>
         <TrackTable tracks={group.tracks} showAlbumCol={false} />
-      </div>
+      </section>
     {/each}
   {:else if !lib.albumsLoading && lib.artistAlbums.length === 0}
-    <p class="status">No content found for this artist.</p>
+    <div class="empty">
+      <i class="pxi pxi-user" aria-hidden="true"></i>
+      <p class="empty-title">No content found for this artist.</p>
+    </div>
   {/if}
 
 <!-- ── LOADING / ERROR ────────────────────────────────────────────────────── -->
-{:else if lib.drillArtistId != null && !lib.artistsLoaded}
-  <p class="status">Loading…</p>
-{:else if lib.artistsLoading}
-  <p class="status">Loading…</p>
+{:else if (lib.drillArtistId != null && !lib.artistsLoaded) || lib.artistsLoading}
+  <p class="status"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i> Loading…</p>
 {:else if lib.artistsError}
-  <p class="status error">{lib.artistsError}</p>
+  <div class="callout callout-error" role="alert">
+    <i class="pxi pxi-square-alert" aria-hidden="true"></i>
+    <div class="callout-body"><strong>Couldn't load artists</strong><span>{lib.artistsError}</span></div>
+  </div>
 
 <!-- ── ARTISTS LIST / GRID ───────────────────────────────────────────────── -->
 {:else}
-  <div class="toolbar">
-    <input class="search" placeholder="Search artists… (S)" bind:value={lib.artistSearch} />
-    <button
-      class="btn-similar"
-      class:active={lib.similarFilterActive}
-      onclick={() => { lib.similarFilterActive = !lib.similarFilterActive; }}
-      title="Dim artists that have no similar-named peer — helps spot duplicates"
-    >
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-      </svg>
-      Similar
-      {#if lib.similarFilterActive && lib.similarArtistIds.size > 0}
-        <span class="similar-badge">{lib.similarArtistIds.size}</span>
-      {/if}
-    </button>
-    <SortDropdown
-      value={lib.artistsSortBy}
-      direction={lib.artistsSortDir}
-      options={artistSortOptions}
-      onChange={(val) => lib.artistsSortBy = val as any}
-      onDirectionChange={(dir) => lib.artistsSortDir = dir}
-    />
-    <div class="view-toggle">
-      <button class:active={lib.artistsView === 'list'} onclick={() => (lib.artistsView = 'list')} title="List">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-          <circle cx="3" cy="6" r="1" fill="currentColor" stroke="none"/>
-          <circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/>
-          <circle cx="3" cy="18" r="1" fill="currentColor" stroke="none"/>
-        </svg>
-      </button>
-      <button class:active={lib.artistsView === 'grid'} onclick={() => (lib.artistsView = 'grid')} title="Grid">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-          <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
-        </svg>
-      </button>
-    </div>
-    <span class="count">{lib.filteredArtists.length} artist{lib.filteredArtists.length !== 1 ? 's' : ''}</span>
-  </div>
+  <LibraryOptions>
+    {#snippet search()}
+      <i class="pxi pxi-search" aria-hidden="true"></i>
+      <input class="search" aria-label="Search artists" placeholder="Search artists…" bind:value={lib.artistSearch} />
+    {/snippet}
+    {#snippet children()}
+      <div class="opt-row">
+        <button
+          class="filter-btn"
+          class:active={lib.similarFilterActive}
+          aria-pressed={lib.similarFilterActive}
+          onclick={() => { lib.similarFilterActive = !lib.similarFilterActive; }}
+          title="Dim artists that have no similar-named peer — helps spot duplicates"
+        >
+          <i class="pxi pxi-copy" aria-hidden="true"></i>
+          Similar
+          {#if lib.similarFilterActive && lib.similarArtistIds.size > 0}
+            <span class="mini-badge">{lib.similarArtistIds.size}</span>
+          {/if}
+        </button>
+      </div>
+      <div class="opt-row tools">
+        <SortDropdown
+          value={lib.artistsSortBy}
+          direction={lib.artistsSortDir}
+          options={artistSortOptions}
+          onChange={(val) => lib.artistsSortBy = val as any}
+          onDirectionChange={(dir) => lib.artistsSortDir = dir}
+        />
+        <div class="view-toggle" role="group" aria-label="View">
+          <button class:active={lib.artistsView === 'list'} aria-pressed={lib.artistsView === 'list'} onclick={() => (lib.artistsView = 'list')} title="List" aria-label="List view">
+            <i class="pxi pxi-list-box" aria-hidden="true"></i>
+          </button>
+          <button class:active={lib.artistsView === 'grid'} aria-pressed={lib.artistsView === 'grid'} onclick={() => (lib.artistsView = 'grid')} title="Grid" aria-label="Grid view">
+            <i class="pxi pxi-grid-2x2-2" aria-hidden="true"></i>
+          </button>
+        </div>
+      </div>
+      <span class="count">{lib.filteredArtists.length} artist{lib.filteredArtists.length !== 1 ? 's' : ''}</span>
+    {/snippet}
+  </LibraryOptions>
 
   {#if lib.artistsView === 'list'}
     <div class="table-wrap">
@@ -212,18 +230,21 @@
               onclick={(e) => {
                 if (lib.mergePicking) { if (sel) lib.pickMergeTarget(a.id); }
                 else if (e.shiftKey) { e.preventDefault(); lib.toggleArtistSelection(a.id); }
-                else { lib.drillIntoArtist(a); }
+                else { runNavigation(() => lib.drillIntoArtist(a)); }
               }}
             >
-              <td class="muted">{a.id}</td>
+              <td class="mono">{a.id}</td>
               <td>
-                <span class:muted={dimmed}>{a.name}</span>
-                {#if sel}<span class="badge-sel">✓</span>{/if}
+                <span class="row-title">
+                  <span class="artist-name" class:muted={dimmed}>{a.name}</span>
+                  {#if sel}<span class="badge-sel" aria-label="Selected"><i class="pxi pxi-check" aria-hidden="true"></i></span>{/if}
+                </span>
               </td>
-              <td class="actions">
+              <td class="row-actions">
                 {#if !lib.mergePicking}
-                  <button class="btn-edit" onclick={(e) => { e.stopPropagation(); lib.startEditArtist(a); }}>Edit</button>
-                  <button class="btn-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeleteArtist(a.id); }}>Delete</button>
+                  <button class="btn-header btn-sm btn-select" aria-pressed={sel} onclick={(e) => { e.stopPropagation(); lib.toggleArtistSelection(a.id); }}>{sel ? 'Selected' : 'Select'}</button>
+                  <button class="btn-edit btn-sm" onclick={(e) => { e.stopPropagation(); lib.startEditArtist(a); }}>Edit</button>
+                  <button class="btn-delete btn-sm" onclick={(e) => { e.stopPropagation(); lib.handleDeleteArtist(a.id); }}>Delete</button>
                 {/if}
               </td>
             </tr>
@@ -232,12 +253,13 @@
       </table>
     </div>
   {:else}
-    <div class="card-grid">
-      {#each lib.filteredArtists as a (a.id)}
+    <VirtualCardGrid items={lib.filteredArtists} onWindowChange={clearHoveredArtist}>
+      {#snippet card(a)}
         {@const sel = lib.selectedArtistIds.has(a.id)}
         {@const dimmed = lib.similarFilterActive && !lib.similarArtistIds.has(a.id)}
         {@const pickable = lib.mergePicking && sel}
-        <div class="card"
+        <div class="card artist-card"
+          class:clickable={!lib.mergePicking}
           class:card-selected={sel}
           class:card-dimmed={dimmed}
           class:card-pickable={pickable}
@@ -247,135 +269,169 @@
           onclick={(e) => {
             if (lib.mergePicking) { if (sel) lib.pickMergeTarget(a.id); }
             else if (e.shiftKey) { e.preventDefault(); lib.toggleArtistSelection(a.id); }
-            else { lib.drillIntoArtist(a); }
+            else { runNavigation(() => lib.drillIntoArtist(a)); }
           }}
           role="button" tabindex="0"
           onkeydown={(e) => {
+            if (e.target !== e.currentTarget) return;
             if (e.key === 'Enter') {
               if (lib.mergePicking && sel) lib.pickMergeTarget(a.id);
-              else if (!lib.mergePicking) lib.drillIntoArtist(a);
+              else if (!lib.mergePicking) runNavigation(() => lib.drillIntoArtist(a));
             } else if (e.key === ' ') { e.preventDefault(); lib.toggleArtistSelection(a.id); }
           }}
         >
-          {@render artistCover(a.icon, a.name)}
-          <div class="card-body">
+          <div class="cover-wrap artist-avatar">
+            <PixelCover src={remoteCover(a.icon)} seed="artist:{a.id}" alt={a.name} />
+          </div>
+          <div class="card-body artist-card-body">
             <div class="card-title" title={a.name}>{a.name}</div>
           </div>
-          {#if sel}<span class="card-sel-badge">✓</span>{/if}
+          {#if sel}<span class="card-sel-badge" aria-label="Selected"><i class="pxi pxi-check" aria-hidden="true"></i></span>{/if}
           {#if !lib.mergePicking}
-            <div class="card-hover-actions">
-              <button class="btn-edit" onclick={(e) => { e.stopPropagation(); lib.startEditArtist(a); }}>Edit</button>
-              <button class="btn-delete" onclick={(e) => { e.stopPropagation(); lib.handleDeleteArtist(a.id); }}>Delete</button>
-            </div>
+            <CardActions title={a.name} actions={[
+              { label: sel ? 'Selected' : 'Select', pressed: sel, onSelect: () => lib.toggleArtistSelection(a.id) },
+              { label: 'Edit artist', onSelect: () => lib.startEditArtist(a) },
+              { label: 'Delete artist', danger: true, onSelect: () => lib.handleDeleteArtist(a.id) },
+            ]} />
           {/if}
         </div>
-      {/each}
+      {/snippet}
+    </VirtualCardGrid>
+  {/if}
+  {#if lib.filteredArtists.length === 0}
+    <div class="empty">
+      <i class="pxi pxi-users" aria-hidden="true"></i>
+      <p class="empty-title">No artists found.</p>
     </div>
   {/if}
-  {#if lib.filteredArtists.length === 0}<p class="status">No artists found.</p>{/if}
 
   <!-- Floating merge / pick-target button -->
   {#if lib.selectedArtistIds.size >= 2}
     <div class="merge-fab" class:fab-picking={lib.mergePicking}>
       {#if lib.mergePicking}
         <span class="fab-hint">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-            <polyline points="22 4 12 14.01 9 11.01"/>
-          </svg>
+          <i class="pxi pxi-check" aria-hidden="true"></i>
           Click the artist to keep
         </span>
-        <button class="fab-btn-cancel" onclick={lib.cancelMergePicking} disabled={lib.mergeSaving}>Cancel</button>
+        <button class="btn-cancel btn-sm" onclick={lib.cancelMergePicking} disabled={lib.mergeSaving}>Cancel</button>
       {:else}
         <span class="fab-count">{lib.selectedArtistIds.size}</span>
-        <button class="fab-btn-merge" onclick={lib.startMergePicking} disabled={lib.mergeSaving}>
-          {lib.mergeSaving ? 'Merging…' : 'Merge'}
+        <button class="btn-save btn-sm" onclick={lib.startMergePicking} disabled={lib.mergeSaving}>
+          {#if lib.mergeSaving}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Merging…{:else}Merge{/if}
         </button>
-        <button class="fab-btn-cancel" onclick={lib.clearArtistSelection} title="Cancel selection">✕</button>
+        <button class="btn-ghost btn-sm fab-close" onclick={lib.clearArtistSelection} title="Cancel selection" aria-label="Cancel selection">
+          <i class="pxi pxi-close" aria-hidden="true"></i>
+        </button>
       {/if}
     </div>
   {/if}
 {/if}
 
 <style>
-  h2 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.35rem; }
-  .album-section { margin-bottom: 2rem; }
-  .album-section-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.65rem; }
-  .album-section-thumb { width: 36px; height: 36px; flex-shrink: 0; border-radius: 4px; overflow: hidden; }
-  .album-section-thumb :global(.cover-wrap) { width: 100%; height: 100%; }
-  .album-section-name { font-weight: 600; font-size: 0.9rem; }
-  .album-section-count { font-size: 0.75rem; color: var(--muted); margin-left: auto; }
-  .detail-hero { display: flex; align-items: center; gap: 1.5rem; padding: 1.5rem; background: var(--float); border: 1px solid var(--float-border); border-radius: 10px; box-shadow: var(--rim), var(--shadow-sm); margin-bottom: 1.5rem; flex-wrap: wrap; }
-  .detail-cover { width: 110px; height: 110px; flex-shrink: 0; border-radius: 6px; overflow: hidden; }
-  .detail-cover :global(.cover-wrap) { width: 100%; height: 100%; }
-  .detail-info { flex: 1; min-width: 180px; }
-  .detail-type { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.3rem; }
-  .detail-sub { font-size: 0.875rem; color: var(--muted); margin-top: 0.2rem; }
-  .detail-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
-  .detail-actions button { padding: 0.3rem 0.75rem; border-radius: 5px; border: 1px solid var(--border); cursor: pointer; font-size: 0.8rem; font-family: inherit; background: var(--surface-2); color: var(--text); }
-  .detail-actions button:hover { background: var(--surface); }
+  /* Detail hero: no card chrome; the cover carries the hairline. */
+  .detail-hero { display: flex; align-items: flex-end; gap: 20px; margin-bottom: 32px; }
+  .detail-cover { width: 120px; height: 120px; flex: 0 0 auto; }
+  .detail-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .detail-info h2 { margin: 0; font-size: 28px; line-height: 1.15; letter-spacing: -0.03em; overflow-wrap: anywhere; }
+  .detail-sub { margin: 0; font-size: 14px; color: var(--muted); }
+  .detail-meta { margin: 0; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted-2); }
+  .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 
-  /* Similar filter */
-  .btn-similar {
-    display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
-    padding: 0.28rem 0.65rem; border-radius: 5px; border: 1px solid var(--border);
-    background: var(--surface-2); color: var(--muted); cursor: pointer; font-size: 0.8rem; font-family: inherit;
-  }
-  .btn-similar:hover { color: var(--text); }
-  .btn-similar.active { background: color-mix(in srgb, #f59e0b 12%, var(--surface)); color: #f59e0b; border-color: color-mix(in srgb, #f59e0b 40%, transparent); }
-  .similar-badge { background: #f59e0b; color: #000; border-radius: 999px; padding: 0 0.35rem; font-size: 0.7rem; font-weight: 700; }
+  .section-title { display: flex; align-items: baseline; gap: 8px; }
+  .section-count { font-family: var(--font-mono); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--muted-2); }
+  i.section-count { font-size: 16px; align-self: center; }
+
+  .status { display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .status .pxi { font-size: 16px; }
+  .tools { margin-left: auto; }
 
   /* Row selection */
-  tr.row-selected td { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+  .row-title { display: inline-flex; align-items: center; gap: 8px; }
+  .muted { color: var(--muted); }
+  tr.row-selected td { background: var(--accent-muted); }
   tr.row-dimmed { opacity: 0.2; }
   tr.row-pickable { cursor: pointer; }
-  tr.row-pickable:hover td { background: color-mix(in srgb, #22c55e 14%, transparent) !important; }
+  tr.row-pickable:hover td { background: color-mix(in srgb, var(--success) 14%, transparent); }
   .badge-sel {
-    display: inline-block; margin-left: 0.35rem; vertical-align: middle;
-    background: var(--accent); color: #fff; border-radius: 3px;
-    padding: 0 0.28rem; font-size: 0.66rem; font-weight: 700;
+    display: inline-grid; place-items: center;
+    width: 18px; height: 18px; border-radius: 4px;
+    background: var(--accent); color: var(--on-accent); font-size: 16px;
   }
-  tr.row-pickable .badge-sel { background: #22c55e; }
+  tr.row-pickable .badge-sel { background: var(--success); color: var(--on-success); }
+  .row-actions { white-space: nowrap; }
+  .row-actions button + button { margin-left: 4px; }
+  .btn-select[aria-pressed="true"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-muted); }
 
-  /* Card selection */
-  .card { position: relative; }
-  .card-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* Floating merge bar */
+  .merge-fab {
+    position: fixed;
+    left: 50%;
+    top: calc(var(--app-top, 0px) + var(--app-height, 100dvh) - var(--app-bottom-clearance, 144px));
+    transform: translate(-50%, -100%);
+    z-index: 200;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: max-content;
+    max-width: calc(100vw - 2rem);
+    max-height: calc(var(--app-height, 100dvh) - var(--app-bottom-clearance, 144px) - 2rem);
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: 8px 8px 8px 12px;
+    border: 1px solid var(--float-border);
+    border-radius: var(--radius-panel);
+    background: var(--float);
+    box-shadow: var(--float-shadow);
+    font-size: 14px;
+  }
+  .merge-fab.fab-picking { border-color: color-mix(in srgb, var(--success) 50%, transparent); }
+  .fab-count {
+    min-width: 24px; padding: 2px 6px; border-radius: 4px;
+    background: var(--accent); color: var(--on-accent);
+    font-family: var(--font-mono); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: center;
+  }
+  .fab-hint { display: flex; align-items: center; gap: 8px; color: var(--success); font-weight: 500; }
+  .fab-hint .pxi { font-size: 16px; }
+  .fab-close { padding: 0; width: 30px; border-color: transparent; }
+
+  /* Artist detail: albums strip and per-album track sections with hairline headers. */
+  .artist-albums { margin-bottom: 40px; }
+  .tracks-title { margin-bottom: 16px; padding-bottom: 0; border-bottom: 0; }
+  .album-section { margin-bottom: 32px; }
+  .album-section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .album-section-thumb { width: 32px; height: 32px; flex: 0 0 auto; border-radius: var(--radius-chip); }
+  .album-section-name { min-width: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-bright); overflow-wrap: anywhere; }
+  .album-section-name.muted { color: var(--muted); font-weight: 500; }
+  .album-section-count { margin-left: auto; white-space: nowrap; }
+  .artist-name { color: var(--text-bright); font-weight: 500; }
+
+  /* Artist grid: same card grammar as AlbumGrid, circular avatars. */
+  .artist-card-body { height: 4rem; box-sizing: border-box; text-align: center; }
+  .card-selected :global(.cover-wrap)::after { box-shadow: inset 0 0 0 2px var(--accent); }
   .card-dimmed { opacity: 0.2; }
   .card-pickable { cursor: pointer; }
-  .card-pickable:hover { outline-color: #22c55e !important; background: color-mix(in srgb, #22c55e 10%, var(--surface)); }
+  .card-pickable:hover :global(.cover-wrap)::after { box-shadow: inset 0 0 0 2px var(--success); }
   .card-sel-badge {
-    position: absolute; top: 0.3rem; right: 0.3rem; z-index: 2;
-    background: var(--accent); color: #fff; border-radius: 50%;
-    width: 1.2rem; height: 1.2rem; font-size: 0.65rem; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
+    position: absolute; top: 8px; left: 8px; z-index: 2;
+    display: grid; place-items: center;
+    width: 24px; height: 24px; border-radius: 4px;
+    background: var(--accent); color: var(--on-accent); font-size: 16px;
   }
-  .card-pickable .card-sel-badge { background: #22c55e; }
+  .card-pickable .card-sel-badge { background: var(--success); color: var(--on-success); }
 
-  /* Floating merge button */
-  .merge-fab {
-    position: fixed; bottom: 1.75rem; left: 50%; transform: translateX(-50%);
-    display: flex; align-items: center; gap: 0.5rem; white-space: nowrap;
-    padding: 0.55rem 0.9rem;
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 999px; box-shadow: 0 4px 22px rgba(0,0,0,0.35);
-    z-index: 200; font-size: 0.875rem;
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    .detail-hero { align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+    .detail-info h2 { font-size: 24px; }
+    .fab-close { width: 44px; }
+    .album-section-header { flex-wrap: wrap; }
   }
-  .merge-fab.fab-picking {
-    background: color-mix(in srgb, #22c55e 12%, var(--surface));
-    border-color: color-mix(in srgb, #22c55e 50%, transparent);
-  }
-  .fab-count { background: var(--accent); color: #fff; border-radius: 999px; padding: 0.05rem 0.55rem; font-size: 0.75rem; font-weight: 700; }
-  .fab-btn-merge {
-    padding: 0.35rem 1rem; border-radius: 999px; border: none; cursor: pointer;
-    background: var(--accent); color: #fff; font-weight: 600; font-family: inherit; font-size: 0.875rem;
-  }
-  .fab-btn-merge:hover:not(:disabled) { filter: brightness(1.12); }
-  .fab-btn-merge:disabled { opacity: 0.5; cursor: not-allowed; }
-  .fab-hint { display: flex; align-items: center; gap: 0.4rem; color: #22c55e; font-weight: 600; }
-  .fab-btn-cancel {
-    padding: 0.3rem 0.65rem; border-radius: 999px; border: 1px solid var(--border);
-    background: none; color: var(--muted); cursor: pointer; font-family: inherit; font-size: 0.8rem;
-  }
-  .fab-btn-cancel:hover { color: var(--text); background: var(--surface-2); }
-  .fab-btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

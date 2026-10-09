@@ -4,6 +4,7 @@
   import { GLOBAL_PLAYER, type GlobalPlayer } from '../lib/player';
   import { deleteTrack } from '../lib/api';
   import TrackTable from '../lib/library/TrackTable.svelte';
+  import { runNavigation } from '../lib/navigation-motion';
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
   let tab: 'liked' | 'disliked' = $state('liked');
@@ -49,15 +50,22 @@
 </script>
 
 <div class="liked-page">
+  <header class="page-head">
+    <h1>Liked and disliked</h1>
+    {#if !lib.tracksLoading && !lib.tracksError}
+      <p class="page-meta">{lib.likedTracks.length} liked · {lib.dislikedTracks.length} disliked</p>
+    {/if}
+  </header>
+
   <div class="tabs" role="tablist">
     <button
       class="tab"
       class:active={tab === 'liked'}
       role="tab"
       aria-selected={tab === 'liked'}
-      onclick={() => (tab = 'liked')}
+      onclick={() => { if (tab !== 'liked') void runNavigation(() => { tab = 'liked'; }); }}
     >
-      <i class="lni lni-thumbs-up-1"></i> Liked
+      <i class="pxi pxi-thumbs-up" aria-hidden="true"></i>Liked
       {#if lib.likedTracks.length > 0}<span class="tab-count">{lib.likedTracks.length}</span>{/if}
     </button>
     <button
@@ -65,22 +73,26 @@
       class:active={tab === 'disliked'}
       role="tab"
       aria-selected={tab === 'disliked'}
-      onclick={() => (tab = 'disliked')}
+      onclick={() => { if (tab !== 'disliked') void runNavigation(() => { tab = 'disliked'; }); }}
     >
-      <i class="lni lni-thumbs-down-1"></i> Disliked
+      <i class="pxi pxi-thumbs-down" aria-hidden="true"></i>Disliked
       {#if lib.dislikedTracks.length > 0}<span class="tab-count">{lib.dislikedTracks.length}</span>{/if}
     </button>
   </div>
 
   {#if lib.tracksLoading}
-    <p class="status">Loading…</p>
+    <p class="status"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i> Loading…</p>
   {:else if lib.tracksError}
-    <p class="status error">{lib.tracksError}</p>
+    <div class="callout callout-error" role="alert">
+      <i class="pxi pxi-square-alert" aria-hidden="true"></i>
+      <div class="callout-body"><span>{lib.tracksError}</span></div>
+    </div>
   {:else}
     <div class="toolbar">
-      <input class="search" placeholder="Search these tracks…" bind:value={search} />
+      <input class="search" placeholder="Search these tracks…" aria-label="Search these tracks" bind:value={search} />
       {#if tab === 'disliked' && lib.dislikedTracks.length > 0}
-        <button class="btn-delete-all" onclick={deleteAllDisliked} disabled={deleting}>
+        <button class="btn-danger btn-sm" onclick={deleteAllDisliked} disabled={deleting}>
+          <i class="pxi {deleting ? 'pxi-loader pxi-spin' : 'pxi-trash'}" aria-hidden="true"></i>
           {deleting ? 'Deleting…' : `Delete all (${lib.dislikedTracks.length})`}
         </button>
       {/if}
@@ -88,15 +100,16 @@
     </div>
 
     {#if filtered.length === 0}
-      <p class="status empty">
+      <div class="empty">
+        <i class="pxi {search.trim() ? 'pxi-search' : tab === 'liked' ? 'pxi-thumbs-up' : 'pxi-thumbs-down'}" aria-hidden="true"></i>
         {#if search.trim()}
-          No matches.
+          <p class="empty-title">No matches.</p>
         {:else if tab === 'liked'}
-          No liked tracks yet. Tap the <i class="lni lni-thumbs-up-1"></i> on any track to like it.
+          <p class="empty-hint">No liked tracks yet. Tap the <i class="pxi pxi-thumbs-up inline-icon" role="img" aria-label="like button"></i> on any track to like it.</p>
         {:else}
-          Nothing disliked. Tap the <i class="lni lni-thumbs-down-1"></i> on a track to send it here for cleanup.
+          <p class="empty-hint">Nothing disliked. Tap the <i class="pxi pxi-thumbs-down inline-icon" role="img" aria-label="dislike button"></i> on a track to send it here for cleanup.</p>
         {/if}
-      </p>
+      </div>
     {:else}
       <TrackTable tracks={filtered} showAlbumCol={true} showDelete={tab === 'disliked'} />
     {/if}
@@ -105,80 +118,54 @@
 
 <style>
   .liked-page {
-    padding: 1.25rem 1.5rem;
+    padding: var(--space-page);
     display: flex;
     flex-direction: column;
-    gap: 1rem;
   }
 
-  .tabs {
+  .page-head {
     display: flex;
-    gap: 0.5rem;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
   }
-  .tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.5rem 0.9rem;
-    border-radius: 999px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    color: var(--muted);
-    cursor: pointer;
-    font-family: var(--font-display);
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    font-size: 0.95rem;
-  }
-  .tab:hover {
-    color: var(--text-bright);
-  }
-  .tab.active {
-    background: color-mix(in srgb, var(--accent) 20%, transparent);
-    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-    color: var(--text);
-  }
-  .tab .lni {
-    font-size: 1rem;
-  }
-  .tab-count {
-    font-size: 0.7rem;
+  h1 {
+    margin: 0;
+    font-size: 28px;
     font-weight: 600;
-    background: var(--surface-2);
-    color: var(--muted);
-    border-radius: 999px;
-    padding: 0.05rem 0.45rem;
+    line-height: 1.1;
+    letter-spacing: -0.035em;
   }
-  .tab.active .tab-count {
-    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  @media (min-width: 768px) {
+    h1 { font-size: 32px; }
+  }
+  .page-meta {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
+  }
+
+  .tab-count {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    color: var(--muted-2);
+  }
+  .tab.active .tab-count { color: var(--accent); }
+
+  .status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .status .pxi { font-size: 16px; }
+
+  /* The thumbs glyph sits in the sentence like a word. */
+  .inline-icon {
+    font-size: 16px;
+    vertical-align: -2px;
     color: var(--text);
-  }
-
-  .btn-delete-all {
-    background: transparent;
-    color: var(--error);
-    border: 1px solid var(--error);
-    border-radius: 999px;
-    padding: 0.4rem 0.85rem;
-    cursor: pointer;
-    font-size: 0.8rem;
-    white-space: nowrap;
-  }
-  .btn-delete-all:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--error) 12%, transparent);
-  }
-  .btn-delete-all:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .empty :global(.lni) {
-    color: var(--muted);
-  }
-
-  @media (max-width: 640px) {
-    .liked-page {
-      padding: 1rem;
-    }
   }
 </style>

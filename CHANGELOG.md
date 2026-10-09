@@ -7,6 +7,104 @@ Soundgnome is a fork of [Soundome](https://github.com/barthofu/soundome) by
 Bartholomé Gili. It diverged from Soundome `v0.2.8`; everything below is what
 changed after that point.
 
+## [Unreleased]
+
+### Fixed
+
+- Tapped buttons no longer stay highlighted on phones: hover styles now apply
+  only on devices that can hover (a PostCSS step in `apps/web/vite.config.ts`
+  gates every `:hover` rule, component styles included).
+- Removed backdrop blur from library card action buttons to reduce compositing
+  overhead when scrolling large album grids on phones.
+- Virtualized the album and artist grids so only visible rows and a small overscan buffer
+  stay mounted. Responsive row sizing preserves continuous scrolling, search,
+  sorting, and selection without rendering the entire library. Hover updates
+  no longer reset the artist grid's scroll position.
+- Made the mobile shell follow the visible viewport and safe-area insets, keeping
+  navigation, the player, dialogs, and floating actions clear of Safari's controls.
+  Keyboard editing reclaims footer space without unmounting audio, and filtering
+  preserves the focused field's scroll position.
+- Standardized phone spacing, 44px touch targets, readable form inputs, contained
+  tables, visible library controls, and touch-based artist/album selection.
+- Replaced crowded artwork buttons with a single card actions trigger and a
+  readable, lazily mounted actions sheet. Mobile Library controls now prioritize
+  one-row collection navigation and search, with secondary options collapsed;
+  the mobile download form uses separate full-width input and submit rows.
+- Switched iOS to native audio playback rather than Web Audio processing, with
+  shared queue controls and native-event-driven Media Session metadata and position.
+  Saved positions and user Play/Pause intent survive asynchronous restoration.
+  Resuming an existing listen does not record it again; native repeat and
+  successful replay start fresh listens.
+- Added the missing rollback for the track-rating migration.
+- Pinned the OpenRouter schema fix to a published dependency fork so recursive
+  clones preserve `additionalProperties` for strict structured-output providers.
+
+### Added
+
+- Automatic local-time themes: light from 07:00 to 19:00 and dark overnight,
+  including consistent surfaces, dialogs, player controls, and waveform colors.
+- Content-only page and collection transitions with native View Transition API
+  support, a lightweight fallback, reduced-motion handling, and live player controls.
+  Added consistent navigation feedback and dialog entry without animating scrolling.
+- A mobile tab bar with Home, Search, Library, and More: icon-only pixel tabs
+  (labels are their accessible names) with a violet tick on the active one, and a
+  floating player card above it only when a track is loaded. Tapping the card
+  morphs it into Now Playing with the View Transition API (the card grows into
+  the sheet, the thumbnail into the big cover) and closing morphs back, from
+  wherever a swipe-down left the sheet; elsewhere the sheet slides. The tab bar
+  is opaque with a hairline rule (no blur layer over scrolling content), and
+  closing More restores focus without triggering the page's playback shortcut.
+- Generated pixel covers: albums, tracks, artists, and playlists without artwork
+  show a deterministic dithered sprite seeded by the item, so the same album keeps
+  the same cover in the grid, its detail view, its tracks, and the player.
+- Tactile feedback: buttons dip on press and spring back on release, toggles
+  (like, play/pause, shuffle, repeat, EQ) pop when their state changes, and
+  touch presses play a light haptic (Vibration API on Android; the native switch
+  haptic on iOS Safari 18+). Reduced motion turns off the movement.
+- A glow behind the Now Playing cover, taken from the cover's own colors: a
+  pixel mosaic that dithers out into the dark theme, and a faint blurred halo in
+  the light theme that fades into the status bar. Off with Reduce Transparency.
+- Swipe the Now Playing cover left for the next track and right for the previous
+  one (straight to it, unlike the button, which first restarts a song more than
+  3 seconds in). The cover follows the finger and slides between tracks; short
+  swipes spring back. A haptic marks the change.
+- Documented frontend-only development against a remote API and corrected local
+  startup prerequisites, automatic SQLite migrations, and optional server `.env`.
+
+### Changed
+
+- New visual identity inspired by [Stencil](https://stencil.so): black night and
+  white day grounds, hairline rules, Geist for the interface and Geist Mono for
+  counts, durations, and dates, violet for selection and cyan for what is playing
+  or running. Archivo, JetBrains Mono, and the Lineicons webfont are replaced by
+  Geist, Geist Mono, and [pixelarticons](https://github.com/halfmage/pixelarticons).
+- A pixel gnome mark, whose hat and beard mirror a waveform, replaces the
+  headphone logo in the sidebar, favicon, and Home Screen/PWA icons. Icons are
+  rendered from `apps/web/src/lib/brand-mark.js` at build time.
+- Now Playing on phones fits one screen without scrolling: the Up next list is
+  gone (the desktop queue keeps it) and the cover shrinks on short screens. EQ
+  and mute are hidden on iPhone and iPad, where native audio can't be processed
+  and the device buttons control volume; sessions there always start unmuted.
+- The Library title row and section tabs stay pinned while lists scroll, and
+  phone track lists are cozier: one 52px row per track (cover, title, artist,
+  duration). On phones, lists no longer offer track editing or like/dislike;
+  rate a track from Now Playing while it plays and edit track info on desktop.
+  Off-screen rows reserve their real height, so long lists no longer shift.
+- Shuffle no longer rearranges the tracks list. The list always keeps its own
+  sort; shuffle is a hidden play order built when you turn it on or start from
+  a different list. Tapping another song in the playing list plays it next in
+  that order without reshuffling: what already played stays behind it for
+  Previous, and the rest of the order (the sidebar's Up next) is unchanged. The
+  list also stops scrolling itself to follow the playing song.
+
+### Removed
+
+- Unused media-player dependencies, Vite starter assets, obsolete icon generation,
+  duplicate logos and backend source files, unreachable legacy admin pages, and
+  legacy database macros.
+- An unused AI-tool dependency from the root installation. Environment backups
+  remain local and are excluded from Git and source synchronization.
+
 ## [0.3.0] - 2026-08-17
 
 First Soundgnome release. Continues the version line from the inherited Soundome history (v0.1.0-v0.2.8 already exist upstream).

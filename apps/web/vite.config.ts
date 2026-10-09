@@ -1,14 +1,36 @@
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { VitePWA } from 'vite-plugin-pwa'
+import type { AtRule, Node, Plugin, Rule } from 'postcss'
+
+// iOS keeps a tapped element in :hover until the next tap, so a pressed button
+// stays highlighted. Move every :hover selector (component styles included)
+// into @media (hover: hover); non-hover selectors in the same rule stay put.
+const hoverOnlyWhereSupported: Plugin = {
+  postcssPlugin: 'hover-only-where-supported',
+  Rule(rule: Rule, { AtRule }) {
+    if (!rule.selector.includes(':hover')) return
+    for (let p: Node | undefined = rule.parent; p; p = p.parent) {
+      if (p.type === 'atrule' && (p as AtRule).params.includes('hover: hover')) return
+    }
+    const hovering = rule.selectors.filter((s) => s.includes(':hover'))
+    const media = new AtRule({ name: 'media', params: '(hover: hover)' })
+    media.append(rule.clone({ selectors: hovering }))
+    rule.after(media)
+    const rest = rule.selectors.filter((s) => !s.includes(':hover'))
+    if (rest.length) rule.selectors = rest
+    else rule.remove()
+  },
+}
 
 // https://vite.dev/config/
 export default defineConfig({
+  css: { postcss: { plugins: [hoverOnlyWhereSupported] } },
   plugins: [
     svelte(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.png', 'apple-touch-icon.png', 'logo_soundgnome.png'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'Soundgnome',
         short_name: 'Soundgnome',

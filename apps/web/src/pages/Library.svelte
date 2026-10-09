@@ -1,13 +1,23 @@
 <script lang="ts">
   import { setContext, getContext } from 'svelte';
-  import { lib, LIBRARY_PLAYER, createLibraryPlayer, type LibraryPlayer } from '../lib/library/store.svelte';
+  import { lib, LIBRARY_PLAYER, createLibraryPlayer, type LibraryPlayer, type Tab } from '../lib/library/store.svelte';
   import ArtistTab from '../lib/library/ArtistTab.svelte';
   import AlbumTab from '../lib/library/AlbumTab.svelte';
   import TracksTab from '../lib/library/TracksTab.svelte';
   import PlaylistsTab from '../lib/library/PlaylistsTab.svelte';
   import EditModal from '../lib/library/EditModal.svelte';
   import { GLOBAL_PLAYER, type GlobalPlayer } from '../lib/player';
+  import { runNavigation } from '../lib/navigation-motion';
   let { onNavigateLiked }: { onNavigateLiked?: () => void } = $props();
+
+  const LIB_TABS: { id: Tab; label: string }[] = [
+    { id: 'tracks', label: 'Tracks' },
+    { id: 'playlists', label: 'Playlists' },
+    { id: 'albums', label: 'Albums' },
+    { id: 'artists', label: 'Artists' },
+  ];
+
+  let libraryHeaderHeight = $state(0);
 
   // ── Playback: driven by the single app-wide player mounted in the shell,
   // so it keeps playing as the user navigates away from the library. ─────────
@@ -22,7 +32,7 @@
 
   // Browser back / forward
   $effect(() => {
-    function onPopState() { lib.applyHash(); }
+    function onPopState() { runNavigation(() => lib.applyHash()); }
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   });
@@ -32,7 +42,7 @@
     function onKeydown(e: KeyboardEvent) {
       const tgt = e.target as HTMLElement;
       const inInput = tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT';
-      if (lib.editState || inInput) return;
+      if (lib.editState || inInput || tgt.closest('dialog')) return;
       if (e.key === 's') {
         e.preventDefault();
         document.querySelector<HTMLInputElement>('.library-page .search')?.focus();
@@ -40,8 +50,8 @@
         e.preventDefault();
         lib.openEditForHovered();
       } else if (e.key === 'Backspace' && !e.metaKey && !e.ctrlKey) {
-        if (lib.drillAlbumId != null) { e.preventDefault(); lib.navigate(lib.tab, lib.drillArtistId ?? undefined); }
-        else if (lib.drillArtistId != null) { e.preventDefault(); lib.navigate(lib.tab); }
+        if (lib.drillAlbumId != null) { e.preventDefault(); runNavigation(() => lib.navigate(lib.tab, lib.drillArtistId ?? undefined)); }
+        else if (lib.drillArtistId != null) { e.preventDefault(); runNavigation(() => lib.navigate(lib.tab)); }
       } else if (e.key === 'Escape') {
         if (lib.mergePicking) { e.preventDefault(); lib.cancelMergePicking(); }
         else if (lib.selectedArtistIds.size > 0) { e.preventDefault(); lib.clearArtistSelection(); }
@@ -80,96 +90,84 @@
   }
 </script>
 
-<div class="library-page">
-  <div class="page-header">
+<div class="library-page" style:--library-header-height={`${libraryHeaderHeight}px`}>
+  <!-- Title row and section tabs stay pinned while the collection scrolls. -->
+  <div class="lib-top" bind:clientHeight={libraryHeaderHeight}>
+  <header class="page-header">
     <div class="header-titles">
-      <span class="eyebrow">Library</span>
       <h1>{lib.tab === 'artists' ? 'Artists' : lib.tab === 'albums' ? 'Albums' : lib.tab === 'tracks' ? 'Tracks' : 'Playlists'}</h1>
       <p class="header-sub">{headerSub()}</p>
+      <p class="mobile-count">
+        {lib.tab === 'tracks' ? lib.filteredTracks.length : lib.tab === 'artists' ? lib.filteredArtists.length : lib.tab === 'albums' ? lib.filteredAlbums.length : lib.filteredPlaylists.length}
+        {lib.tab}{lib.tab === 'tracks' && lib.trackFilter === 'review' ? ' to review' : ''}
+      </p>
     </div>
     <div class="header-right">
-      <button class="btn-header" onclick={lib.handleRefresh} disabled={lib.refreshing}>
-        {#if lib.refreshing}
-          <span class="spinner"></span> Refreshing…
-        {:else}
-          <span class="reload" aria-hidden="true">↻</span> Refresh
-        {/if}
+      <button class="btn-header mobile-liked" aria-label="Open liked tracks" onclick={() => onNavigateLiked?.()}>
+        <i class="pxi pxi-heart" aria-hidden="true"></i>
+      </button>
+      <button class="btn-header" aria-label={lib.refreshing ? 'Refreshing library' : 'Refresh library'} onclick={lib.handleRefresh} disabled={lib.refreshing}>
+        <i class="pxi pxi-refresh" class:pxi-spin={lib.refreshing} aria-hidden="true"></i>
+        <span class="refresh-label">{lib.refreshing ? 'Refreshing…' : 'Refresh'}</span>
       </button>
     </div>
-  </div>
+  </header>
 
-  <div class="lib-chips">
-    <button class="lib-chip" class:active={lib.tab === 'tracks'} onclick={() => lib.switchTab('tracks')}>Tracks</button>
-    <button class="lib-chip" class:active={lib.tab === 'playlists'} onclick={() => lib.switchTab('playlists')}>Playlists</button>
-    <button class="lib-chip" class:active={lib.tab === 'albums'} onclick={() => lib.switchTab('albums')}>Albums</button>
-    <button class="lib-chip" class:active={lib.tab === 'artists'} onclick={() => lib.switchTab('artists')}>Artists</button>
-    <button class="lib-chip liked" onclick={() => onNavigateLiked?.()}><i class="lni lni-heart"></i>Liked</button>
+  <nav class="lib-tabs" aria-label="Library sections">
+    {#each LIB_TABS as t}
+      <button class="lib-tab" class:active={lib.tab === t.id} aria-current={lib.tab === t.id ? 'page' : undefined} onclick={() => runNavigation(() => lib.switchTab(t.id))}>{t.label}</button>
+    {/each}
+  </nav>
   </div>
 
 
   {#if (lib.tab === 'artists' || lib.tab === 'albums') && (lib.batchFetchingArtists || lib.batchFetchingAlbums || lib.batchFetchResult)}
     <div class="batch-tools">
       {#if lib.tab === 'artists'}
-        <button
-          class="btn-batch"
-          onclick={() => lib.batchFetchArtistIconsAction()}
-          disabled={lib.batchFetchingArtists}
-        >
-          {#if lib.batchFetchingArtists}
-            ⏳ Fetching icons…
-          {:else}
-            🖼️ Fetch all artist photos from references
-          {/if}
+        <button class="btn-header" onclick={() => lib.batchFetchArtistIconsAction()} disabled={lib.batchFetchingArtists}>
+          <i class="pxi {lib.batchFetchingArtists ? 'pxi-loader pxi-spin' : 'pxi-image'}" aria-hidden="true"></i>
+          {lib.batchFetchingArtists ? 'Fetching artist photos…' : 'Fetch artist photos from references'}
         </button>
       {:else if lib.tab === 'albums'}
-        <button
-          class="btn-batch"
-          onclick={() => lib.batchFetchAlbumCoversAction()}
-          disabled={lib.batchFetchingAlbums}
-        >
-          {#if lib.batchFetchingAlbums}
-            ⏳ Fetching covers…
-          {:else}
-            🖼️ Fetch all album covers from references
-          {/if}
+        <button class="btn-header" onclick={() => lib.batchFetchAlbumCoversAction()} disabled={lib.batchFetchingAlbums}>
+          <i class="pxi {lib.batchFetchingAlbums ? 'pxi-loader pxi-spin' : 'pxi-image'}" aria-hidden="true"></i>
+          {lib.batchFetchingAlbums ? 'Fetching album covers…' : 'Fetch album covers from references'}
         </button>
       {/if}
       {#if lib.batchFetchResult}
-        <span class="batch-result">
-          {lib.batchFetchResult.count} fetched · {lib.batchFetchResult.skipped} not found
-        </span>
+        <span class="batch-result">{lib.batchFetchResult.count} fetched · {lib.batchFetchResult.skipped} not found</span>
       {/if}
     </div>
   {/if}
 
   {#if lib.drillArtist || lib.drillAlbum || lib.drillArtistId || lib.drillAlbumId}
-    <nav class="breadcrumb">
-      <button class="crumb-btn" onclick={lib.backToRoot}>
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <button class="crumb-btn" onclick={() => runNavigation(lib.backToRoot)}>
         {lib.tab === 'artists' ? 'Artists' : 'Albums'}
       </button>
       {#if lib.drillArtist}
-        <span class="crumb-sep">›</span>
+        <i class="pxi pxi-chevron-right crumb-sep" aria-hidden="true"></i>
         {#if lib.drillAlbum}
-          <button class="crumb-btn" onclick={lib.backToArtist}>{lib.drillArtist.name}</button>
-          <span class="crumb-sep">›</span>
-          <span class="crumb-current">{lib.drillAlbum.title}</span>
+          <button class="crumb-btn" onclick={() => runNavigation(lib.backToArtist)}>{lib.drillArtist.name}</button>
+          <i class="pxi pxi-chevron-right crumb-sep" aria-hidden="true"></i>
+          <span class="crumb-current" aria-current="page">{lib.drillAlbum.title}</span>
         {:else}
-          <span class="crumb-current">{lib.drillArtist.name}</span>
+          <span class="crumb-current" aria-current="page">{lib.drillArtist.name}</span>
         {/if}
       {:else if lib.drillAlbum}
-        <span class="crumb-sep">›</span>
-        <span class="crumb-current">{lib.drillAlbum.title}</span>
+        <i class="pxi pxi-chevron-right crumb-sep" aria-hidden="true"></i>
+        <span class="crumb-current" aria-current="page">{lib.drillAlbum.title}</span>
       {:else}
-        <span class="crumb-sep">›</span>
+        <i class="pxi pxi-chevron-right crumb-sep" aria-hidden="true"></i>
         <span class="crumb-current muted">Loading…</span>
       {/if}
     </nav>
   {:else if lib.drillPlaylistId != null}
-    <nav class="breadcrumb">
-      <button class="crumb-btn" onclick={() => lib.navigate('playlists')}>Playlists</button>
-      <span class="crumb-sep">›</span>
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <button class="crumb-btn" onclick={() => runNavigation(() => lib.navigate('playlists'))}>Playlists</button>
+      <i class="pxi pxi-chevron-right crumb-sep" aria-hidden="true"></i>
       {#if lib.drillPlaylist}
-        <span class="crumb-current">{lib.drillPlaylist.name}</span>
+        <span class="crumb-current" aria-current="page">{lib.drillPlaylist.name}</span>
       {:else}
         <span class="crumb-current muted">Loading…</span>
       {/if}
@@ -191,208 +189,144 @@
 
 
 <style>
-  .library-page { 
+  .library-page {
     width: 100%;
     box-sizing: border-box;
-    padding: 1.5rem 2rem 2rem;
+    padding: var(--space-page);
   }
 
-  @media (min-width: 640px) {
-    .library-page {
-      padding: 1.5rem 1rem 6rem;
-    }
+  /* Pinned to the top of the scrolling content panel: it spans the page
+     padding edge to edge on an opaque ground so rows pass cleanly beneath. */
+  .lib-top {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    margin: calc(-1 * var(--space-page)) calc(-1 * var(--space-page)) 20px;
+    padding: var(--space-page) var(--space-page) 16px;
+    background: var(--bg);
   }
-
-  @media (min-width: 1024px) {
-    .library-page {
-      padding: 2rem 1.5rem 6rem;
-    }
-  }
-
   .page-header {
     display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: flex-end;
     justify-content: space-between;
-    margin-bottom: 1.5rem;
+    gap: 16px;
   }
-  @media (min-width: 640px) {
-    .page-header { flex-direction: row; align-items: flex-start; }
-  }
-  .header-titles { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-  .eyebrow {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--muted-2);
-  }
+  .header-titles { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   h1 {
-    font-family: var(--font-display);
-    font-size: 2.4rem;
-    font-weight: 800;
-    letter-spacing: -0.035em;
-    line-height: 1.02;
-    color: var(--text-bright);
     margin: 0;
+    font-size: 32px;
+    line-height: 1.05;
   }
   .header-sub {
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    color: #8b8b96;
     margin: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
   }
-  .header-right {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-shrink: 0;
-  }
+  .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .mobile-liked, .mobile-count { display: none; }
 
-  .btn-header {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.3rem 0.7rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
+  /* Phones only: the sidebar carries these sections on desktop. */
+  .lib-tabs { display: none; }
+  .lib-tab {
+    position: relative;
+    min-width: 0;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted-2);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     cursor: pointer;
-    font-size: 0.75rem;
-    color: inherit;
-    font-family: inherit;
-    white-space: nowrap;
   }
-
-  @media (min-width: 768px) {
-    .btn-header {
-      padding: 0.4rem 1rem;
-      font-size: 0.875rem;
-      gap: 0.4rem;
-    }
+  .lib-tab::after {
+    content: '';
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: -1px;
+    height: 2px;
+    background: var(--accent);
+    transform: scaleX(0);
+    transition: transform var(--motion-fast) var(--ease-out);
   }
-
-  .btn-header:hover:not(:disabled) { background: var(--surface-2); }
-  .btn-header:disabled { opacity: 0.5; cursor: default; }
-
-  .spinner {
-    display: inline-block;
-    width: 11px;
-    height: 11px;
-    border: 2px solid currentColor;
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .lib-tab.active { color: var(--text-bright); }
+  .lib-tab.active::after { transform: scaleX(1); }
 
   .batch-tools {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 1.5rem;
-    padding: 0.75rem 1rem;
-    background: var(--surface-2);
-    border-radius: 8px;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding: 12px;
     border: 1px solid var(--border);
+    border-radius: var(--radius-card);
   }
-
-  .btn-batch {
-    background: var(--accent);
-    border: none;
-    border-radius: 6px;
-    color: #fff;
-    font-size: 0.85rem;
-    padding: 0.5rem 0.9rem;
-    cursor: pointer;
-    font-family: inherit;
-    font-weight: 500;
-    white-space: nowrap;
-    transition: opacity 0.15s;
-  }
-
-  .btn-batch:hover:not(:disabled) {
-    opacity: 0.9;
-  }
-
-  .btn-batch:disabled {
-    opacity: 0.6;
-    cursor: wait;
-  }
-
   .batch-result {
-    font-size: 0.75rem;
-    color: var(--muted);
     margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
   }
 
-  .breadcrumb { 
-    display: flex; 
-    align-items: center; 
-    gap: 0.4rem; 
-    margin-bottom: 1.25rem; 
-    font-size: 0.75rem;
+  .breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 20px;
+    font-size: 14px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
-
-  @media (min-width: 768px) {
-    .breadcrumb {
-      font-size: 0.875rem;
-      gap: 0.5rem;
-    }
-  }
-
-  .crumb-btn { 
-    background: none; 
-    border: none; 
-    color: var(--accent); 
-    cursor: pointer; 
-    padding: 0; 
-    font-size: inherit; 
-    font-family: inherit;
-    white-space: nowrap;
-  }
-  .crumb-btn:hover { text-decoration: underline; }
-  .crumb-sep { color: var(--muted); }
-  .crumb-current { color: var(--text); font-weight: 500; }
-  .muted { color: var(--muted); }
-  .lib-chips { display: none; }
-  .lib-chip {
-    flex: 0 0 auto;
-    padding: 7px 14px;
-    border-radius: 999px;
-    background: var(--surface);
-    border: 1px solid var(--border);
+  .crumb-btn {
+    padding: 0;
+    border: none;
+    background: none;
     color: var(--muted);
-    font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 0.82rem;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+    font: inherit;
     white-space: nowrap;
+    cursor: pointer;
   }
-  .lib-chip.active {
-    background: color-mix(in srgb, var(--accent) 20%, transparent);
-    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-    color: var(--text);
-  }
-  .lib-chip .lni { font-size: 15px; }
-  @media (max-width: 860px) {
-    .lib-chips {
-      display: flex;
-      gap: 8px;
-      overflow-x: auto;
-      padding-bottom: 4px;
-      scrollbar-width: none;
+  .crumb-btn:hover { color: var(--text-bright); text-decoration: underline; }
+  .crumb-sep { font-size: 12px; color: var(--muted-2); }
+  .crumb-current { color: var(--text-bright); font-weight: 500; }
+  .muted { color: var(--muted); }
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    .library-page { min-width: 0; }
+    .lib-top { margin-bottom: 12px; padding-top: 12px; padding-bottom: 0; }
+    .page-header { align-items: center; gap: 8px; margin-bottom: 4px; }
+    h1 { font-size: 28px; }
+    .header-sub, .refresh-label { display: none; }
+    .mobile-count {
+      display: block;
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted-2);
     }
-    .lib-chips::-webkit-scrollbar { display: none; }
-  }
-  @media (max-width: 860px) {
-    .library-page .page-header { display: none; }
-    .batch-tools { display: none; }
+    .mobile-liked { display: inline-flex; }
+    .header-right { gap: 6px; }
+    .header-right .btn-header { width: 44px; height: 44px; padding: 0; }
+    /* 24px icons land on whole device pixels at 3×. */
+    .header-right .btn-header .pxi { font-size: 24px; }
+    .lib-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin: 0 calc(-1 * var(--space-page));
+      padding: 0 var(--space-page);
+      border-bottom: 1px solid var(--border);
+    }
+    .breadcrumb { flex-wrap: wrap; overflow-wrap: anywhere; }
+    .crumb-btn { white-space: normal; text-align: left; }
   }
 </style>

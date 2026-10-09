@@ -7,7 +7,6 @@
  */
 
 let registration: ServiceWorkerRegistration | undefined
-let updateWaiting = false
 
 /**
  * Initialize PWA service worker registration
@@ -15,7 +14,6 @@ let updateWaiting = false
  */
 export function initPWA() {
   if (!('serviceWorker' in navigator)) {
-    console.log('Service Worker not supported')
     return
   }
 
@@ -23,7 +21,6 @@ export function initPWA() {
   navigator.serviceWorker.register('/sw.js', { scope: '/' })
     .then(reg => {
       registration = reg
-      console.log('PWA Service Worker registered')
 
       // Check for updates every 60 seconds
       setInterval(async () => {
@@ -37,13 +34,11 @@ export function initPWA() {
 
         newWorker.addEventListener('statechange', () => {
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            // New service worker is ready but waiting
-            updateWaiting = true
+            // Notify the running tab that a new build is ready.
             const event = new CustomEvent<PWAUpdatePayload>('PWAUpdate', {
               detail: { registration: reg },
             })
             window.dispatchEvent(event as unknown as Event)
-            console.log('PWA update available')
           }
         })
       })
@@ -82,28 +77,10 @@ export function refreshPWA() {
 }
 
 /**
- * Unregister the PWA service worker
- * Useful for development or if the user wants to disable PWA features
- */
-export async function unregisterPWA() {
-  if (registration) {
-    await registration.unregister()
-    console.log('PWA Service Worker unregistered')
-  }
-}
-
-/**
  * Check if PWA is available in the current environment
  */
 export function isPWAAvailable(): boolean {
   return 'serviceWorker' in navigator && 'caches' in window
-}
-
-/**
- * Get the current PWA registration
- */
-export function getPWARegistration(): ServiceWorkerRegistration | undefined {
-  return registration
 }
 
 /**

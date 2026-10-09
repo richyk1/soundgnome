@@ -4,9 +4,8 @@
 
 A Progressive Web App (PWA) is a web application that works like a native app:
 - Can be installed on devices
-- Works offline
+- Caches static assets (this app still requires a network connection for pages and API calls)
 - Loads fast
-- Sends notifications
 - Gets automatic updates
 
 ## Testing PWA Features
@@ -32,13 +31,13 @@ pnpm run preview
 2. **Go to Application tab**
 3. **Service Workers section:**
    - See `/sw.js` registered ✓
-   - Check "Offline" to test offline mode
+   - Check "Offline" to confirm pages and API calls do not bypass authentication via cached responses
 4. **Manifest section:**
-   - See `manifest.json` loaded
+   - See `manifest.webmanifest` loaded
    - View all app icons
 5. **Cache Storage:**
    - See what assets are cached
-   - See what API responses are cached
+   - API responses should not be cached
 
 ## Testing Installation
 
@@ -59,32 +58,30 @@ pnpm run preview
 2. Go to Application → Service Workers
 3. Check "Offline"
 4. Refresh page
-5. App still works (with cached data)
+5. Navigation fails offline by design; pages and API requests always use the network to preserve authentication
 
 ## What's Cached?
 
 | Type | Cache Strategy | Expiry |
 |------|----------------|--------|
-| JS, CSS, Images | Cache First | 1 week |
-| API calls | Network First | 5 min |
-| Pages | Network First | - |
+| JS, CSS, Images | Precache | Replaced with each build |
+| API calls | Network Only | Not cached |
+| Pages | Network Only | Not cached |
 
-**Network First** = Try online first, use cache if offline
-**Cache First** = Use cache, only fetch if missing
+Static assets are precached by the generated service worker. Navigations and API calls never fall back to cached responses.
 
 ## File Structure
 
 ```
 apps/web/
 ├── src/
-│   ├── sw.ts                    ← Service Worker
 │   ├── lib/pwa.ts               ← PWA utilities
 │   ├── components/
 │   │   └── PWAUpdatePrompt.svelte ← Update UI
 │   ├── main.ts                  ← Calls initPWA()
 │   └── App.svelte               ← Uses PWAUpdatePrompt
 ├── scripts/
-│   └── generate-pwa-icons.mjs   ← Icon generator
+│   └── generate-all-icons.mjs   ← Icon generator
 ├── public/
 │   ├── pwa-192x192.png
 │   ├── pwa-512x512.png
@@ -97,10 +94,10 @@ apps/web/
 
 ## Key Files
 
-### sw.ts (Service Worker)
-- Handles caching strategy
-- Intercepts network requests
-- Manages updates
+### vite.config.ts (Generated Service Worker)
+- Configures static asset precaching
+- Keeps navigations and API requests network-only
+- Configures manifest and update behavior
 
 ### lib/pwa.ts (PWA Utils)
 - `initPWA()` - Start the service worker

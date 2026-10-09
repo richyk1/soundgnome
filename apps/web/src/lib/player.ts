@@ -13,6 +13,8 @@ export interface PlayerTrack {
   title: string;
   artist: string;
   artwork: string | null;
+  /** Seed for the generated pixel cover when `artwork` is missing or fails, e.g. `album:42`. */
+  coverSeed?: string;
   durationSecs: number | null;
   /** Precomputed waveform peaks url (SoundCloud); enables the scrubber. */
   waveformUrl?: string | null;
@@ -27,6 +29,15 @@ export interface PlayerTrack {
 }
 
 export type TrackSource = 'library' | 'soundcloud';
+
+/** iPadOS can identify as macOS. Keep iOS media on its native background-capable
+ * output: routing it through an AudioContext makes playback depend on WebKit's
+ * background Web Audio lifecycle. */
+export function usesNativeAudio(): boolean {
+  return typeof navigator !== 'undefined' &&
+    (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+}
 
 /** What a parent gets back through `bind:this` on the player component. */
 export interface PlayerHandle {

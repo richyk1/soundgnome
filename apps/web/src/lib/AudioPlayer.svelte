@@ -24,10 +24,15 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import type { PlayerTrack, TrackSource } from './player';
+  import { usesNativeAudio } from './player';
   import Waveform from './Waveform.svelte';
   import EqPanel from './EqPanel.svelte';
+  import PixelCover from './PixelCover.svelte';
+  import ArtGlow from './ArtGlow.svelte';
+  import { pop } from './motion';
+  import { haptic } from './haptics';
   import { Equalizer, loadEqState, saveEqState, type EqState } from './equalizer';
   import * as scrobbler from './scrobbler';
   import { lib } from './library/store.svelte';
@@ -51,6 +56,10 @@
 
   // -- Equalizer (opt-in Web Audio graph on the shared <audio> element) --------
   const eq = new Equalizer();
+  // iPhone and iPad play through native audio (background playback), which
+  // cannot route through the EQ or normalization graph, so those controls are
+  // not offered there; saved settings stay intact for other devices.
+  const nativeAudio = usesNativeAudio();
   let eqState = $state<EqState>(loadEqState());
   let eqOpen = $state(false);
   let eqBtnEl: HTMLButtonElement | undefined = $state();
@@ -87,8 +96,9 @@
   function positionEq() {
     if (!eqBtnEl) return;
     const r = eqBtnEl.getBoundingClientRect();
+    const viewport = window.visualViewport;
     const right = Math.max(8, window.innerWidth - r.right);
-    const bottom = window.innerHeight - r.top + 12;
+    const bottom = window.innerHeight - Math.min(r.top, (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)) + 12;
     eqStyle = `right:${right}px; bottom:${bottom}px;`;
   }
 
@@ -97,7 +107,13 @@
     positionEq();
     const onResize = () => positionEq();
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    window.visualViewport?.addEventListener('resize', onResize);
+    window.visualViewport?.addEventListener('scroll', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.visualViewport?.removeEventListener('resize', onResize);
+      window.visualViewport?.removeEventListener('scroll', onResize);
+    };
   });
 
   /** (Re)build the Web Audio graph on the shared element, keeping position and
@@ -106,12 +122,12 @@
    *  output so it goes silent once routed through the new graph, so reload the
    *  current resource to flow it through. Cross-origin streams can't be routed. */
   function buildGraphNow() {
-    if (!audio || eq.isBuilt) return;
+    if (!audio || nativeAudio || eq.isBuilt) return;
     const el = audio;
     const at = el.currentTime;
     const wasPlaying = !el.paused;
     eq.attach(el, eqState);
-    eq.resume();
+    void eq.resume().catch(reportProcessingError);
     eq.setNormalization(normalizeEnabled ? currentGainDb : 0);
     const abs = el.currentSrc || el.src;
     if (abs && new URL(abs, location.href).origin === location.origin) {
@@ -123,12 +139,13 @@
 
   /** Push EQ changes onto the graph (building it on first enable) and persist. */
   function handleEqUpdate(s: EqState) {
+    if (nativeAudio) return;
     if (audio) {
       if (s.enabled && !eq.isBuilt) {
         buildGraphNow();
       } else {
         eq.apply(s);
-        if (s.enabled) eq.resume();
+        if (s.enabled) void eq.resume().catch(reportProcessingError);
       }
     }
     saveEqState(s);
@@ -136,22 +153,21 @@
 
   /** Turn playback normalization on/off; persist and (build then) apply. */
   function setNormalize(on: boolean) {
+    if (nativeAudio) return;
     normalizeEnabled = on;
     saveNormalize(on);
     if (on && audio && !eq.isBuilt) buildGraphNow();
     if (eq.isBuilt) {
-      eq.resume();
+      void eq.resume().catch(reportProcessingError);
       eq.setNormalization(on ? currentGainDb : 0);
     }
   }
 
-  /** Build the graph on first play if EQ or normalization is on, and resume the
-     AudioContext (it starts suspended until a user gesture). */
+  /** Never connect iOS's media element to Web Audio, even for restored settings. */
   function ensureEq() {
-    if (!audio) return;
+    if (!audio || nativeAudio) return;
     if ((eqState.enabled || normalizeEnabled) && !eq.isBuilt) eq.attach(audio, eqState);
     if (eq.isBuilt) {
-      eq.resume();
       eq.setNormalization(normalizeEnabled ? currentGainDb : 0);
     }
   }
@@ -160,12 +176,12 @@
   $effect(() => {
     const t = current;
     currentGainDb = 0;
-    if (!t || t.source !== 'library') return;
+    if (!t || t.source !== 'library' || nativeAudio) return;
     let cancelled = false;
     fetch(`/api/tracks/${t.id}/loudness`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (!cancelled && current?.id === t.id && d) currentGainDb = d.gain_db ?? 0;
+        if (!cancelled && current?.id === t.id && current.source === t.source && d) currentGainDb = d.gain_db ?? 0;
       })
       .catch(() => {});
     return () => {
@@ -216,11 +232,17 @@
   let currentTime = $state(0);
   let duration = $state(0);
   let volume = $state(persisted?.volume ?? 1);
-  let muted = $state(persisted?.muted ?? false);
+  // No mute control on native audio (the device's buttons do it), so never restore a muted state there.
+  let muted = $state(!nativeAudio && (persisted?.muted ?? false));
   // Whether the current track's waveform loaded; drives the fall back to a plain range.
   let waveReady = $state(false);
   // Some sources hand out signed URLs that expire: allow exactly one silent re-resolve per track.
   let retriedCurrent = false;
+  let playbackError = $state('');
+  let requestId = 0;
+  let restoringId: number | null = null;
+  let wantsPlayback = false;
+  let destroyed = false;
 
   // Queue + transport — feature parity with offtop (shuffle, prev/next, repeat).
   let queue: PlayerTrack[] = $state(persisted?.queue ?? []);
@@ -265,7 +287,7 @@
           qIndex,
           order,
           orderPos,
-          currentTime,
+          currentTime: pendingSeek ?? currentTime,
           paused,
           shuffle,
           repeat,
@@ -306,7 +328,7 @@
     if (!t || t.artwork || !t.spotifyUrl) return;
     let cancelled = false;
     resolveSpotifyArt(t.spotifyUrl).then((a) => {
-      if (!cancelled && current?.id === t.id) resolvedArt = a;
+      if (!cancelled && current?.id === t.id && current.source === t.source) resolvedArt = a;
     });
     return () => {
       cancelled = true;
@@ -318,66 +340,152 @@
     if (current) scrobbler.onProgress(current, currentTime, total);
   });
 
-  // Media Session: shows the track on the lock screen / notification shade and
-  // drives OS + headphone/Bluetooth transport controls and background playback.
-  $effect(() => {
+  // Publish from native media events and transport calls, not animation frames
+  // or reactive DOM updates (which can be suspended while the page is hidden).
+  function publishMetadata(track: PlayerTrack | null, title = track?.title, artist = track?.artist, art = track?.artwork) {
+    if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
+    navigator.mediaSession.metadata = track ? new MediaMetadata({
+      title: title ?? '',
+      artist: artist ?? '',
+      artwork: art ? [{ src: new URL(art, location.href).href }] : [],
+    }) : null;
+  }
+
+  function publishPlaybackState() {
     if (!('mediaSession' in navigator)) return;
-    const t = current;
-    if (!t) {
-      navigator.mediaSession.metadata = null;
+    const ms = navigator.mediaSession;
+    const el = audio;
+    ms.playbackState = current ? (!el || el.paused || el.ended || el.error ? 'paused' : 'playing') : 'none';
+    if (!ms.setPositionState) return;
+    const length = el && Number.isFinite(el.duration) && el.duration > 0
+      ? el.duration : (current?.durationSecs ?? 0);
+    if (!current || !el || !Number.isFinite(length) || length <= 0) {
+      ms.setPositionState();
       return;
     }
-    const art = coverBase ? coverAtSize(coverBase, 'large') : null;
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: t.title,
-      artist: t.artist,
-      artwork: art ? [{ src: art, sizes: '512x512' }] : [],
+    ms.setPositionState({
+      duration: length,
+      position: Math.max(0, Math.min(Number.isFinite(el.currentTime) ? el.currentTime : 0, length)),
+      playbackRate: el.playbackRate > 0 ? el.playbackRate : 1,
     });
-  });
-  $effect(() => {
-    if (!('mediaSession' in navigator)) return;
-    navigator.mediaSession.playbackState = current ? (paused ? 'paused' : 'playing') : 'none';
-  });
-  $effect(() => {
-    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
-    if (!current || !(total > 0) || !Number.isFinite(currentTime)) return;
-    try {
-      navigator.mediaSession.setPositionState({
-        duration: total,
-        position: Math.min(currentTime, total),
-        playbackRate: 1,
-      });
-    } catch {
-      /* duration not settled yet — ignore */
+  }
+
+  function syncAudioState() {
+    if (!audio || destroyed) return;
+    const position = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    // Native repeat does not emit ended, so each wrap starts a fresh listen.
+    if (audio.loop && audio.readyState > 0 && !audio.seeking && !audio.error && position < 1 && currentTime > 1 && current) {
+      void scrobbler.onPlay(current);
     }
+    paused = audio.paused || audio.ended || audio.error != null;
+    currentTime = position;
+    duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+    publishPlaybackState();
+  }
+
+  $effect(() => {
+    publishMetadata(current, displayTitle, displayArtist, npArt);
   });
 
   function message(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
   }
 
+  function reportError(track: PlayerTrack, err: unknown) {
+    wantsPlayback = false;
+    resumeOnLoad = false;
+    audio?.pause();
+    syncAudioState();
+    playbackError = message(err);
+    onError?.(track, playbackError);
+  }
+
+  function reportProcessingError(err: unknown) {
+    if (current) reportError(current, `Audio processing failed: ${message(err)}`);
+  }
+
+  function pausePlayback() {
+    wantsPlayback = false;
+    resumeOnLoad = false;
+    if (restoringId !== requestId) {
+      requestId++;
+      resolvingId = null;
+      resolvingSource = undefined;
+    }
+    audio?.pause();
+    syncAudioState();
+  }
+
+  async function startPlayback(track: PlayerTrack, id = requestId) {
+    const el = audio;
+    if (!el || destroyed || !wantsPlayback) return;
+    const restarting = el.ended || (el.readyState > 0 && el.currentTime === 0);
+    playbackError = '';
+    try {
+      ensureEq();
+      // Call play() in the same task as the media action/user gesture. Neither
+      // loading the next source nor this call waits for a Svelte render or RAF.
+      const resumed = eq.isBuilt ? eq.resume() : undefined;
+      await Promise.all([el.play(), resumed]);
+      if (id !== requestId || destroyed) return;
+      if (restarting) void scrobbler.onPlay(track);
+      syncAudioState();
+    } catch (err: unknown) {
+      // A newer track or an explicit pause intentionally cancels pending play.
+      if (id !== requestId || destroyed) return;
+      // The media error event owns resource failures and its one URL refresh.
+      if (el.error) return;
+      reportError(track, err instanceof DOMException && err.name === 'NotAllowedError'
+        ? 'Playback was blocked by the browser. Tap Play to continue.'
+        : err);
+    }
+  }
+
+  function playCurrent() {
+    if (!current || !audio) return;
+    wantsPlayback = true;
+    if (restoringId === requestId) return;
+    if (!srcUrl || audio.error) void playTrack(current);
+    else void startPlayback(current);
+  }
+
   /** Resolve a track's URL and start it. Shared by toggle, transport, and retry. */
   async function playTrack(track: PlayerTrack) {
     const el = audio;
     if (!el) return;
+    const id = ++requestId;
+    wantsPlayback = true;
+    resumeOnLoad = false;
+    pendingSeek = null;
+    el.pause();
+    current = track;
+    retriedCurrent = false;
+    currentGainDb = 0;
+    playbackError = '';
+    srcUrl = null;
+    el.removeAttribute('src');
+    el.load();
+    syncAudioState();
+    publishMetadata(track);
     resolvingId = track.id;
     resolvingSource = track.source;
     try {
-      const src = await resolveSrc(track);
-      current = track;
-      retriedCurrent = false;
-      currentTime = 0;
-      duration = 0;
+      const resolved = resolveSrc(track);
+      const src = typeof resolved === 'string' ? resolved : await resolved;
+      if (id !== requestId || destroyed || !wantsPlayback) return;
       srcUrl = src;
       el.src = src;
-      ensureEq();
-      el.play().catch(() => {});
+      publishMetadata(track);
+      publishPlaybackState();
       void scrobbler.onPlay(track);
+      await startPlayback(track, id);
     } catch (err: unknown) {
-      onError?.(track, message(err));
+      if (id === requestId && !destroyed) reportError(track, err);
     } finally {
-      resolvingId = null;
-      resolvingSource = undefined;
+      if (id === requestId) {
+        resolvingId = null;
+        resolvingSource = undefined;
+      }
     }
   }
 
@@ -389,67 +497,74 @@
   function onLoadedMetadata() {
     const el = audio;
     if (!el) return;
+    duration = Number.isFinite(el.duration) ? el.duration : 0;
     if (pendingSeek != null) {
-      el.currentTime = pendingSeek;
+      seekTo(pendingSeek);
       pendingSeek = null;
+      writeSnapshot();
     }
-    if (resumeOnLoad) {
+    syncAudioState();
+    if (resumeOnLoad && wantsPlayback && current) {
       resumeOnLoad = false;
-      // Best-effort: autoplay without a gesture is blocked, so this may reject,
-      // leaving the track loaded and paused at the saved position.
-      el.play().catch(() => {});
+      void startPlayback(current);
     }
   }
 
-  /** Reload the persisted track's audio (seeked, without auto-erroring). Unlike
-     `playTrack`, a resolve failure here is silent: the track stays shown in the
-     bar and pressing play surfaces the real error through the normal path. */
+  /** Restore the source and saved seek; browser autoplay policy still applies. */
   async function restoreTrack(track: PlayerTrack, position: number, wasPaused: boolean) {
     const el = audio;
     if (!el) return;
+    const id = ++requestId;
+    wantsPlayback = !wasPaused;
+    restoringId = id;
+    pendingSeek = Number.isFinite(position) && position > 0 ? position : null;
+    writeSnapshot();
     try {
-      const src = await resolveSrc(track);
-      if (current?.id !== track.id) return; // user already started something else
+      const resolved = resolveSrc(track);
+      const src = typeof resolved === 'string' ? resolved : await resolved;
+      if (id !== requestId || destroyed) return;
       srcUrl = src;
-      pendingSeek = position > 0 ? position : null;
-      resumeOnLoad = !wasPaused;
+      resumeOnLoad = wantsPlayback;
       el.src = src;
-      // Build the EQ graph now, at src-set time (as playTrack does). If it is
-      // instead built later, on the first play of an already-loaded element,
-      // Chrome routes that element's audio into a dead MediaElementSource and
-      // the restored track plays silently until the next src swap. See #eq.
       ensureEq();
-    } catch {
-      /* track no longer resolvable (deleted/moved): leave it shown, paused */
+      publishMetadata(track);
+      publishPlaybackState();
+    } catch (err: unknown) {
+      if (id === requestId && !destroyed) reportError(track, err);
+    } finally {
+      if (restoringId === id) restoringId = null;
     }
   }
 
   onMount(() => {
     scrobbler.flushQueue();
+    const installedActions: MediaSessionAction[] = [];
 
     if ('mediaSession' in navigator) {
       const ms = navigator.mediaSession;
       const set = (action: MediaSessionAction, handler: MediaSessionActionHandler) => {
         try {
           ms.setActionHandler(action, handler);
+          installedActions.push(action);
         } catch {
           /* action unsupported on this browser */
         }
       };
-      set('play', () => void audio?.play());
-      set('pause', () => audio?.pause());
+      set('play', playCurrent);
+      set('pause', pausePlayback);
       set('previoustrack', () => prev());
       set('nexttrack', () => next());
-      set('seekbackward', (d) => seekTo(Math.max(0, currentTime - (d.seekOffset ?? 10))));
-      set('seekforward', (d) => seekTo(currentTime + (d.seekOffset ?? 10)));
+      set('seekbackward', (d) => seekTo((audio?.currentTime ?? 0) - (d.seekOffset ?? 10)));
+      set('seekforward', (d) => seekTo((audio?.currentTime ?? 0) + (d.seekOffset ?? 10)));
       set('seekto', (d) => {
         if (d.seekTime != null) seekTo(d.seekTime);
       });
-      set('stop', () => audio?.pause());
+      set('stop', pausePlayback);
     }
-    const save = () => writeSnapshot();
+    const save = () => { syncAudioState(); writeSnapshot(); };
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') writeSnapshot();
+      if (document.visibilityState === 'hidden') save();
+      else syncAudioState();
     };
     window.addEventListener('pagehide', save);
     document.addEventListener('visibilitychange', onVisibility);
@@ -461,10 +576,18 @@
     return () => {
       window.removeEventListener('pagehide', save);
       document.removeEventListener('visibilitychange', onVisibility);
+      if ('mediaSession' in navigator) {
+        for (const action of installedActions) navigator.mediaSession.setActionHandler(action, null);
+        navigator.mediaSession.metadata = null;
+        navigator.mediaSession.playbackState = 'none';
+        navigator.mediaSession.setPositionState?.();
+      }
     };
   });
 
-  /** Rebuild the play order from the current queue, shuffle flag, and qIndex. */
+  /** Rebuild the play order from the current queue, shuffle flag, and qIndex.
+     Only for a new context (another list, or shuffle switched on/off): taps
+     within the playing list go through `jumpTo` and keep the order. */
   function rebuildOrder() {
     const n = queue.length;
     const idxs = Array.from({ length: n }, (_, i) => i);
@@ -485,20 +608,32 @@
       orderPos = Math.max(0, idxs.indexOf(qIndex));
     }
     order = idxs;
-    // Mirror the play order into the visible library list so the "next" track is
-    // the next row (no long scroll to a random song). Only when shuffled and the
-    // queue is library-sourced; otherwise clear so the list keeps its own sort.
-    const playingSource = queue[qIndex]?.source;
-    if (shuffle && playingSource === 'library') {
-      lib.setPlayOrder(
-        idxs
-          .map((i) => queue[i])
-          .filter((t): t is PlayerTrack => t?.source === 'library')
-          .map((t) => t.id),
-      );
+  }
+
+  /** Make queue index `idx` the current track without reshuffling. In order
+     mode that is its own position; in shuffle the picked track moves to just
+     after the current one, so what already played stays behind it (Previous)
+     and the rest of the shuffle keeps its sequence. */
+  function jumpTo(idx: number) {
+    if (!shuffle) {
+      orderPos = Math.max(0, order.indexOf(idx));
     } else {
-      lib.setPlayOrder(null);
+      const p = order.indexOf(idx);
+      if (p !== orderPos) {
+        const next = [...order];
+        next.splice(p, 1);
+        const at = p < orderPos ? orderPos : orderPos + 1;
+        next.splice(at, 0, idx);
+        order = next;
+        orderPos = at;
+      }
     }
+    qIndex = idx;
+  }
+
+  /** Same tracks in the same order: tapping another row of the list that is playing. */
+  function sameQueue(a: PlayerTrack[], b: PlayerTrack[]): boolean {
+    return a.length === b.length && a.every((t, i) => t.id === b[i].id && t.source === b[i].source);
   }
 
   /** Play the track at position `pos` within the current play order. */
@@ -506,7 +641,7 @@
     if (pos < 0 || pos >= order.length) return;
     orderPos = pos;
     qIndex = order[pos];
-    playTrack(queue[qIndex]);
+    void playTrack(queue[qIndex]);
   }
 
   export async function toggle(track: PlayerTrack, q?: PlayerTrack[]) {
@@ -514,24 +649,24 @@
     if (!el) return;
 
     // Adopt the caller's list as the queue so prev/next/shuffle have context.
-    if (q && q.length) {
+    // Tapping within the list that is already playing keeps the play order.
+    if (q && q.length && !sameQueue(q, queue)) {
       queue = q;
-      const idx = q.findIndex((t) => t.id === track.id);
+      const idx = q.findIndex((t) => t.id === track.id && t.source === track.source);
       qIndex = idx >= 0 ? idx : 0;
+      rebuildOrder();
     } else {
-      const idx = queue.findIndex((t) => t.id === track.id);
-      if (idx >= 0) qIndex = idx;
+      const idx = queue.findIndex((t) => t.id === track.id && t.source === track.source);
+      if (idx >= 0) jumpTo(idx);
       else {
         queue = [track];
         qIndex = 0;
+        rebuildOrder();
       }
     }
 
-    rebuildOrder();
-
-    if (current?.id === track.id) {
-      if (paused) el.play().catch(() => {});
-      else el.pause();
+    if (current?.id === track.id && current.source === track.source) {
+      togglePlay();
       return;
     }
     await playTrack(track);
@@ -542,28 +677,32 @@
     return lib.tracks.find((x) => x.id === t.id)?.rating === 'disliked';
   }
 
-  /** Move `dir` steps through the play order, skipping disliked tracks, and start
-     the result. Wraps only when repeat is 'all'. Returns false when nothing
-     playable remains that way (e.g. only disliked tracks are left). */
-  function advance(dir: number): boolean {
+  /** The order position `dir` steps away, skipping disliked tracks. Wraps only
+     when repeat is 'all'. Null when nothing playable remains that way (e.g. the
+     first track with repeat off, or only disliked tracks are left). */
+  function stepTarget(dir: number): number | null {
     const n = order.length;
-    if (!n) return false;
     let p = orderPos;
     for (let tries = 0; tries < n; tries++) {
       p += dir;
       if (p < 0) {
         if (repeat === 'all') p = n - 1;
-        else return false;
+        else return null;
       } else if (p >= n) {
         if (repeat === 'all') p = 0;
-        else return false;
+        else return null;
       }
-      if (!isDisliked(queue[order[p]])) {
-        playAt(p);
-        return true;
-      }
+      if (!isDisliked(queue[order[p]])) return p;
     }
-    return false;
+    return null;
+  }
+
+  /** Start the track `dir` steps away; false when there is none (see stepTarget). */
+  function advance(dir: number): boolean {
+    const p = stepTarget(dir);
+    if (p === null) return false;
+    playAt(p);
+    return true;
   }
 
   function next() {
@@ -572,7 +711,7 @@
   function prev() {
     // Restart the track first if we're past the intro, like every real player.
     if ((audio?.currentTime ?? 0) > 3) {
-      if (audio) audio.currentTime = 0;
+      seekTo(0);
       return;
     }
     advance(-1);
@@ -587,14 +726,18 @@
 
   /** Auto-advance when a track finishes, honoring repeat and skipping disliked. */
   function onEndedInternal() {
+    syncAudioState();
+    if (!wantsPlayback) return;
     if (repeat === 'one') {
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-      }
+      seekTo(0);
+      playCurrent();
       return;
     }
-    if (!advance(1)) onEnded?.();
+    if (!advance(1)) {
+      wantsPlayback = false;
+      publishPlaybackState();
+      onEnded?.();
+    }
   }
 
   // Auto-skip disliked tracks. `advance` already skips them on normal
@@ -602,9 +745,10 @@
   // whenever a track is disliked (player bar, now-playing, or a row), and if it
   // is the one currently playing we move on. Imperative (not a reactive effect)
   // to avoid a feedback loop with the playback state it changes.
-  lib.onTrackDisliked = (id: number) => {
+  const onTrackDisliked = (id: number) => {
     if (!paused && current?.source === 'library' && current.id === id) advance(1);
   };
+  lib.onTrackDisliked = onTrackDisliked;
 
   export function isCurrent(id: number, source?: TrackSource): boolean {
     return current?.id === id && (source === undefined || current?.source === source);
@@ -621,7 +765,12 @@
   async function onAudioError() {
     const el = audio;
     const track = current;
-    if (!track || !el) return;
+    if (!track || !el || !el.error) return;
+    const id = requestId;
+    const position = el.currentTime;
+    const shouldResume = wantsPlayback;
+    const mediaError = el.error.message || `Media error ${el.error.code}`;
+    syncAudioState();
 
     // A deleted/missing library track 404s deterministically, so retrying is
     // pointless. Detect it and skip with an accurate message instead of the
@@ -630,50 +779,55 @@
     if (track.source === 'library') {
       try {
         const res = await fetch(`/api/tracks/${track.id}/audio`, { method: 'HEAD' });
-        if (current?.id !== track.id) return;
+        if (id !== requestId || destroyed) return;
         if (res.status === 404) {
-          el.pause();
-          onError?.(track, 'This track is no longer available.');
-          if (canStep) advance(1);
+          reportError(track, 'This track is no longer available.');
+          if (shouldResume && canStep) advance(1);
           return;
         }
       } catch {
         /* probe failed (offline?): fall through to the normal retry */
       }
     }
+    if (id !== requestId || destroyed) return;
 
     if (retriedCurrent) {
-      el.pause();
-      onError?.(
-        track,
+      reportError(track,
         track.source === 'soundcloud'
-          ? 'Playback failed. The audio link could not be refreshed.'
-          : 'Playback failed. Please try again.',
+          ? `Playback failed after refreshing the audio link: ${mediaError}`
+          : `Playback failed: ${mediaError}`,
       );
       return;
     }
 
     retriedCurrent = true;
     try {
-      const src = await resolveSrc(track);
-      if (current?.id !== track.id) return;
+      const resolved = resolveSrc(track);
+      const src = typeof resolved === 'string' ? resolved : await resolved;
+      if (id !== requestId || destroyed) return;
+      pendingSeek = Number.isFinite(position) && position > 0 ? position : null;
+      srcUrl = src;
       el.src = src;
-      el.play().catch(() => {});
+      if (shouldResume && wantsPlayback) await startPlayback(track, id);
+      else syncAudioState();
     } catch (err: unknown) {
-      el.pause();
-      onError?.(track, message(err));
+      if (id === requestId && !destroyed) reportError(track, err);
     }
   }
 
   function seekTo(secs: number) {
-    if (audio) audio.currentTime = secs;
+    const el = audio;
+    if (!el || !Number.isFinite(secs)) return;
+    const length = Number.isFinite(el.duration) ? el.duration : total;
+    if (!(length > 0)) return;
+    el.currentTime = Math.max(0, Math.min(secs, length));
+    syncAudioState();
   }
 
   function togglePlay() {
     if (!audio) return;
-    ensureEq();
-    if (audio.paused) audio.play().catch(() => {});
-    else audio.pause();
+    if (audio.paused && resolvingId == null) playCurrent();
+    else pausePlayback();
   }
 
   /** Exposed on the handle so the shell can bind Space to play/pause. */
@@ -686,17 +840,86 @@
   let sheetH = $state(0);
   let dragging = $state(false);
   let dragY = $state(0);
+  let npEl: HTMLDivElement | undefined = $state();
+  $effect(() => {
+    if (!expanded || !npEl) return;
+    const previous = document.activeElement;
+    npEl.querySelector<HTMLButtonElement>('.np-close')?.focus();
+    return () => {
+      if (previous instanceof HTMLElement) previous.focus();
+    };
+  });
+
+  function onNPKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeNP();
+    } else if (e.key === 'Tab' && npEl) {
+      const controls = [...npEl.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]')];
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
+      }
+    }
+  }
   const reduceMotion =
     typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // Opening and closing morph the floating bar into the sheet, and the small
+  // cover into the big one, with the View Transition API. The browser snapshots
+  // both states and animates between them, while `morphing` holds the live sheet
+  // still. Without the API, or with reduced motion, the sheet slides as before.
+  let morphing = $state(false);
+  let activeMorph: ViewTransition | undefined;
+  async function setExpanded(next: boolean) {
+    const settle = async () => {
+      expanded = next;
+      dragging = false;
+      dragY = 0;
+      await tick();
+    };
+    if (reduceMotion || typeof document.startViewTransition !== 'function') {
+      await settle();
+      return;
+    }
+    const root = document.documentElement;
+    // A tap mid-morph replaces the running one; only the latest cleans up.
+    activeMorph?.skipTransition();
+    activeMorph = undefined;
+    morphing = true;
+    root.classList.add('np-morph'); // names the morphing pair; see app.css
+    // A route change still settling is skipped by this transition; unname its page area now.
+    root.classList.remove('page-nav');
+    root.classList.toggle('np-morph-closing', !next);
+    let transition: ViewTransition | undefined;
+    try {
+      transition = document.startViewTransition(settle);
+      activeMorph = transition;
+      void transition.ready.catch(() => {});
+      await transition.finished.catch(() => {});
+    } catch {
+      // The API can exist yet refuse to snapshot; the state still has to change.
+      await settle();
+    } finally {
+      if (activeMorph === transition) {
+        activeMorph = undefined;
+        morphing = false;
+        root.classList.remove('np-morph', 'np-morph-closing');
+      }
+    }
+  }
   function openNP() {
     // Only a listening affordance on phones; the desktop bar is already complete.
     if (typeof window !== 'undefined' && window.innerWidth > 860) return;
-    if (current) expanded = true;
+    if (current) void setExpanded(true);
   }
   function closeNP() {
-    expanded = false;
-    dragY = 0;
+    void setExpanded(false);
   }
 
   // Swipe-down-to-dismiss: track 1:1, project momentum on release (apple-design),
@@ -706,6 +929,7 @@
   let lastT = 0;
   let velY = 0;
   function onSheetPointerDown(e: PointerEvent) {
+    if ((e.target as HTMLElement).closest('button')) return;
     dragging = true;
     dragStartY = e.clientY;
     lastY = e.clientY;
@@ -725,10 +949,94 @@
   }
   function onSheetPointerUp() {
     if (!dragging) return;
-    dragging = false;
     const projected = dragY + velY * 0.12;
-    if (projected > (sheetH || 500) * 0.3 || velY > 900) closeNP();
-    else dragY = 0;
+    // Closing keeps `dragging` until the morph snapshots the sheet where the finger left it.
+    if (projected > (sheetH || 500) * 0.3 || velY > 900) {
+      closeNP();
+      return;
+    }
+    dragging = false;
+    dragY = 0;
+  }
+
+  // Swipe the Now Playing cover sideways to change track, like Spotify: left is
+  // next, right is the previous track itself (no restart, unlike the button).
+  // The cover tracks the finger, slides out, and the new one slides in from the
+  // other side; short or slow swipes spring back.
+  let swipeX = $state(0);
+  let swipeTransition = $state('');
+  let swipeStartX = 0;
+  let swipeStartY = 0;
+  let swipeAxis: 'x' | 'y' | null = null;
+  let swipeLastX = 0;
+  let swipeLastT = 0;
+  let swipeVel = 0;
+  let swipePointer: number | null = null;
+  const SWIPE_OUT_MS = 160;
+  function onArtPointerDown(e: PointerEvent) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    swipePointer = e.pointerId;
+    swipeAxis = null;
+    swipeStartX = swipeLastX = e.clientX;
+    swipeStartY = e.clientY;
+    swipeLastT = performance.now();
+    swipeVel = 0;
+    swipeTransition = 'none';
+  }
+  function onArtPointerMove(e: PointerEvent) {
+    if (e.pointerId !== swipePointer) return;
+    const dx = e.clientX - swipeStartX;
+    if (!swipeAxis) {
+      // Decide the axis once the finger has clearly moved, so taps stay taps.
+      if (Math.hypot(dx, e.clientY - swipeStartY) < 8) return;
+      swipeAxis = Math.abs(dx) > Math.abs(e.clientY - swipeStartY) ? 'x' : 'y';
+      if (swipeAxis === 'x') (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }
+    if (swipeAxis !== 'x') return;
+    swipeX = canStep ? dx : dx * 0.2; // nothing to step to: rubber-band
+    const now = performance.now();
+    if (now > swipeLastT) swipeVel = ((e.clientX - swipeLastX) / (now - swipeLastT)) * 1000; // px/s
+    swipeLastX = e.clientX;
+    swipeLastT = now;
+  }
+  function onArtPointerUp(e: PointerEvent) {
+    if (e.pointerId !== swipePointer) return;
+    swipePointer = null;
+    if (swipeAxis !== 'x') return;
+    const width = (e.currentTarget as HTMLElement).clientWidth || 300;
+    const projected = swipeX + swipeVel * 0.12;
+    // Commit after a real distance, then on either reach (with momentum) or a quick flick.
+    const far = Math.abs(swipeX) > 48 && (Math.abs(projected) > width * 0.3 || Math.abs(swipeVel) > 700);
+    const direction = far ? Math.sign(projected) : 0;
+    // Resolve the destination now, so a swipe toward nothing (first track with
+    // repeat off, only disliked tracks left) springs back instead of faking a change.
+    const step = direction === 0 || e.type === 'pointercancel' ? null : stepTarget(direction < 0 ? 1 : -1);
+    // Wrapping back onto the playing track (a one-track queue on repeat) is not a change either.
+    const target = step === orderPos ? null : step;
+    if (target === null) {
+      swipeTransition = '';
+      swipeX = 0;
+      return;
+    }
+    haptic(e.currentTarget as Element);
+    if (reduceMotion) {
+      playAt(target);
+      swipeTransition = 'none';
+      swipeX = 0;
+      return;
+    }
+    swipeTransition = `translate ${SWIPE_OUT_MS}ms var(--ease-out)`;
+    swipeX = direction * width * 1.2;
+    setTimeout(() => {
+      playAt(target);
+      // Jump to the far side unseen, then glide the new cover into place.
+      swipeTransition = 'none';
+      swipeX = -direction * width * 1.2;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        swipeTransition = '';
+        swipeX = 0;
+      }));
+    }, SWIPE_OUT_MS);
   }
 
   // ── Like / dislike the current library track (Now Playing only) ────────────
@@ -757,24 +1065,39 @@
   let coverBase = $derived(currentLibTrack?.cover ?? current?.artwork ?? resolvedArt ?? null);
   let barArt = $derived(coverBase);
   let npArt = $derived(coverBase ? coverAtSize(coverBase, 'large') : null);
+  let coverSeed = $derived(current ? (current.coverSeed ?? `track:${current.id}`) : '');
+  /** Played/filled share of a native range, for its painted track fill. */
+  function fillPct(value: number, max: number): number {
+    return max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
+  }
   function rateCurrent(rating: 'liked' | 'disliked') {
     const t = currentLibTrack;
     if (t) lib.setRating(t, t.rating === rating ? null : rating);
   }
 
-  onDestroy(() => audio?.pause());
+  onDestroy(() => {
+    destroyed = true;
+    requestId++;
+    audio?.pause();
+    lib.onTrackDisliked = null;
+    void eq.destroy().catch((err: unknown) => console.error('Closing audio processing failed', err));
+  });
 </script>
 
-<!-- Inline player: fills the shell's bottom bar. Built on a plain bound <audio>
-  plus our own controls, so the bar is a real CSS grid we fully control.
-  (media-chrome's <media-controller> slotted children into its shadow DOM and
-  ignored our grid, which broke the 3-column layout.) -->
-<div class="player" class:idle={!current}>
+<!-- Inline player: fills the shell's bottom dock with a bound native <audio>
+  element and custom controls in a three-column CSS grid. -->
+<div class="player" class:idle={!current} class:collapsed={!expanded}>
   <audio
     bind:this={audio}
-    bind:paused
-    bind:currentTime
-    bind:duration
+    preload="metadata"
+    loop={repeat === 'one'}
+    onplay={syncAudioState}
+    onplaying={syncAudioState}
+    onpause={syncAudioState}
+    ontimeupdate={syncAudioState}
+    ondurationchange={syncAudioState}
+    onseeked={syncAudioState}
+    onratechange={syncAudioState}
     bind:volume
     bind:muted
     onerror={onAudioError}
@@ -784,40 +1107,36 @@
 
   {#if current}
     <div class="pl-left">
-      <div
+      <button
         class="pl-identity"
-        role="button"
-        tabindex="0"
+        type="button"
+        aria-label={`Open Now Playing: ${displayTitle}`}
+        aria-expanded={expanded}
         onclick={openNP}
-        onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); openNP(); } }}
       >
-        <div class="player-thumb">
-          {#if barArt}
-            <img src={barArt} alt="" />
-          {:else}
-            <div class="cover-ph"><i class="lni lni-music-note"></i></div>
-          {/if}
+        <div class="player-thumb cover-wrap">
+          <PixelCover src={barArt} seed={coverSeed} loading="eager" />
         </div>
         <div class="player-info">
           <span class="title">{displayTitle}</span>
           <span class="artist">{displayArtist}</span>
         </div>
-      </div>
+      </button>
       {#if currentLibTrack}
         <div class="pl-rate">
-          <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} title="Like" aria-label="Like"><i class="lni lni-thumbs-up-1"></i></button>
-          <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} title="Dislike" aria-label="Dislike"><i class="lni lni-thumbs-down-1"></i></button>
+          <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} title="Like" aria-label="Like"><i class="pxi pxi-thumbs-up" aria-hidden="true" use:pop={currentLibTrack.rating === 'liked'}></i></button>
+          <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} title="Dislike" aria-label="Dislike"><i class="pxi pxi-thumbs-down" aria-hidden="true" use:pop={currentLibTrack.rating === 'disliked'}></i></button>
         </div>
       {/if}
     </div>
 
     <div class="pl-center">
       <div class="transport">
-        <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} title="Shuffle" aria-label="Shuffle" aria-pressed={shuffle}><i class="lni lni-shuffle"></i></button>
-        <button class="tbtn" onclick={prev} disabled={!canStep} title="Previous" aria-label="Previous"><i class="lni lni-backward"></i></button>
-        <button class="play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="lni {paused ? 'lni-play' : 'lni-pause'}"></i></button>
-        <button class="tbtn" onclick={next} disabled={!canStep} title="Next" aria-label="Next"><i class="lni lni-forward"></i></button>
-        <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} title={'Repeat: ' + repeat} aria-label="Repeat"><i class="lni lni-repeat-1"></i>{#if repeat === 'one'}<span class="rep-one">1</span>{/if}</button>
+        <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} title="Shuffle" aria-label="Shuffle" aria-pressed={shuffle}><i class="pxi pxi-shuffle" aria-hidden="true" use:pop={shuffle}></i></button>
+        <button class="tbtn previous" onclick={prev} disabled={!canStep} title="Previous" aria-label="Previous"><i class="pxi pxi-skip-back" aria-hidden="true"></i></button>
+        <button class="play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="pxi {paused ? 'pxi-play' : 'pxi-pause'}" aria-hidden="true" use:pop={paused}></i></button>
+        <button class="tbtn" onclick={next} disabled={!canStep} title="Next" aria-label="Next"><i class="pxi pxi-skip-forward" aria-hidden="true"></i></button>
+        <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} title={'Repeat: ' + repeat} aria-label="Repeat"><i class="pxi pxi-reload" aria-hidden="true" use:pop={repeat}></i>{#if repeat === 'one'}<span class="rep-one" aria-hidden="true">1</span>{/if}</button>
       </div>
 
       <div class="progress-row">
@@ -828,53 +1147,61 @@
           </div>
         {/if}
         {#if !waveReady}
-          <input class="range" type="range" min="0" max={total || 0} step="0.1" value={currentTime} oninput={(e) => seekTo(+e.currentTarget.value)} aria-label="Seek" />
+          <input class="range" type="range" min="0" max={total || 0} step="0.1" value={currentTime} style="--fill: {fillPct(currentTime, total)}%" oninput={(e) => seekTo(+e.currentTarget.value)} aria-label="Seek" />
         {/if}
         <span class="time dur">{formatTime(total)}</span>
       </div>
     </div>
 
     <div class="pl-right">
-      <div class="eq-wrap">
-        <button
-          class="eq-btn"
-          class:on={eqState.enabled}
-          bind:this={eqBtnEl}
-          onclick={() => (eqOpen = !eqOpen)}
-          title="Equalizer"
-          aria-label="Equalizer"
-          aria-expanded={eqOpen}
-        >
-          <i class="lni lni-sliders-triple-vertical-1"></i>
-        </button>
-        {#if eqOpen && !expanded}
+      {#if !nativeAudio}
+        <div class="eq-wrap">
           <button
-            class="eq-backdrop"
-            aria-label="Close equalizer"
-            onclick={() => (eqOpen = false)}
-            use:portal
-          ></button>
-          <div class="eq-pop" style={eqStyle} use:portal>
-            <label class="norm-toggle">
-              <input
-                type="checkbox"
-                checked={normalizeEnabled}
-                onchange={(e) => setNormalize(e.currentTarget.checked)}
-              />
-              <span>Normalize volume</span>
-            </label>
-            <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} />
-          </div>
-        {/if}
-      </div>
-      <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}>
-        <i class="lni {muted || volume === 0 ? 'lni-volume-off' : volume < 0.5 ? 'lni-volume-low' : 'lni-volume-high'}"></i>
-      </button>
-      <input class="volume" type="range" min="0" max="1" step="0.01" bind:value={volume} aria-label="Volume" />
+            class="eq-btn"
+            class:on={eqState.enabled}
+            bind:this={eqBtnEl}
+            onclick={() => (eqOpen = !eqOpen)}
+            title="Equalizer"
+            aria-label="Equalizer"
+            aria-expanded={eqOpen}
+          >
+            <i class="pxi pxi-sliders-vertical" aria-hidden="true" use:pop={eqOpen}></i>
+          </button>
+          {#if eqOpen && !expanded}
+            <button
+              class="eq-backdrop"
+              aria-label="Close equalizer"
+              onclick={() => (eqOpen = false)}
+              use:portal
+            ></button>
+            <div class="eq-pop" style={eqStyle} use:portal>
+              <label class="norm-toggle">
+                <input
+                  type="checkbox"
+                  checked={normalizeEnabled}
+                  onchange={(e) => setNormalize(e.currentTarget.checked)}
+                />
+                <span>Normalize volume</span>
+              </label>
+              <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} />
+            </div>
+          {/if}
+        </div>
+      {/if}
+      {#if !nativeAudio}
+        <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}>
+          <i class="pxi {muted || volume === 0 ? 'pxi-volume-x' : volume < 0.5 ? 'pxi-volume-1' : 'pxi-volume-3'}" aria-hidden="true"></i>
+        </button>
+      {/if}
+      {#if nativeAudio}
+        <span class="device-volume">Use device volume</span>
+      {:else}
+        <input class="volume" type="range" min="0" max="1" step="0.01" bind:value={volume} style="--fill: {fillPct(volume, 1)}%" aria-label="Volume" />
+      {/if}
     </div>
   {:else}
     <div class="pl-idle">
-      <i class="lni lni-music-note"></i>
+      <i class="pxi pxi-music" aria-hidden="true"></i>
       <span>Nothing playing</span>
     </div>
   {/if}
@@ -884,10 +1211,17 @@
   <!-- Mobile Now Playing: full-screen sheet that slides up from the bar. -->
   <div
     class="np"
+    bind:this={npEl}
+    role="dialog"
+    aria-modal={expanded}
+    aria-label="Now playing"
+    tabindex="-1"
+    inert={!expanded}
+    onkeydown={onNPKeyDown}
     class:open={expanded}
     class:dragging
     bind:clientHeight={sheetH}
-    style="transform: translateY({dragging ? dragY + 'px' : expanded ? '0px' : '100%'}); opacity: {reduceMotion ? (expanded ? 1 : 0) : 1}; transition: {dragging ? 'none' : reduceMotion ? 'opacity .2s ease' : 'transform .34s cubic-bezier(.32,.72,0,1)'}; pointer-events: {expanded ? 'auto' : 'none'}"
+    style="transform: translateY({dragging ? dragY + 'px' : expanded ? '0px' : '100%'}); opacity: {reduceMotion ? (expanded ? 1 : 0) : 1}; transition: {dragging || morphing ? 'none' : reduceMotion ? 'opacity 200ms var(--ease-out)' : 'transform var(--motion-sheet) var(--ease-drawer)'}; pointer-events: {expanded ? 'auto' : 'none'}"
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -897,22 +1231,37 @@
       onpointerup={onSheetPointerUp}
       onpointercancel={onSheetPointerUp}
     >
-      <button class="np-close" onclick={closeNP} aria-label="Close now playing"><i class="lni lni-chevron-down"></i></button>
+      <button class="np-close" onclick={closeNP} aria-label="Close now playing"><i class="pxi pxi-chevron-down" aria-hidden="true"></i></button>
       <div class="np-grabber"></div>
     </div>
 
-    <div class="np-art">
-      {#if npArt}
-        <img src={npArt} alt="" />
-      {:else}
-        <div class="cover-ph"><i class="lni lni-music-note"></i></div>
-      {/if}
+    <div class="np-stage">
+      <ArtGlow src={npArt} seed={coverSeed} />
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="np-art cover-wrap"
+        style:translate="{swipeX}px 0"
+        style:transition={swipeTransition || null}
+        onpointerdown={onArtPointerDown}
+        onpointermove={onArtPointerMove}
+        onpointerup={onArtPointerUp}
+        onpointercancel={onArtPointerUp}
+        ondragstart={(e) => e.preventDefault()}
+      >
+        <PixelCover src={npArt} seed={coverSeed} loading="eager" />
+      </div>
     </div>
 
     <div class="np-meta">
       <div class="np-title">{displayTitle}</div>
       <div class="np-artist">{displayArtist}</div>
     </div>
+    {#if playbackError}
+      <div class="callout callout-error playback-error" role="status">
+        <i class="pxi pxi-square-alert" aria-hidden="true"></i>
+        <div class="callout-body"><strong>{playbackError}</strong></div>
+      </div>
+    {/if}
 
     <div class="np-scrub">
       {#if waveUrl || srcUrl}
@@ -921,30 +1270,38 @@
         </div>
       {/if}
       {#if !waveReady}
-        <input class="range" type="range" min="0" max={total || 0} step="0.1" value={currentTime} oninput={(e) => seekTo(+e.currentTarget.value)} aria-label="Seek" />
+        <input class="range" type="range" min="0" max={total || 0} step="0.1" value={currentTime} style="--fill: {fillPct(currentTime, total)}%" oninput={(e) => seekTo(+e.currentTarget.value)} aria-label="Seek" />
       {/if}
       <div class="np-times"><span>{formatTime(currentTime)}</span><span>{formatTime(total)}</span></div>
     </div>
 
     <div class="np-transport">
-      <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} aria-label="Shuffle"><i class="lni lni-shuffle"></i></button>
-      <button class="tbtn" onclick={prev} disabled={!canStep} aria-label="Previous"><i class="lni lni-backward"></i></button>
-      <button class="np-play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="lni {paused ? 'lni-play' : 'lni-pause'}"></i></button>
-      <button class="tbtn" onclick={next} disabled={!canStep} aria-label="Next"><i class="lni lni-forward"></i></button>
-      <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} aria-label="Repeat"><i class="lni lni-repeat-1"></i>{#if repeat === 'one'}<span class="rep-one">1</span>{/if}</button>
+      <button class="tbtn shuffle" class:on={shuffle} onclick={toggleShuffle} disabled={!canStep} aria-label="Shuffle"><i class="pxi pxi-shuffle" aria-hidden="true" use:pop={shuffle}></i></button>
+      <button class="tbtn" onclick={prev} disabled={!canStep} aria-label="Previous"><i class="pxi pxi-skip-back" aria-hidden="true"></i></button>
+      <button class="np-play" onclick={togglePlay} aria-label={paused ? 'Play' : 'Pause'}><i class="pxi {paused ? 'pxi-play' : 'pxi-pause'}" aria-hidden="true" use:pop={paused}></i></button>
+      <button class="tbtn" onclick={next} disabled={!canStep} aria-label="Next"><i class="pxi pxi-skip-forward" aria-hidden="true"></i></button>
+      <button class="tbtn repeat" class:on={repeat !== 'off'} onclick={cycleRepeat} aria-label="Repeat"><i class="pxi pxi-reload" aria-hidden="true" use:pop={repeat}></i>{#if repeat === 'one'}<span class="rep-one" aria-hidden="true">1</span>{/if}</button>
     </div>
 
     <div class="np-secondary">
       {#if currentLibTrack}
-        <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} aria-label="Like"><i class="lni lni-thumbs-up-1"></i></button>
-        <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} aria-label="Dislike"><i class="lni lni-thumbs-down-1"></i></button>
+        <button class="btn-rate" class:active-like={currentLibTrack.rating === 'liked'} onclick={() => rateCurrent('liked')} aria-label="Like"><i class="pxi pxi-thumbs-up" aria-hidden="true" use:pop={currentLibTrack.rating === 'liked'}></i></button>
+        <button class="btn-rate" class:active-dislike={currentLibTrack.rating === 'disliked'} onclick={() => rateCurrent('disliked')} aria-label="Dislike"><i class="pxi pxi-thumbs-down" aria-hidden="true" use:pop={currentLibTrack.rating === 'disliked'}></i></button>
       {/if}
-      <button class="eq-btn" class:on={eqState.enabled} onclick={() => (eqOpen = !eqOpen)} aria-label="Equalizer"><i class="lni lni-sliders-triple-vertical-1"></i></button>
-      <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}><i class="lni {muted || volume === 0 ? 'lni-volume-off' : volume < 0.5 ? 'lni-volume-low' : 'lni-volume-high'}"></i></button>
+      {#if !nativeAudio}
+        <button class="eq-btn" class:on={eqState.enabled} onclick={() => (eqOpen = !eqOpen)} aria-label="Equalizer" aria-expanded={eqOpen}><i class="pxi pxi-sliders-vertical" aria-hidden="true" use:pop={eqOpen}></i></button>
+      {/if}
+      {#if !nativeAudio}
+        <button class="mute" onclick={() => (muted = !muted)} aria-label={muted ? 'Unmute' : 'Mute'}><i class="pxi {muted || volume === 0 ? 'pxi-volume-x' : volume < 0.5 ? 'pxi-volume-1' : 'pxi-volume-3'}" aria-hidden="true"></i></button>
+      {/if}
     </div>
-    <input class="volume np-vol" type="range" min="0" max="1" step="0.01" bind:value={volume} aria-label="Volume" />
+    {#if nativeAudio}
+      <p class="device-volume">Use your device's volume buttons or Control Center.</p>
+    {:else}
+      <input class="volume np-vol" type="range" min="0" max="1" step="0.01" bind:value={volume} style="--fill: {fillPct(volume, 1)}%" aria-label="Volume" />
+    {/if}
 
-    {#if eqOpen && expanded}
+    {#if eqOpen && expanded && !nativeAudio}
       <div class="np-eq">
         <label class="norm-toggle">
           <input
@@ -957,34 +1314,16 @@
         <EqPanel bind:state={eqState} onUpdate={handleEqUpdate} />
       </div>
     {/if}
-
-    {#if upNext.length > 0}
-      <div class="np-queue">
-        <div class="np-queue-head">Up next</div>
-        {#each upNext.slice(0, 20) as q}
-          <div class="np-q-row">
-            <div class="np-q-art" style={q.artwork ? `background-image:url(${q.artwork})` : ''}>
-              {#if !q.artwork}<i class="lni lni-music-note"></i>{/if}
-            </div>
-            <div class="np-q-meta">
-              <div class="np-q-title">{q.title}</div>
-              <div class="np-q-artist">{q.artist}</div>
-            </div>
-          </div>
-        {/each}
-      </div>
-    {/if}
   </div>
 {/if}
 
 <style>
-  /* Fills the shell's bottom player bar (App.svelte owns the bar background). */
+  /* Fills the shell's bottom dock; App.svelte owns its ground and top hairline. */
   .player {
     width: 100%;
     height: 100%;
-    box-sizing: border-box;
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, min(560px, 44vw)) minmax(0, 1fr);
     align-items: center;
     gap: 24px;
     padding: 0 24px;
@@ -994,25 +1333,55 @@
   .pl-idle {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     color: var(--muted-2);
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
   }
-  .pl-idle .lni { font-size: 18px; }
+  .pl-idle .pxi { font-size: 16px; }
 
   /* ── Left: track identity ────────────────────────────────────────────── */
   .pl-left {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     min-width: 0;
   }
   .pl-identity {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
     min-width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+  }
+  .player-thumb {
+    width: 48px;
+    flex-shrink: 0;
+    border-radius: var(--radius-chip);
+  }
+  .player-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .title {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.35;
+    color: var(--text-bright);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .artist {
+    font-size: 13px;
+    line-height: 1.35;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .pl-rate {
     display: flex;
@@ -1020,169 +1389,131 @@
     gap: 2px;
     flex-shrink: 0;
   }
-  .pl-rate .btn-rate {
-    font-size: 16px;
-    padding: 4px 6px;
-  }
-  .player-thumb {
-    width: 60px;
-    height: 60px;
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--surface-2);
-    flex-shrink: 0;
-  }
-  .player-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .cover-ph {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted-2);
-    background: linear-gradient(135deg, #241f33, #15131c);
-  }
-  .cover-ph .lni { font-size: 22px; }
-  .player-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-  .title {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--text-bright);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .artist {
-    font-size: 12.5px;
-    font-weight: 500;
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  .pl-rate .btn-rate { width: 32px; height: 32px; }
 
-  /* ── Center: transport + progress ────────────────────────────────────── */
+  /* ── Center: transport (40px) over progress (28px) ───────────────────── */
   .pl-center {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    width: min(620px, 46vw);
+    display: grid;
+    grid-template-rows: 40px 28px;
+    row-gap: 4px;
+    justify-items: center;
+    min-width: 0;
+    width: 100%;
   }
-  .transport { display: flex; align-items: center; gap: 16px; }
+  .transport { display: flex; align-items: center; gap: 8px; }
   .tbtn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 4px;
     position: relative;
-    transition: color 0.12s, transform 0.12s;
-  }
-  .tbtn .lni { font-size: 18px; }
-  .tbtn:hover:not(:disabled) { color: var(--text-bright); transform: scale(1.08); }
-  .tbtn:disabled { opacity: 0.35; cursor: default; }
-  .tbtn.on { color: var(--accent); }
-  .tbtn.repeat .rep-one {
-    position: absolute;
-    top: -2px;
-    right: -1px;
-    font-family: var(--font-mono);
-    font-size: 9px;
-    font-weight: 600;
-    color: var(--accent);
-  }
-
-  .play {
-    width: 46px;
-    height: 46px;
-    border-radius: 50%;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    padding: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--muted);
     cursor: pointer;
-    flex-shrink: 0;
-    transition: transform 0.12s, filter 0.12s;
   }
-  .play:hover { transform: scale(1.05); filter: brightness(1.08); }
-  .play .lni { font-size: 18px; line-height: 1; }
+  .tbtn .pxi { font-size: 24px; }
+  .tbtn:hover:not(:disabled) { color: var(--text-bright); background: var(--surface-2); }
+  .tbtn:disabled { color: var(--text-disabled); cursor: default; }
+  .tbtn.on, .tbtn.on:hover:not(:disabled) { color: var(--accent); }
+  /* Repeat-one: a tiny mono key cap on the repeat glyph's corner. */
+  .rep-one {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    padding: 0 2px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 11px;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+
+  /* Play/pause: the ink key. */
+  .play,
+  .np-play {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0;
+    border: 0;
+    background: var(--text-bright);
+    color: var(--bg);
+    cursor: pointer;
+  }
+  .play {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-control);
+  }
+  .play .pxi, .np-play .pxi { font-size: 24px; }
+  .play:hover, .np-play:hover { background: color-mix(in srgb, var(--text-bright) 86%, var(--bg)); }
+  .play:active, .np-play:active { background: color-mix(in srgb, var(--text-bright) 78%, var(--bg)); }
 
   .progress-row {
     display: flex;
     align-items: center;
     gap: 12px;
     width: 100%;
+    height: 28px;
   }
   .time {
+    flex-shrink: 0;
+    min-width: 40px;
     color: var(--muted-2);
     font-family: var(--font-mono);
     font-size: 11px;
-    flex-shrink: 0;
-    min-width: 34px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
   }
-  .time.dur { text-align: right; }
+  .time.dur { text-align: left; }
   .wave-slot {
     flex: 1;
     min-width: 0;
-    height: 30px;
+    height: 28px;
     display: flex;
     align-items: center;
   }
 
-  /* ── Right: volume ───────────────────────────────────────────────────── */
+  /* ── Right: equalizer + volume ───────────────────────────────────────── */
   .pl-right {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 4px;
+    min-width: 0;
   }
-  .mute {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 4px;
-    display: flex;
-    align-items: center;
-  }
-  .mute:hover { color: var(--text-bright); }
-  .mute .lni { font-size: 17px; }
-
-  /* ── Equalizer button + popover ──────────────────────────────────────── */
   .eq-wrap { position: relative; display: flex; align-items: center; }
-  .norm-toggle {
-    display: flex;
+  .eq-btn,
+  .mute {
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 2px 2px 10px;
-    margin-bottom: 8px;
-    font-size: 12.5px;
-    color: var(--text);
-    cursor: pointer;
-    border-bottom: 1px solid var(--border);
-  }
-  .norm-toggle input { accent-color: var(--accent); width: 15px; height: 15px; }
-  .eq-btn {
-    background: none;
-    border: none;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
     color: var(--muted);
     cursor: pointer;
-    padding: 4px;
-    display: flex;
-    align-items: center;
   }
-  .eq-btn:hover { color: var(--text-bright); }
-  .eq-btn.on { color: var(--accent); }
-  .eq-btn .lni { font-size: 17px; }
-  /* Portalled to <body>, so positioned via viewport-fixed inline coords. This
-     escapes the player bar's `overflow: hidden` (which was clipping it). */
+  .eq-btn .pxi, .mute .pxi { font-size: 16px; }
+  .eq-btn:hover, .mute:hover { color: var(--text-bright); background: var(--surface-2); }
+  .eq-btn.on, .eq-btn.on:hover { color: var(--accent); }
+  .pl-right .volume { margin-left: 6px; }
+  .device-volume { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+  /* Portalled to <body>, so positioned via viewport-fixed inline coords that
+     escape the dock's stacking. A floating layer: float ground and shadow. */
   .eq-backdrop {
     position: fixed;
     inset: 0;
@@ -1195,208 +1526,286 @@
   .eq-pop {
     position: fixed;
     z-index: 300;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    width: min(380px, calc(100vw - 16px));
+    max-height: calc(var(--app-height, 100dvh) - 32px);
+    padding: 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--float-border);
+    border-radius: var(--radius-card);
+    background: var(--float);
+    color: var(--text);
+    box-shadow: var(--float-shadow);
+  }
+  .norm-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .norm-toggle input {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--accent);
   }
 
-  /* Native range inputs (seek + volume), themed to the violet accent. */
-  .range, .volume {
+  /* Native range inputs (seek + volume): a hairline track, a painted fill
+     (live for playback, neutral for volume), and a small square thumb. */
+  .range,
+  .volume {
+    --fill-color: var(--live);
     -webkit-appearance: none;
     appearance: none;
-    height: 4px;
-    border-radius: 999px;
-    background: var(--surface-2);
+    height: 28px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
     cursor: pointer;
-    outline: none;
   }
+  .volume { --fill-color: var(--text); width: 96px; flex-shrink: 0; }
   .range { flex: 1; min-width: 0; }
-  .volume { width: 96px; flex-shrink: 0; }
+  .range::-webkit-slider-runnable-track,
+  .volume::-webkit-slider-runnable-track {
+    height: 2px;
+    background: linear-gradient(to right, var(--fill-color) var(--fill, 0%), var(--border-strong) var(--fill, 0%));
+  }
+  .range::-moz-range-track,
+  .volume::-moz-range-track {
+    height: 2px;
+    background: var(--border-strong);
+  }
+  .range::-moz-range-progress,
+  .volume::-moz-range-progress {
+    height: 2px;
+    background: var(--fill-color);
+  }
   .range::-webkit-slider-thumb,
   .volume::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--accent);
-    cursor: pointer;
+    width: 10px;
+    height: 10px;
+    margin-top: -4px;
+    border: 0;
+    border-radius: 0;
+    background: var(--fill-color);
   }
   .range::-moz-range-thumb,
   .volume::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
-    border: none;
-    border-radius: 50%;
-    background: var(--accent);
-    cursor: pointer;
+    width: 10px;
+    height: 10px;
+    border: 0;
+    border-radius: 0;
+    background: var(--fill-color);
+  }
+  .range:focus-visible,
+  .volume:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
-  @media (max-width: 860px) {
-    .player { grid-template-columns: auto 1fr; gap: 12px; padding: 0 14px; }
-    .pl-center { width: auto; }
-    .progress-row, .pl-right { display: none; }
-    .player .shuffle, .player .repeat { display: none; }
-    .player-thumb { width: 48px; height: 48px; }
+  /* ── Phones: a 64px floating card above the tabs ──────────────────────── */
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    .player {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      padding: 0 8px 0 12px;
+      border: 1px solid var(--float-border);
+      border-radius: var(--radius-card);
+      background: var(--float);
+      box-shadow: var(--float-shadow);
+    }
+    .pl-center { display: flex; width: auto; }
+    .transport { gap: 0; }
+    .pl-identity { gap: 12px; width: 100%; min-height: 44px; cursor: pointer; }
+    .player-info { flex: 1; }
+    .progress-row, .pl-right, .pl-rate { display: none; }
+    .player .shuffle, .player .repeat, .player .previous { display: none; }
+    .player-thumb { width: 40px; }
+    .player .tbtn { width: 44px; height: 44px; }
+    .player .play { width: 44px; height: 44px; background: transparent; color: var(--text-bright); }
+    .player .play:hover, .player .play:active { background: var(--surface-2); }
+
+    /* Named only while opening or closing, so page transitions leave them alone:
+       the card becomes the sheet, the thumbnail becomes the big cover. */
+    :global(:root.np-morph) .player.collapsed:not(.idle) { view-transition-name: np-surface; }
+    :global(:root.np-morph) .player.collapsed .player-thumb { view-transition-name: np-cover; }
+    :global(:root.np-morph) .np.open { view-transition-name: np-surface; }
+    :global(:root.np-morph) .np.open .np-art { view-transition-name: np-cover; }
   }
 
   /* ── Mobile Now Playing (full-screen sheet) ────────────────────────────── */
   .np {
     display: none;
     position: fixed;
-    inset: 0;
+    top: var(--app-top, 0px);
+    left: 0;
+    right: 0;
+    height: var(--app-height, 100dvh);
     z-index: 300;
     flex-direction: column;
     align-items: center;
     background: var(--bg);
-    padding: calc(env(safe-area-inset-top) + 6px) 22px calc(env(safe-area-inset-bottom) + 20px);
-    box-sizing: border-box;
-    overflow-y: auto;
+    padding: calc(var(--safe-top) + 4px) calc(var(--space-page) + var(--safe-right)) calc(var(--safe-bottom) + 24px) calc(var(--space-page) + var(--safe-left));
+    /* Everything fits one screen; only the opened EQ (non-iOS) may need to scroll. */
+    overflow: hidden;
+    overscroll-behavior: contain;
     will-change: transform;
   }
+  .np:has(.np-eq) {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .np > * { flex-shrink: 0; }
   .np-head {
-    width: 100%;
+    position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
     justify-content: center;
-    position: relative;
-    padding: 6px 0 2px;
-    flex-shrink: 0;
+    width: 100%;
+    min-height: 48px;
     touch-action: none;
     cursor: grab;
   }
-  .np-grabber { width: 40px; height: 5px; border-radius: 999px; background: var(--surface-2); }
+  /* By day the art halo rises past the sheet's top edge; fade it into the page
+     colour (which the white status bar also uses) instead of cutting it off. */
+  :global([data-theme='light']) .np-head::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    top: calc(-1 * (var(--safe-top) + 4px));
+    bottom: -12px;
+    left: calc(-1 * (var(--space-page) + var(--safe-left)));
+    right: calc(-1 * (var(--space-page) + var(--safe-right)));
+    background: linear-gradient(var(--bg) 20%, transparent);
+    pointer-events: none;
+  }
+  .np-grabber { width: 36px; height: 4px; background: var(--border-heavy); }
   .np-close {
     position: absolute;
-    left: -6px;
-    top: 0;
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-size: 24px;
-    cursor: pointer;
-    padding: 4px 8px;
-  }
-  .np-art {
-    width: min(72vw, 340px);
-    aspect-ratio: 1;
-    border-radius: 16px;
-    overflow: hidden;
-    background: var(--surface-2);
-    display: flex;
+    left: -10px;
+    top: 2px;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-    margin-top: 5vh;
-    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
   }
-  .np-art img { width: 100%; height: 100%; object-fit: cover; }
-  .np-art .cover-ph { font-size: 64px; color: var(--muted-2); }
-  .np-meta { width: 100%; text-align: center; margin-top: 20px; }
+  .np-close .pxi { font-size: 24px; }
+  .np-close:hover { color: var(--text-bright); background: var(--surface-2); }
+  /* The art sits on its own glow; everything after the stage stacks above it. */
+  .np-stage {
+    /* The art takes whatever height the controls leave, so the sheet never needs to scroll. */
+    --np-art-size: min(100%, 360px, calc(var(--app-height, 100dvh) - 440px));
+    /* The glow rises from the cover: larger than it and centered a little above. */
+    --glow-size: calc(var(--np-art-size) * 1.55);
+    --glow-y: 44%;
+    position: relative;
+    z-index: 0;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-top: 16px;
+  }
+  .np-stage ~ * { position: relative; z-index: 1; }
+  .np-art {
+    position: relative;
+    z-index: 1;
+    width: var(--np-art-size);
+    border-radius: var(--radius-card);
+    /* Horizontal drags change track; vertical ones stay with the page. */
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    transition: translate var(--motion-normal) var(--ease-spring);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .np-art { transition: none; }
+  }
+  .np-meta { width: 100%; margin-top: 24px; text-align: center; }
   .np-title {
     font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 1.35rem;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.25;
     letter-spacing: -0.02em;
     color: var(--text-bright);
-    line-height: 1.2;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  .np-artist { color: var(--muted); font-size: 0.95rem; margin-top: 5px; }
-  .np-scrub { width: 100%; margin-top: 18px; }
-  .np-scrub .wave-slot { width: 100%; }
+  .np-artist { margin-top: 4px; color: var(--muted); font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+  .playback-error { width: 100%; margin-top: 16px; }
+  .np-scrub { width: 100%; margin-top: 20px; }
+  .np-scrub .wave-slot { width: 100%; height: 48px; }
+  .np-scrub .range { display: block; width: 100%; height: 44px; }
   .np-times {
     display: flex;
     justify-content: space-between;
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
+    margin-top: 4px;
     color: var(--muted);
-    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
   }
   .np-transport {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 20px;
-    margin-top: 16px;
+    gap: clamp(4px, 3vw, 16px);
+    width: 100%;
+    margin-top: 20px;
   }
-  .np-transport .tbtn {
-    position: relative;
-    background: none;
-    border: none;
-    color: var(--text);
-    font-size: 22px;
-    cursor: pointer;
-    padding: 6px;
-  }
-  .np-transport .tbtn:disabled { opacity: 0.35; cursor: default; }
+  .np-transport .tbtn { width: 48px; height: 48px; color: var(--text); }
+  .np-transport .tbtn:disabled { color: var(--text-disabled); }
   .np-transport .tbtn.on { color: var(--accent); }
   .np-play {
     width: 64px;
     height: 64px;
-    border-radius: 50%;
-    background: var(--text-bright);
-    color: var(--bg);
-    border: none;
-    font-size: 26px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    border-radius: var(--radius-card);
   }
   .np-secondary {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 20px;
+    gap: 8px;
     margin-top: 16px;
   }
-  .np-secondary .btn-rate { font-size: 20px; }
+  .np-secondary .pxi { font-size: 24px; }
+  .np-secondary .btn-rate,
   .np-secondary .eq-btn,
-  .np-secondary .mute {
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-size: 19px;
-    cursor: pointer;
-    padding: 4px;
-  }
-  .np-secondary .eq-btn.on { color: var(--accent); }
-  .np-vol { width: min(80%, 300px); margin-top: 10px; }
-  .np-eq { width: 100%; margin-top: 14px; }
-  .np-queue { width: 100%; margin-top: 22px; }
-  .np-queue-head {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    margin-bottom: 10px;
-  }
-  .np-q-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
-  .np-q-art {
-    width: 38px;
-    height: 38px;
-    border-radius: 6px;
-    background: var(--surface-2) center/cover no-repeat;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted-2);
-  }
-  .np-q-meta { min-width: 0; }
-  .np-q-title { font-size: 0.9rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .np-q-artist { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .np-secondary .mute { width: 48px; height: 48px; }
+  .np-vol { width: min(100%, 320px); height: 44px; margin-top: 8px; }
+  .np .device-volume { margin: 8px 0 0; text-align: center; }
+  .np-eq { width: 100%; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
 
-  @media (max-width: 860px) {
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
     .np { display: flex; }
-    .pl-identity { cursor: pointer; }
-    .pl-rate { display: none; }
+  }
+
+  /* High contrast: native ranges and outlined keys read in system colors. */
+  @media (forced-colors: active) {
+    .range, .volume { -webkit-appearance: auto; appearance: auto; }
+    .play, .np-play { border: 1px solid ButtonText; }
   }
 </style>

@@ -6,7 +6,7 @@
 
 ## What is Soundgnome?
 
-Soundgnome is a self-hosted tool that centralizes, downloads, tags, and automatically organizes your music library from multiple sources (Spotify, SoundCloud, YouTube…). It handles metadata, prevents duplicates, keeps track of original sources, and provides a web interface for manual corrections. 
+Soundgnome is a self-hosted tool that centralizes, downloads, tags, and automatically organizes your music library from multiple sources (Spotify, SoundCloud, YouTube…). It handles metadata, prevents duplicates, keeps track of original sources, and provides a web interface for manual corrections.
 
 The project is still work in progress. Some surfaces are production-shaped, while others are scaffolds or partial implementations. The documentation in this repository is therefore organized around what is already wired in code versus what is still planned.
 

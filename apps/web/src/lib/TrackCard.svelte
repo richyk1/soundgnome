@@ -4,6 +4,7 @@
   import type { PendingValidationDto, PatchValidationBody, MatchCandidateDto } from './types';
   import ArtistMultiSelect from './library/ArtistMultiSelect.svelte';
   import StatefulButton from './StatefulButton.svelte';
+  import PixelCover from './PixelCover.svelte';
 
   interface Props {
     track: PendingValidationDto;
@@ -207,12 +208,6 @@
   function artistNames(): string {
     return track.artists.map((a) => a.name).join(', ') || '—';
   }
-  function trackMeta(): string {
-    return [track.album?.title, track.date, dur(track.duration)].filter(Boolean).join('  ·  ');
-  }
-  function candMeta(c: MatchCandidateDto): string {
-    return [c.album?.title, c.date, dur(c.duration), c.provider].filter(Boolean).join('  ·  ');
-  }
   function scoreLevel(score: number): 'high' | 'mid' | 'low' {
     if (score >= 0.75) return 'high';
     if (score >= 0.5) return 'mid';
@@ -221,23 +216,20 @@
   function candProviderUrl(c: MatchCandidateDto): string | null {
     return c.references?.find((r) => r.external_url)?.external_url ?? null;
   }
+  let coverSrc = $derived(track.cover && /^(https?:\/\/|\/)/.test(track.cover) ? track.cover : null);
 </script>
 
 <article
-  class="vrow"
+  class="vcard"
   class:editing
   bind:this={cardEl}
   onmouseenter={() => (hovered = true)}
   onmouseleave={() => (hovered = false)}
   out:slide={{ duration: reduce ? 0 : 240 }}
 >
-  <div class="vrow-head">
-    <div class="cover">
-      {#if track.cover}
-        <img src={track.cover} alt="" />
-      {:else}
-        <i class="lni lni-music-note" aria-hidden="true"></i>
-      {/if}
+  <div class="vcard-head">
+    <div class="cover-wrap vcover">
+      <PixelCover src={coverSrc} seed="track:{track.id}" />
     </div>
 
     <div class="main">
@@ -245,67 +237,71 @@
         <div class="edit-form">
           <div class="field">
             <label for="edit-title-{track.id}">Title</label>
-            <input id="edit-title-{track.id}" bind:value={editTitle} placeholder="Title" />
+            <input id="edit-title-{track.id}" type="text" bind:value={editTitle} placeholder="Title" />
           </div>
           <div class="field">
             <label for="edit-artists-{track.id}">Artists</label>
             <ArtistMultiSelect value={editArtists} onChange={(names) => (editArtists = names)} />
           </div>
-          <button type="button" class="ai-clean" onclick={aiClean} disabled={aiCleaning}>
+          <button type="button" class="btn-secondary btn-sm ai-clean" onclick={aiClean} disabled={aiCleaning}>
             {#if aiCleaning}
-              <span class="mini-spin" aria-hidden="true"></span>Cleaning…
+              <i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Cleaning…
             {:else}
               Clean title &amp; artists with AI
             {/if}
           </button>
-          {#if aiError}<p class="ai-err" role="alert">{aiError}</p>{/if}
+          {#if aiError}
+            <p class="inline-error" role="alert">
+              <i class="pxi pxi-square-alert" aria-hidden="true"></i>{aiError}
+            </p>
+          {/if}
           <div class="field">
             <label for="edit-album-{track.id}">Album</label>
-            <input id="edit-album-{track.id}" bind:value={editAlbum} placeholder="Album" />
+            <input id="edit-album-{track.id}" type="text" bind:value={editAlbum} placeholder="Album" />
           </div>
           <div class="field-row">
             <div class="field">
               <label for="edit-genre-{track.id}">Genre</label>
-              <input id="edit-genre-{track.id}" bind:value={editGenre} placeholder="Genre" />
+              <input id="edit-genre-{track.id}" type="text" bind:value={editGenre} placeholder="Genre" />
             </div>
             <div class="field">
               <label for="edit-date-{track.id}">Date</label>
-              <input id="edit-date-{track.id}" bind:value={editDate} placeholder="YYYY-MM-DD" />
+              <input id="edit-date-{track.id}" type="text" class="mono-input" bind:value={editDate} placeholder="YYYY-MM-DD" />
             </div>
             <div class="field narrow">
               <label for="edit-tn-{track.id}">Track #</label>
-              <input id="edit-tn-{track.id}" bind:value={editTrackNumber} type="number" min="1" />
+              <input id="edit-tn-{track.id}" class="mono-input" bind:value={editTrackNumber} type="number" min="1" />
             </div>
             <div class="field narrow">
               <label for="edit-dn-{track.id}">Disc #</label>
-              <input id="edit-dn-{track.id}" bind:value={editDiscNumber} type="number" min="1" />
+              <input id="edit-dn-{track.id}" class="mono-input" bind:value={editDiscNumber} type="number" min="1" />
             </div>
           </div>
           <div class="field">
             <label for="edit-label-{track.id}">Label</label>
-            <input id="edit-label-{track.id}" bind:value={editLabel} placeholder="Label" />
+            <input id="edit-label-{track.id}" type="text" bind:value={editLabel} placeholder="Label" />
           </div>
         </div>
       {:else}
-        <div class="title-line">
-          {#if sourceUrl}
-            <a class="title" href={sourceUrl} target="_blank" rel="noopener noreferrer"
-              >{track.title}</a
-            >
-          {:else}
-            <span class="title">{track.title}</span>
-          {/if}
-          <span class="artist">{artistNames()}</span>
-        </div>
-        {#if trackMeta()}
-          <div class="meta">{trackMeta()}</div>
+        {#if sourceUrl}
+          <a class="title" href={sourceUrl} target="_blank" rel="noopener noreferrer">{track.title}</a>
+        {:else}
+          <span class="title">{track.title}</span>
+        {/if}
+        <div class="artist">{artistNames()}</div>
+        {#if track.album?.title || track.date || dur(track.duration)}
+          <div class="meta">
+            {#if track.album?.title}<span class="meta-text">{track.album.title}</span>{/if}
+            {#if track.date}<span class="meta-data">{track.date}</span>{/if}
+            {#if dur(track.duration)}<span class="meta-data">{dur(track.duration)}</span>{/if}
+          </div>
         {/if}
       {/if}
     </div>
 
     <div class="actions">
       {#if editing}
-        <button class="lbtn" onclick={() => (editing = false)}>Cancel</button>
+        <button type="button" class="btn-cancel" onclick={() => (editing = false)}>Cancel</button>
         {#if onApprove}
           <StatefulButton
             variant="primary"
@@ -315,7 +311,9 @@
           />
         {/if}
       {:else}
-        <button class="lbtn" onclick={startEdit} title="Edit metadata (e)">Edit</button>
+        <button type="button" class="btn-secondary" onclick={startEdit} title="Edit metadata (e)">
+          <i class="pxi pxi-pencil" aria-hidden="true"></i>Edit
+        </button>
         {#if onReject}
           <StatefulButton
             variant="danger"
@@ -337,351 +335,263 @@
   </div>
 
   {#if actionError}
-    <p class="row-error" role="alert">
-      <i class="lni lni-xmark-circle" aria-hidden="true"></i>{actionError}
+    <p class="inline-error row-error" role="alert">
+      <i class="pxi pxi-square-alert" aria-hidden="true"></i>{actionError}
     </p>
   {/if}
 
   {#if showsCandidates && !editing}
     <div class="cands">
       {#if isDrmProtected && !matchesRequested}
-        <button class="find-sources" onclick={loadMatches}>
-          <i class="lni lni-search-1" aria-hidden="true"></i>Find YouTube sources
+        <button type="button" class="btn-secondary btn-sm" onclick={loadMatches}>
+          <i class="pxi pxi-search" aria-hidden="true"></i>Find YouTube sources
         </button>
       {:else if matchesLoading}
-        <p class="cand-status"><span class="mini-spin" aria-hidden="true"></span>Finding matches…</p>
+        <p class="cand-status"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Finding matches…</p>
       {:else if matchesError}
-        <p class="cand-status is-err">{matchesError}</p>
+        <p class="cand-status inline-error"><i class="pxi pxi-square-alert" aria-hidden="true"></i>{matchesError}</p>
       {:else if matchCandidates.length === 0}
         <p class="cand-status">No candidates found</p>
       {:else}
-        {#each matchCandidates as candidate (candidate.title + candidate.provider + candidate.score)}
-          {@const purl = candProviderUrl(candidate)}
-          <div class="cand">
-            <div class="cand-main">
-              <div class="cand-title-line">
-                {#if purl}
-                  <a class="cand-title" href={purl} target="_blank" rel="noopener noreferrer"
-                    >{candidate.title}</a
-                  >
-                {:else}
-                  <span class="cand-title">{candidate.title}</span>
-                {/if}
-                <span class="cand-artist">{candidate.artists.map((a) => a.name).join(', ')}</span>
-                <span class="cand-score" data-lvl={scoreLevel(candidate.score)}
-                  >{Math.round(candidate.score * 100)}%</span
-                >
+        <ul class="cand-list">
+          {#each matchCandidates as candidate (candidate.title + candidate.provider + candidate.score)}
+            {@const purl = candProviderUrl(candidate)}
+            <li class="cand">
+              <div class="cand-main">
+                <div class="cand-title-line">
+                  {#if purl}
+                    <a class="cand-title" href={purl} target="_blank" rel="noopener noreferrer">{candidate.title}</a>
+                  {:else}
+                    <span class="cand-title">{candidate.title}</span>
+                  {/if}
+                  <span class="cand-artist">{candidate.artists.map((a) => a.name).join(', ')}</span>
+                </div>
+                <div class="meta">
+                  <span class="cand-score" data-lvl={scoreLevel(candidate.score)}>{Math.round(candidate.score * 100)}%</span>
+                  {#if candidate.provider}<span class="cand-provider">{candidate.provider}</span>{/if}
+                  {#if candidate.album?.title}<span class="meta-text">{candidate.album.title}</span>{/if}
+                  {#if candidate.date}<span class="meta-data">{candidate.date}</span>{/if}
+                  {#if dur(candidate.duration)}<span class="meta-data">{dur(candidate.duration)}</span>{/if}
+                </div>
               </div>
-              <div class="cand-meta">{candMeta(candidate)}</div>
-            </div>
-            <StatefulButton
-              variant="primary"
-              size="sm"
-              label="Select"
-              action={() => selectCandidate(candidate)}
-              onError={(m) => (actionError = m)}
-            />
-          </div>
-        {/each}
+              <StatefulButton
+                variant="primary"
+                size="sm"
+                label="Select"
+                action={() => selectCandidate(candidate)}
+                onError={(m) => (actionError = m)}
+              />
+            </li>
+          {/each}
+        </ul>
       {/if}
     </div>
   {/if}
 </article>
 
 <style>
-  /* Flat row: no nested cards, no surface stacking. Rows are separated by a
-     hairline and grouped by indentation, not by boxes. */
-  .vrow {
-    padding: 1rem 0.5rem 1.1rem;
-    border-bottom: 1px solid var(--border-soft);
-    transition: background 0.12s ease;
+  /* One hairline panel per pending track; candidates are hairline rows inside it. */
+  .vcard {
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    transition: border-color var(--motion-fast) var(--ease-out);
   }
-  .vrow:hover {
-    background: color-mix(in srgb, var(--surface) 55%, transparent);
-  }
-  .vrow.editing {
-    background: color-mix(in srgb, var(--accent) 5%, transparent);
-  }
+  .vcard:hover { border-color: var(--border-strong); }
+  .vcard.editing { border-color: var(--border-heavy); }
 
-  .vrow-head {
+  .vcard-head {
     display: flex;
     align-items: flex-start;
-    gap: 0.9rem;
+    gap: 14px;
   }
-
-  .cover {
+  .vcover {
     flex-shrink: 0;
-    width: 48px;
-    height: 48px;
-    border-radius: 6px;
-    overflow: hidden;
-    background: var(--surface-2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted-2);
-  }
-  .cover img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .cover .lni {
-    font-size: 20px;
+    width: 56px;
+    height: 56px;
   }
 
   .main {
     flex: 1;
     min-width: 0;
-    padding-top: 0.1rem;
-  }
-  .title-line {
     display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 2px;
   }
   .title {
-    font-size: 0.95rem;
+    font-size: 15px;
     font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
     color: var(--text-bright);
     text-decoration: none;
+    overflow-wrap: anywhere;
   }
-  a.title:hover {
-    text-decoration: underline;
-  }
+  a.title:hover { color: var(--accent); text-decoration: underline; }
   .artist {
-    font-size: 0.85rem;
+    font-size: 14px;
+    line-height: 1.35;
     color: var(--muted);
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  /* Metadata line: words in Geist, data in Geist Mono, split by a quiet dot. */
   .meta {
-    margin-top: 0.25rem;
-    font-size: 0.8rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 0;
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.4;
     color: var(--muted-2);
+  }
+  .meta > * + *::before {
+    content: '·';
+    margin: 0 8px;
+    font-family: var(--font-body);
+    color: var(--muted-2);
+  }
+  .meta-text { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+  .meta-data,
+  .cand-score,
+  .cand-provider {
+    font-family: var(--font-mono);
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
+  }
+  .cand-provider {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
   .actions {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 8px;
   }
 
-  /* Plain (non-async) button for Edit / Cancel */
-  .lbtn {
-    height: 34px;
-    padding: 0 0.8rem;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--muted);
-    font: inherit;
-    font-size: 0.85rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-      background 0.12s ease,
-      color 0.12s ease;
-  }
-  .lbtn:hover {
-    background: var(--surface-2);
-    color: var(--text);
-  }
-
-  .row-error {
+  .inline-error {
     display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin: 0.5rem 0 0 3.9rem;
-    font-size: 0.82rem;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
     color: var(--error);
+    overflow-wrap: anywhere;
   }
-  .row-error .lni {
-    font-size: 15px;
+  .inline-error .pxi {
     flex-shrink: 0;
+    margin-top: 1px;
+    font-size: 16px;
   }
+  .row-error { margin: 10px 0 0 70px; }
 
   /* Candidates: indented under the title, flat rows split by hairlines. */
   .cands {
-    margin: 0.6rem 0 0 3.9rem;
+    margin: 12px 0 0 70px;
   }
   .cand-status {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 8px;
     margin: 0;
-    padding: 0.5rem 0;
-    font-size: 0.82rem;
+    padding: 8px 0;
+    font-size: 13px;
     color: var(--muted);
   }
-  .cand-status.is-err {
-    color: var(--error);
-  }
-  .find-sources {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 0.4rem 0.7rem;
-    font-size: 0.82rem;
-    font-family: inherit;
-    color: var(--accent);
-    background: transparent;
-    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.12s ease;
-  }
-  .find-sources:hover {
-    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  .cand-status .pxi { font-size: 16px; }
+  .cand-status.inline-error { color: var(--error); }
+  .cand-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--border-soft);
   }
   .cand {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    padding: 0.55rem 0;
-    border-top: 1px solid var(--border-soft);
+    gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-soft);
   }
-  .cand:first-child {
-    border-top: none;
-  }
-  .cand-main {
-    min-width: 0;
-  }
+  .cand:last-child { border-bottom: none; padding-bottom: 0; }
+  .cand-main { min-width: 0; }
   .cand-title-line {
     display: flex;
     align-items: baseline;
-    gap: 0.55rem;
     flex-wrap: wrap;
+    gap: 2px 10px;
   }
   .cand-title {
-    font-size: 0.88rem;
+    font-size: 14px;
     font-weight: 500;
-    color: var(--text);
+    color: var(--text-bright);
     text-decoration: none;
   }
-  a.cand-title:hover {
-    text-decoration: underline;
-  }
+  a.cand-title:hover { color: var(--accent); text-decoration: underline; }
   .cand-artist {
-    font-size: 0.8rem;
+    font-size: 13px;
     color: var(--muted);
   }
-  .cand-score {
-    font-size: 0.72rem;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: var(--muted-2);
-  }
-  .cand-score[data-lvl='high'] {
-    color: var(--success);
-  }
-  .cand-score[data-lvl='mid'] {
-    color: var(--warning, #d9a441);
-  }
-  .cand-meta {
-    margin-top: 0.2rem;
-    font-size: 0.76rem;
-    color: var(--muted-2);
-    font-variant-numeric: tabular-nums;
-  }
+  .cand .meta { margin-top: 2px; }
+  .cand-score { color: var(--muted-2); }
+  .cand-score[data-lvl='high'] { color: var(--success); }
+  .cand-score[data-lvl='mid'] { color: var(--warning); }
 
-  .mini-spin {
-    width: 13px;
-    height: 13px;
-    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: mini-rot 0.7s linear infinite;
-  }
-  @keyframes mini-rot {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  /* Edit form */
+  /* Edit form: global fields, layout only here. */
   .edit-form {
     display: flex;
     flex-direction: column;
-    gap: 0.6rem;
+    gap: 12px;
     max-width: 620px;
   }
   .field {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 6px;
     min-width: 0;
     flex: 1;
   }
-  .field.narrow {
-    max-width: 90px;
-  }
+  .field.narrow { max-width: 96px; }
   .field label {
-    font-size: 0.72rem;
-    color: var(--muted-2);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .field input {
-    height: 32px;
-    padding: 0 0.6rem;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: var(--surface-2);
-    color: var(--text-bright);
-    font: inherit;
-    font-size: 0.85rem;
-  }
-  .field input:focus {
-    outline: none;
-    border-color: var(--accent);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
   }
   .field-row {
     display: flex;
-    gap: 0.6rem;
     flex-wrap: wrap;
+    gap: 12px;
   }
-
-  @media (prefers-reduced-motion: reduce) {
-    .mini-spin {
-      animation-duration: 1.3s;
-    }
+  .mono-input {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
+  .ai-clean { align-self: flex-start; }
 
   @media (max-width: 640px) {
-    .vrow-head {
-      flex-wrap: wrap;
-    }
-    .actions {
-      width: 100%;
-      justify-content: flex-end;
-    }
     .row-error,
-    .cands {
-      margin-left: 0;
-    }
+    .cands { margin-left: 0; }
   }
-  .ai-clean {
-    align-self: flex-start;
-    margin: 2px 0 4px;
-    padding: 5px 10px;
-    font-size: 12px;
-    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    color: var(--text);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    .vcard { padding: 14px; }
+    .vcard-head { flex-wrap: wrap; }
+    .main { flex-basis: calc(100% - 70px); }
+    .actions { width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+    .cand-title, .cand-artist { overflow-wrap: anywhere; }
+    .cand { flex-wrap: wrap; gap: 8px; }
+    .cand-main { flex-basis: 100%; }
+    .cand :global(.sbtn) { margin-left: auto; }
+    .field-row .field { flex: 1 1 120px; }
+    .field.narrow { max-width: none; }
+    .ai-clean { min-height: 44px; }
   }
-  .ai-clean:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 22%, transparent); }
-  .ai-clean:disabled { opacity: 0.6; cursor: default; }
-  .ai-err { margin: 2px 0 0; font-size: 12px; color: #e5684d; }
 </style>

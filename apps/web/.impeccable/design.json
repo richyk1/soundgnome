@@ -1,0 +1,484 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-08T00:00:00Z",
+  "title": "Design System: Soundgnome",
+  "extensions": {
+    "colorMeta": {
+      "night-ground": {
+        "role": "neutral",
+        "displayName": "Night Ground",
+        "canonical": "#000000",
+        "night": "#000000",
+        "day": "#000000"
+      },
+      "paper-ground": {
+        "role": "neutral",
+        "displayName": "Paper Ground",
+        "canonical": "#ffffff",
+        "night": "#ffffff",
+        "day": "#ffffff"
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel",
+        "canonical": "#0a0a0a",
+        "night": "#0a0a0a",
+        "day": "#fafafa"
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "canonical": "#0f0f10",
+        "night": "#0f0f10",
+        "day": "#f5f5f5"
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Surface 2",
+        "canonical": "#19191b",
+        "night": "#19191b",
+        "day": "#ebebeb"
+      },
+      "ink": {
+        "role": "primary",
+        "displayName": "Ink",
+        "canonical": "#fafafa",
+        "night": "#fafafa",
+        "day": "#0a0a0a",
+        "tonalRamp": [
+          "oklch(15% 0 0)",
+          "oklch(27% 0 0)",
+          "oklch(39% 0 0)",
+          "oklch(51% 0 0)",
+          "oklch(63% 0 0)",
+          "oklch(75% 0 0)",
+          "oklch(85% 0 0)",
+          "oklch(95% 0 0)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "canonical": "#ededed",
+        "night": "#ededed",
+        "day": "#171717"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "canonical": "#a1a1a1",
+        "night": "#a1a1a1",
+        "day": "#555555"
+      },
+      "muted-2": {
+        "role": "neutral",
+        "displayName": "Muted 2",
+        "canonical": "#8a8a8a",
+        "night": "#8a8a8a",
+        "day": "#6b6b6b"
+      },
+      "text-disabled": {
+        "role": "neutral",
+        "displayName": "Disabled",
+        "canonical": "#4f4f4f",
+        "night": "#4f4f4f",
+        "day": "#b3b3b3"
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "rgba(255, 255, 255, 0.09)",
+        "night": "rgba(255, 255, 255, 0.09)",
+        "day": "rgba(0, 0, 0, 0.09)"
+      },
+      "hairline-soft": {
+        "role": "neutral",
+        "displayName": "Hairline Soft",
+        "canonical": "rgba(255, 255, 255, 0.06)",
+        "night": "rgba(255, 255, 255, 0.06)",
+        "day": "rgba(0, 0, 0, 0.06)"
+      },
+      "hairline-strong": {
+        "role": "neutral",
+        "displayName": "Hairline Strong",
+        "canonical": "rgba(255, 255, 255, 0.14)",
+        "night": "rgba(255, 255, 255, 0.14)",
+        "day": "rgba(0, 0, 0, 0.14)"
+      },
+      "hairline-heavy": {
+        "role": "neutral",
+        "displayName": "Hairline Heavy",
+        "canonical": "rgba(255, 255, 255, 0.22)",
+        "night": "rgba(255, 255, 255, 0.22)",
+        "day": "rgba(0, 0, 0, 0.22)"
+      },
+      "signal-violet": {
+        "role": "primary",
+        "displayName": "Signal Violet",
+        "canonical": "#a86af4",
+        "night": "#a86af4",
+        "day": "#7438dc",
+        "tonalRamp": [
+          "oklch(15% 0.14 295)",
+          "oklch(27% 0.14 295)",
+          "oklch(39% 0.14 295)",
+          "oklch(51% 0.14 295)",
+          "oklch(63% 0.14 295)",
+          "oklch(75% 0.14 295)",
+          "oklch(85% 0.14 295)",
+          "oklch(95% 0.14 295)"
+        ]
+      },
+      "signal-violet-2": {
+        "role": "primary",
+        "displayName": "Signal Violet 2",
+        "canonical": "#b885ff",
+        "night": "#b885ff",
+        "day": "#6a2fd0"
+      },
+      "on-accent": {
+        "role": "neutral",
+        "displayName": "On Accent",
+        "canonical": "#0a0a0a",
+        "night": "#0a0a0a",
+        "day": "#ffffff"
+      },
+      "live-cyan": {
+        "role": "secondary",
+        "displayName": "Live Cyan",
+        "canonical": "#44cfff",
+        "night": "#44cfff",
+        "day": "#06699a",
+        "tonalRamp": [
+          "oklch(15% 0.14 225)",
+          "oklch(27% 0.14 225)",
+          "oklch(39% 0.14 225)",
+          "oklch(51% 0.14 225)",
+          "oklch(63% 0.14 225)",
+          "oklch(75% 0.14 225)",
+          "oklch(85% 0.14 225)",
+          "oklch(95% 0.14 225)"
+        ]
+      },
+      "live-blue": {
+        "role": "secondary",
+        "displayName": "Live Blue",
+        "canonical": "#3b6cff",
+        "night": "#3b6cff",
+        "day": "#2347c9"
+      },
+      "moss-green": {
+        "role": "tertiary",
+        "displayName": "Moss Green",
+        "canonical": "#4ade80",
+        "night": "#4ade80",
+        "day": "#11692f",
+        "tonalRamp": [
+          "oklch(15% 0.14 150)",
+          "oklch(27% 0.14 150)",
+          "oklch(39% 0.14 150)",
+          "oklch(51% 0.14 150)",
+          "oklch(63% 0.14 150)",
+          "oklch(75% 0.14 150)",
+          "oklch(85% 0.14 150)",
+          "oklch(95% 0.14 150)"
+        ]
+      },
+      "tape-amber": {
+        "role": "tertiary",
+        "displayName": "Tape Amber",
+        "canonical": "#f5b04a",
+        "night": "#f5b04a",
+        "day": "#9a4a0a",
+        "tonalRamp": [
+          "oklch(15% 0.14 70)",
+          "oklch(27% 0.14 70)",
+          "oklch(39% 0.14 70)",
+          "oklch(51% 0.14 70)",
+          "oklch(63% 0.14 70)",
+          "oklch(75% 0.14 70)",
+          "oklch(85% 0.14 70)",
+          "oklch(95% 0.14 70)"
+        ]
+      },
+      "clip-red": {
+        "role": "tertiary",
+        "displayName": "Clip Red",
+        "canonical": "#f4644a",
+        "night": "#f4644a",
+        "day": "#b8321c",
+        "tonalRamp": [
+          "oklch(15% 0.14 32)",
+          "oklch(27% 0.14 32)",
+          "oklch(39% 0.14 32)",
+          "oklch(51% 0.14 32)",
+          "oklch(63% 0.14 32)",
+          "oklch(75% 0.14 32)",
+          "oklch(85% 0.14 32)",
+          "oklch(95% 0.14 32)"
+        ]
+      },
+      "brand-warm": {
+        "role": "tertiary",
+        "displayName": "Brand Warm",
+        "canonical": "#f4644a",
+        "night": "#f4644a",
+        "day": "#c93a22"
+      },
+      "float": {
+        "role": "neutral",
+        "displayName": "Float",
+        "canonical": "#0f0f10",
+        "night": "#0f0f10",
+        "day": "#ffffff"
+      },
+      "overlay": {
+        "role": "neutral",
+        "displayName": "Overlay",
+        "canonical": "rgba(0, 0, 0, 0.72)",
+        "night": "rgba(0, 0, 0, 0.72)",
+        "day": "rgba(0, 0, 0, 0.32)"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page titles; 32px desktop, 28px phone."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Now-playing title."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section and empty-state titles."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Card text, buttons, callouts, tables."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Mono uppercase tabs, chips, table heads."
+      },
+      "data": {
+        "displayName": "Data",
+        "purpose": "Counts, durations, dates; tabular numerals."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float-shadow",
+        "value": "inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 24px 60px -12px rgba(0, 0, 0, 0.8)",
+        "day": "0 24px 60px -12px rgba(0, 0, 0, 0.22)",
+        "purpose": "Dialogs, sheets, toasts, popovers."
+      },
+      {
+        "name": "shadow",
+        "value": "0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 32px -18px rgba(0, 0, 0, 0.9)",
+        "day": "0 1px 2px rgba(0, 0, 0, 0.06), 0 12px 32px -18px rgba(0, 0, 0, 0.25)",
+        "purpose": "Lifted floating controls."
+      },
+      {
+        "name": "shadow-sm",
+        "value": "0 1px 2px rgba(0, 0, 0, 0.5)",
+        "day": "0 1px 2px rgba(0, 0, 0, 0.06)",
+        "purpose": "Small floating chips."
+      },
+      {
+        "name": "rim",
+        "value": "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
+        "day": "inset 0 1px 0 rgba(255, 255, 255, 0.7)",
+        "purpose": "Top-edge highlight on floats."
+      },
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 1px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent)",
+        "purpose": "Focus on every control."
+      }
+    ],
+    "motion": [
+      {
+        "name": "motion-press",
+        "value": "120ms",
+        "purpose": "Press feedback."
+      },
+      {
+        "name": "motion-fast",
+        "value": "160ms",
+        "purpose": "Hover, tab underline, page leave, backdrop."
+      },
+      {
+        "name": "motion-normal",
+        "value": "220ms",
+        "purpose": "Page enter, dialog enter."
+      },
+      {
+        "name": "motion-sheet",
+        "value": "400ms",
+        "purpose": "Bottom sheets and drawers."
+      },
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(.16, 1, .3, 1)",
+        "purpose": "Default easing."
+      },
+      {
+        "name": "ease-drawer",
+        "value": "cubic-bezier(.32, .72, 0, 1)",
+        "purpose": "Sheets and drawers."
+      },
+      {
+        "name": "pxi-spin",
+        "value": "0.9s steps(8) infinite",
+        "purpose": "Loading: pixel icon turning in eight hard steps; 2.4s under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "max-width: 860px, or (hover: none) and (pointer: coarse)",
+        "purpose": "Sidebar becomes tab bar + mini player; page padding 16px."
+      },
+      {
+        "name": "sm",
+        "value": "640px",
+        "purpose": "Page header goes row; modal 600px; count layout."
+      },
+      {
+        "name": "md",
+        "value": "768px",
+        "purpose": "32px titles, wider card grid, modal 800px."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Solid ink key for the primary action.",
+      "html": "<button class=\"ds-btn-primary\">Download</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 16px;border:1px solid transparent;border-radius:var(--radius-control,8px);background:var(--text-bright,#fafafa);color:var(--bg,#000);font:600 13px var(--font-body,Geist,sans-serif);cursor:pointer}.ds-btn-primary:hover{background:color-mix(in srgb,var(--text-bright,#fafafa) 86%,var(--bg,#000))}.ds-btn-primary:active{background:color-mix(in srgb,var(--text-bright,#fafafa) 78%,var(--bg,#000))}.ds-btn-primary:focus-visible{outline:none;box-shadow:0 0 0 1px #a86af4,0 0 0 4px color-mix(in srgb,#a86af4 22%,transparent)}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Hairline chip for secondary actions.",
+      "html": "<button class=\"ds-btn-secondary\">Edit</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 14px;border:1px solid var(--border,rgba(255,255,255,.09));border-radius:var(--radius-control,8px);background:transparent;color:var(--text,#ededed);font:500 13px var(--font-body,Geist,sans-serif);cursor:pointer}.ds-btn-secondary:hover{background:var(--surface-2,#19191b);color:var(--text-bright,#fafafa)}.ds-btn-secondary:focus-visible{outline:none;box-shadow:0 0 0 1px #a86af4,0 0 0 4px color-mix(in srgb,#a86af4 22%,transparent)}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Error hairline for destructive actions.",
+      "html": "<button class=\"ds-btn-danger\">Delete</button>",
+      "css": ".ds-btn-danger{display:inline-flex;align-items:center;min-height:36px;padding:0 14px;border:1px solid color-mix(in srgb,var(--error,#f4644a) 40%,transparent);border-radius:var(--radius-control,8px);background:transparent;color:var(--error,#f4644a);font:500 13px var(--font-body,Geist,sans-serif);cursor:pointer}.ds-btn-danger:hover{background:color-mix(in srgb,var(--error,#f4644a) 12%,transparent)}.ds-btn-danger:active{background:color-mix(in srgb,var(--error,#f4644a) 20%,transparent)}"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip-filter",
+      "description": "Mono function key; violet when chosen.",
+      "html": "<div style=\"display:flex;gap:4px\"><button class=\"ds-chip ds-chip-on\">All</button><button class=\"ds-chip\">Review</button></div>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border:1px solid var(--border,rgba(255,255,255,.09));border-radius:var(--radius-chip,6px);background:transparent;color:var(--muted,#a1a1a1);font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;cursor:pointer}.ds-chip:hover{border-color:var(--border-heavy,rgba(255,255,255,.22));color:var(--text-bright,#fafafa)}.ds-chip-on{background:color-mix(in srgb,var(--accent,#a86af4) 18%,transparent);border-color:color-mix(in srgb,var(--accent,#a86af4) 45%,transparent);color:var(--text-bright,#fafafa)}"
+    },
+    {
+      "name": "Section Tabs",
+      "kind": "nav",
+      "refersTo": "tab",
+      "description": "Mono labels over a hairline; violet underline on the active tab.",
+      "html": "<nav class=\"ds-tabs\"><button class=\"ds-tab ds-tab-on\">Albums</button><button class=\"ds-tab\">Artists</button><button class=\"ds-tab\">Tracks</button></nav>",
+      "css": ".ds-tabs{display:flex;gap:24px;border-bottom:1px solid var(--border,rgba(255,255,255,.09))}.ds-tab{position:relative;min-height:44px;padding:0 2px;border:0;background:none;color:var(--muted-2,#8a8a8a);font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;cursor:pointer}.ds-tab::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--accent,#a86af4);transform:scaleX(0);transition:transform 160ms cubic-bezier(.16,1,.3,1)}.ds-tab:hover{color:var(--text,#ededed)}.ds-tab-on{color:var(--text-bright,#fafafa)}.ds-tab-on::after{transform:scaleX(1)}"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Surface field with hairline; violet focus ring.",
+      "html": "<input class=\"ds-input\" placeholder=\"Paste a track or playlist URL\">",
+      "css": ".ds-input{width:280px;padding:10px 12px;background:var(--surface,#0f0f10);border:1px solid var(--border,rgba(255,255,255,.09));border-radius:var(--radius-control,8px);color:var(--text,#ededed);font:16px var(--font-body,Geist,sans-serif)}.ds-input::placeholder{color:var(--muted-2,#8a8a8a)}.ds-input:focus{outline:none;border-color:var(--accent,#a86af4);box-shadow:0 0 0 1px var(--accent,#a86af4),0 0 0 4px color-mix(in srgb,var(--accent,#a86af4) 22%,transparent)}"
+    },
+    {
+      "name": "Cover Card",
+      "kind": "card",
+      "refersTo": "card-cover",
+      "description": "No chrome: inset hairline cover, text beneath, mono meta.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-cover\"><span class=\"ds-badge\">!</span></div><div class=\"ds-ct\">Selected Ambient Works</div><div class=\"ds-cs\">Aphex Twin</div><div class=\"ds-cm\">1992 \u00b7 13 TRACKS</div></div>",
+      "css": ".ds-card{width:168px;cursor:pointer}.ds-cover{position:relative;aspect-ratio:1;border-radius:var(--radius-control,8px);background:var(--surface,#0f0f10);box-shadow:inset 0 0 0 1px var(--border,rgba(255,255,255,.09));transition:box-shadow 160ms cubic-bezier(.16,1,.3,1)}.ds-card:hover .ds-cover{box-shadow:inset 0 0 0 1px var(--border-heavy,rgba(255,255,255,.22))}.ds-ct{padding-top:10px;font:500 14px/1.35 var(--font-body,Geist,sans-serif);color:var(--text,#ededed)}.ds-cs{font-size:13px;color:var(--muted,#a1a1a1)}.ds-cm{font-family:var(--font-mono);font-size:11px;color:var(--muted-2,#8a8a8a)}.ds-badge{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:var(--warning,#f5b04a);color:var(--on-warning,#0a0a0a);font-family:var(--font-mono);font-size:11px;font-weight:600}"
+    },
+    {
+      "name": "Callout",
+      "kind": "custom",
+      "description": "Inline notice: hairline tinted by meaning.",
+      "html": "<div class=\"ds-callout\"><strong>Download finished</strong><span>12 tracks moved into the library.</span></div>",
+      "css": ".ds-callout{display:flex;flex-direction:column;gap:2px;max-width:360px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--success,#4ade80) 35%,transparent);border-radius:var(--radius-control,8px);background:color-mix(in srgb,var(--success,#4ade80) 10%,var(--bg,#000));font-size:14px;line-height:1.45}.ds-callout strong{color:var(--text-bright,#fafafa);font-weight:600}.ds-callout span{color:var(--muted,#a1a1a1)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Instrument Panel",
+    "overview": "Soundgnome is a music library that reads like a well-made instrument panel, not a streaming storefront. Retro yet professional, clean: a bare ground (pure black at night, white paper by day), hairline alpha rules carrying all structure, data set in Geist Mono, and pixel art as the only ornament. Every missing cover becomes a deterministic pixel sprite; every icon sits on a 24-unit pixel grid.\n\nDensity is operational: thousands of items in virtualized grids, two columns on a phone, six on desktop, with state readable at a glance (amber needs review, cyan is running or playing). The system refuses the category default: no glossy gradient cards, no blurred glass, no rounded pills.",
+    "keyCharacteristics": [
+      "Black/white ground with near-black/near-white surfaces and alpha hairlines.",
+      "Geist for the interface, Geist Mono for counts, durations, dates, and small uppercase control labels.",
+      "Two signals only: violet for what you chose, cyan for what is live; ink is the primary action.",
+      "Pixelarticons at 16/24/48px; 15\u00d715 ordered-dither sprite covers; a pixel gnome mark.",
+      "Flat at rest; shadows only on floating layers."
+    ],
+    "rules": [
+      {
+        "name": "The Two-Signal Rule",
+        "body": "Violet marks what you chose; cyan marks what is live. Never swap them, and never use either as decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ink Key Rule",
+        "body": "The primary action is solid ink (`--text-bright` on `--bg`), not a coloured button.",
+        "section": "colors"
+      },
+      {
+        "name": "The Glyph-Carries-Colour Rule",
+        "body": "Sprite covers keep a neutral field; colour lives in the glyph only.",
+        "section": "colors"
+      },
+      {
+        "name": "The Mono-for-Data Rule",
+        "body": "Geist Mono is for counts, durations, dates, and small uppercase control labels only; never for prose or headings.",
+        "section": "typography"
+      },
+      {
+        "name": "The No-Kicker Rule",
+        "body": "No eyebrows above headings; the meta line sits beneath the title in mono.",
+        "section": "typography"
+      },
+      {
+        "name": "The 11px Floor",
+        "body": "No text below 11px.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-By-Default Rule",
+        "body": "Nothing on the ground casts a shadow; if it floats, it gets `--float-shadow` and a `--float-border`.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** use violet for chosen state and cyan for live state, nothing else.",
+      "**Do** make the primary action an ink key (`--text-bright` on `--bg`).",
+      "**Do** set counts, durations, and dates in Geist Mono with tabular numerals.",
+      "**Do** use pixel icons at 16, 24, or 48px only.",
+      "**Do** render missing covers with `PixelCover` and a stable seed.",
+      "**Do** let the theme follow local time: day 07:00\u201319:00, night otherwise.",
+      "**Do** keep touch targets at 44px and text at 11px or above."
+    ],
+    "donts": [
+      "**Don't** use glossy gradient cards, blurred glass, or rounded pills.",
+      "**Don't** put kickers or eyebrows above headings.",
+      "**Don't** shadow anything that sits on the ground.",
+      "**Don't** colour sprite fields; colour lives in the glyph.",
+      "**Don't** use mono for prose or headings."
+    ]
+  }
+}

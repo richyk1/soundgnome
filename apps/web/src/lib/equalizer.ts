@@ -6,11 +6,10 @@
 // calibrated device-correction curve (e.g. AirPods Pro 2, exported from Ears) be
 // reproduced faithfully rather than approximated onto fixed graphic bands.
 //
-// It is opt-in: until enabled, no AudioContext is created and the element plays
-// untouched, so default playback (including cross-origin SoundCloud streams) is
-// unaffected. Enabling routes the element through the graph, which needs the
-// audio to be same-origin or CORS-enabled — library files (`/api/tracks/<id>/
-// audio`) are same-origin, so they always work.
+// The graph is built when EQ or normalization is enabled. iOS playback bypasses
+// this class entirely to retain native background audio; its UI makes that
+// processing limitation explicit. Routing requires same-origin/CORS-enabled
+// media — library files (`/api/tracks/<id>/audio`) are same-origin.
 
 export interface Band {
   freq: number;
@@ -229,8 +228,10 @@ export class Equalizer {
   }
 
   /** AudioContexts start suspended; resume after a user gesture (play/click). */
-  resume(): void {
-    if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
+  async resume(): Promise<void> {
+    if (this.ctx && this.ctx.state !== 'running' && this.ctx.state !== 'closed') {
+      await this.ctx.resume();
+    }
   }
 
   /** Push the full state onto the graph. Disabled === no bands (transparent). */
@@ -272,5 +273,14 @@ export class Equalizer {
    *  it works whether or not the equalizer bands are enabled. */
   setNormalization(gainDb: number): void {
     if (this.normNode) this.normNode.gain.value = dbToGain(gainDb);
+  }
+
+  async destroy(): Promise<void> {
+    this.source?.disconnect();
+    this.normNode?.disconnect();
+    this.preampNode?.disconnect();
+    this.filters.forEach((filter) => filter.disconnect());
+    this.limiter?.disconnect();
+    if (this.ctx && this.ctx.state !== 'closed') await this.ctx.close();
   }
 }

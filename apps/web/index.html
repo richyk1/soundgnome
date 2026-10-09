@@ -13,16 +13,18 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Soundgnome" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script>
+      // Theme before first paint (light 07:00–19:00); src/lib/theme.svelte.ts keeps it current.
+      { const hour = new Date().getHours(); document.documentElement.dataset.theme = hour >= 7 && hour < 19 ? 'light' : 'dark'; }
+    </script>
 
-    <!-- Archivo (display/body) + JetBrains Mono (data), Spotify-style redesign -->
+    <!-- Geist (interface) + Geist Mono (data and measurements) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400..700&family=Geist+Mono:wght@400..600&display=swap"
       rel="stylesheet"
     />
-    <!-- Lineicons v5 webfont (icon system) -->
-    <link rel="stylesheet" href="/lineicons/css/icons.css" />
     
     <title>Soundgnome</title>
   </head>

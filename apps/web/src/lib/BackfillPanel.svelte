@@ -8,7 +8,7 @@
     title: string;
     /** One or two sentences explaining what the pass does. */
     description: string;
-    /** Lineicon class suffix, e.g. "fingerprint-1". */
+    /** Pixel icon name (pxi-*) without the prefix, e.g. "audio-waveform". */
     icon: string;
     /** Task type this panel tracks. */
     taskType: TaskType;
@@ -68,11 +68,11 @@
 <section class="backfill">
   <header class="bf-head">
     <div class="bf-heading">
-      <i class="lni lni-{icon}" aria-hidden="true"></i>
+      <i class="pxi pxi-{icon}" aria-hidden="true"></i>
       <h2>{title}</h2>
     </div>
-    <button class="btn-accent" onclick={run} disabled={active || starting}>
-      {#if starting}<span class="spinner"></span>Starting{:else if active}<span class="spinner"></span>Running{:else}{task?.status === 'Completed' ? 'Run again' : 'Run'}{/if}
+    <button class="btn-primary bf-run" onclick={run} disabled={active || starting}>
+      {#if starting}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Starting{:else if active}<i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Running{:else}<i class="pxi pxi-play" aria-hidden="true"></i>{task?.status === 'Completed' ? 'Run again' : 'Run'}{/if}
     </button>
   </header>
 
@@ -80,27 +80,25 @@
 
   {#if errorMsg}
     <div class="callout callout-error" role="alert">
-      <i class="lni lni-xmark-circle" aria-hidden="true"></i>
+      <i class="pxi pxi-square-alert" aria-hidden="true"></i>
       <div class="callout-body"><strong>Couldn't start.</strong><span>{errorMsg}</span></div>
     </div>
   {/if}
 
   {#if task}
-    <div class="bf-card" class:done={task.status === 'Completed'} class:failed={task.status === 'Failed'}>
+    <div class="bf-run-state">
       <div class="bf-status">
-        <span class="bf-state">
-          {#if task.status === 'Running'}
-            <span class="spinner"></span>Running
-          {:else if task.status === 'Pending'}
-            <span class="spinner"></span>Queued
-          {:else if task.status === 'Completed'}
-            <i class="lni lni-checkmark-circle" aria-hidden="true"></i>Completed
-          {:else if task.status === 'Failed'}
-            <i class="lni lni-xmark-circle" aria-hidden="true"></i>Failed
-          {:else}
-            {task.status}
-          {/if}
-        </span>
+        {#if task.status === 'Running'}
+          <span class="bf-state is-running"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Running</span>
+        {:else if task.status === 'Pending'}
+          <span class="bf-state is-pending"><i class="pxi pxi-hourglass" aria-hidden="true"></i>Queued</span>
+        {:else if task.status === 'Completed'}
+          <span class="bf-state is-done"><i class="pxi pxi-check" aria-hidden="true"></i>Completed</span>
+        {:else if task.status === 'Failed'}
+          <span class="bf-state is-failed"><i class="pxi pxi-square-alert" aria-hidden="true"></i>Failed</span>
+        {:else}
+          <span class="bf-state">{task.status}</span>
+        {/if}
         {#if task.total}
           <span class="bf-count">{task.progress} / {task.total} tracks · {pct}%</span>
         {:else if active}
@@ -110,16 +108,16 @@
 
       {#if task.total}
         <div class="bf-track" role="progressbar" aria-valuenow={pct} aria-valuemin="0" aria-valuemax="100">
-          <div class="bf-fill" style="transform: scaleX({fill})"></div>
+          <div class="bf-fill" class:is-done={task.status === 'Completed'} class:is-failed={task.status === 'Failed'} style="transform: scaleX({fill})"></div>
         </div>
       {/if}
 
       {#if task.stats?.backfill}
         <div class="bf-stats">
-          <span class="stat ok">{task.stats.backfill.ok} {okLabel}</span>
-          <span class="stat">{task.stats.backfill.skipped} skipped</span>
+          <span class="stat ok"><i class="pxi pxi-check" aria-hidden="true"></i>{task.stats.backfill.ok} {okLabel}</span>
+          <span class="stat skip"><i class="pxi pxi-minus" aria-hidden="true"></i>{task.stats.backfill.skipped} skipped</span>
           {#if task.stats.backfill.errors > 0}
-            <span class="stat err">{task.stats.backfill.errors} errors</span>
+            <span class="stat err"><i class="pxi pxi-square-alert" aria-hidden="true"></i>{task.stats.backfill.errors} errors</span>
           {/if}
         </div>
         {#if skipHint && task.stats.backfill.skipped > 0}
@@ -135,9 +133,10 @@
       {/if}
     </div>
   {:else}
-    <div class="bf-idle">
-      <i class="lni lni-{icon}" aria-hidden="true"></i>
-      <p>Not run yet. Press <strong>Run</strong> to start.</p>
+    <div class="empty bf-idle">
+      <i class="pxi pxi-{icon}" aria-hidden="true"></i>
+      <p class="empty-title">Not run yet</p>
+      <p class="empty-hint">Press <strong>Run</strong> to start.</p>
     </div>
   {/if}
 
@@ -147,233 +146,170 @@
 </section>
 
 <style>
-  /* Button + spinner + callout: the app's shared classes are page-scoped, so a
-     standalone component must restate them to stay on-theme. */
-  .btn-accent {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 0.55rem 1rem;
-    border: none;
-    border-radius: 8px;
-    background: var(--accent);
-    color: #fff;
-    font-family: inherit;
-    font-size: 0.875rem;
-    font-weight: 600;
-    white-space: nowrap;
-    cursor: pointer;
-    transition:
-      filter 0.12s ease,
-      opacity 0.12s ease;
-  }
-  .btn-accent:hover:not(:disabled) {
-    filter: brightness(1.08);
-  }
-  .btn-accent:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-
-  .spinner {
-    width: 13px;
-    height: 13px;
-    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    flex-shrink: 0;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .callout {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.7rem;
-    padding: 0.85rem 1rem;
-    border-radius: 10px;
-    border: 1px solid transparent;
-    font-size: 0.9rem;
-  }
-  .callout-error {
-    background: var(--error-bg);
-    border-color: color-mix(in srgb, var(--error) 45%, transparent);
-    color: var(--error);
-  }
-  .callout-body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
-  }
-  .callout-body strong {
-    font-weight: 600;
-    color: var(--text-bright);
-  }
-
   .backfill {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 16px;
     max-width: 720px;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
   }
   .bf-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 16px;
   }
   .bf-heading {
     display: inline-flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 8px;
+    min-width: 0;
   }
-  .bf-heading .lni {
-    font-size: 20px;
-    color: var(--accent);
+  .bf-heading .pxi {
+    flex-shrink: 0;
+    font-size: 16px;
+    color: var(--muted);
   }
   .bf-heading h2 {
     margin: 0;
-    font-size: 1.25rem;
+    font-size: 18px;
+    line-height: 1.3;
+  }
+  .bf-run {
+    flex-shrink: 0;
   }
   .bf-desc {
     margin: 0;
-    color: var(--muted);
+    max-width: 64ch;
+    font-size: 14px;
     line-height: 1.5;
+    color: var(--muted);
   }
 
-  .bf-card {
+  /* The latest run: a hairline-separated section of the panel, not a nested card. */
+  .bf-run-state {
     display: flex;
     flex-direction: column;
-    gap: 0.85rem;
-    padding: 1.1rem 1.25rem;
-    background: var(--surface);
-    border: 1px solid var(--border-soft);
-    border-radius: 12px;
-  }
-  .bf-card.done {
-    border-color: color-mix(in srgb, var(--success) 45%, var(--border-soft));
-  }
-  .bf-card.failed {
-    border-color: color-mix(in srgb, var(--error) 45%, var(--border-soft));
+    gap: 12px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
   }
   .bf-status {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 12px;
     flex-wrap: wrap;
   }
+
+  /* Mono status tag, shared look with the Activity page. */
   .bf-state {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    font-weight: 600;
-    color: var(--text-bright);
+    gap: 6px;
+    min-height: 24px;
+    padding: 0 8px;
+    border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+    border-radius: var(--radius-chip);
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
-  .bf-state .lni-checkmark-circle {
-    color: var(--success);
-    font-size: 18px;
+  .bf-state .pxi {
+    font-size: 16px;
   }
-  .bf-state .lni-xmark-circle {
-    color: var(--error);
-    font-size: 18px;
-  }
+  .bf-state.is-running { color: var(--live); }
+  .bf-state.is-pending { color: var(--muted); }
+  .bf-state.is-done,
+  .bf-state .pxi-check { color: var(--success); }
+  .bf-state.is-failed,
+  .bf-state .pxi-square-alert { color: var(--error); }
   .bf-count {
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
     color: var(--muted);
   }
 
   .bf-track {
-    height: 8px;
-    border-radius: 999px;
-    background: var(--surface-2);
+    height: 4px;
     overflow: hidden;
+    background: var(--border);
   }
   .bf-fill {
-    height: 100%;
     width: 100%;
+    height: 100%;
+    background: var(--live);
     transform-origin: left;
-    background: var(--accent);
-    transition: transform 0.3s ease;
+    transition: transform var(--motion-normal) var(--ease-out);
   }
+  .bf-fill.is-done { background: var(--success); }
+  .bf-fill.is-failed { background: var(--error); }
 
   .bf-stats {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 6px 16px;
   }
   .stat {
-    font-size: 0.8rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    background: var(--surface-2);
-    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
+    color: var(--text);
   }
-  .stat.ok {
-    background: color-mix(in srgb, var(--success) 18%, var(--surface-2));
-    color: var(--success);
+  .stat .pxi {
+    font-size: 16px;
+    color: var(--muted-2);
   }
-  .stat.err {
-    background: color-mix(in srgb, var(--error) 18%, var(--surface-2));
-    color: var(--error);
-  }
+  .stat.ok .pxi { color: var(--success); }
+  .stat.err { color: var(--error); }
+  .stat.err .pxi { color: var(--error); }
 
   .bf-error {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 14px;
+    line-height: 1.45;
     color: var(--error);
   }
   .bf-when {
     margin: 0;
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
     color: var(--muted-2);
   }
   .bf-hint {
-    margin: 0.1rem 0 0;
-    font-size: 0.78rem;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
     color: var(--muted-2);
   }
 
   .bf-idle {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 2rem 1rem;
-    text-align: center;
-    color: var(--muted);
-    background: var(--surface);
-    border: 1px dashed var(--border);
-    border-radius: 12px;
-  }
-  .bf-idle .lni {
-    font-size: 28px;
-    color: var(--muted-2);
-  }
-  .bf-idle p {
-    margin: 0;
+    padding: 32px 16px;
+    border-top: 1px solid var(--border);
   }
 
   .bf-note {
     margin: 0;
-    font-size: 0.8rem;
-    color: var(--muted-2);
+    font-size: 13px;
     line-height: 1.5;
+    color: var(--muted-2);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .bf-fill,
-    .spinner {
-      transition: none;
-      animation: none;
-    }
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    .backfill { padding: 16px; }
+    .bf-head { flex-wrap: wrap; }
+    .bf-desc, .bf-error, .bf-heading h2 { overflow-wrap: anywhere; }
   }
 </style>

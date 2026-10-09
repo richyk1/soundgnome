@@ -82,9 +82,8 @@ enable_reqwest_logging = false
 # =============================================================================
 # [database]
 # =============================================================================
-# SQLite database connection used by packages/database.
-# The Rocket.toml file defines a separate database path for the server pool;
-# keep both values aligned.
+# SQLite database connection used by packages/database and Rocket's server pool.
+# The server injects this URL into Rocket's database configuration at startup.
 # =============================================================================
 [database]
 

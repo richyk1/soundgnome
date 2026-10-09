@@ -94,13 +94,13 @@
   <div class="chips-row" onclick={() => inputEl?.focus()} role="presentation">
     {#each value as name (name)}
       <span class="artist-chip">
-        {name}
+        <span class="chip-label">{name}</span>
         <button
           type="button"
           class="chip-remove"
           onclick={(e) => { e.stopPropagation(); removeArtist(name); }}
           aria-label={`Remove ${name}`}
-        >&times;</button>
+        ><i class="pxi pxi-close" aria-hidden="true"></i></button>
       </span>
     {/each}
     <input
@@ -133,7 +133,7 @@
             type="button"
             class="suggestion-item suggestion-create"
             onmousedown={(e) => { e.preventDefault(); addArtist(query); }}
-          >+ Create "{query.trim()}"</button>
+          ><i class="pxi pxi-plus" aria-hidden="true"></i>Create "{query.trim()}"</button>
         </li>
       {/if}
     </ul>
@@ -143,41 +143,59 @@
 <style>
   .artist-multiselect { position: relative; }
 
+  /* Reads as one text field: global input skin and focus ring. */
   .chips-row {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem;
-    padding: 0.35rem 0.5rem; background: var(--surface-2); border: 1px solid var(--border);
-    border-radius: 6px; cursor: text;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    min-height: 42px; padding: 5px 8px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-control); cursor: text;
+    transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
   }
-  .artist-multiselect.focused .chips-row { border-color: var(--accent); }
+  .artist-multiselect.focused .chips-row { border-color: var(--accent); box-shadow: var(--focus-ring); }
 
   .artist-chip {
-    display: inline-flex; align-items: center; gap: 0.3rem;
-    background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
-    padding: 0.1rem 0.35rem; font-size: 0.8rem; color: var(--text); white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 2px;
+    min-height: 26px; padding: 0 2px 0 8px;
+    border: 1px solid var(--border-strong); border-radius: var(--radius-chip);
+    background: var(--bg); color: var(--text-bright); white-space: nowrap;
   }
+  .chip-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.02em; }
   .chip-remove {
-    background: none; border: none; color: var(--muted); cursor: pointer;
-    font-size: 0.85rem; line-height: 1; padding: 0; display: flex; align-items: center;
+    display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
+    border: none; border-radius: 4px; background: none;
+    color: var(--muted-2); font-size: 16px; cursor: pointer;
   }
-  .chip-remove:hover { color: var(--danger, #e05a5a); }
+  .chip-remove:hover { color: var(--error); background: var(--surface-2); }
 
   .chip-input {
-    flex: 1; min-width: 6rem; background: none; border: none; outline: none;
-    color: var(--text); font-size: 0.875rem; font-family: inherit; padding: 0.15rem 0;
+    flex: 1; min-width: 6rem; padding: 4px 0;
+    background: none; border: none; outline: none;
+    color: var(--text); font-size: 14px; font-family: inherit;
   }
+  .chip-input::placeholder { color: var(--muted-2); }
 
+  /* Suggestions: a floating panel. */
   .suggestions {
-    position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
-    list-style: none; margin: 0; padding: 0.25rem;
-    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-    max-height: 220px; overflow-y: auto;
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20;
+    list-style: none; margin: 0; padding: 4px;
+    background: var(--float); border: 1px solid var(--float-border); border-radius: var(--radius-card);
+    box-shadow: var(--float-shadow);
+    max-height: 220px; overflow-y: auto; overscroll-behavior: contain;
   }
   .suggestion-item {
-    display: block; width: 100%; text-align: left; background: none; border: none;
-    color: var(--text); font-size: 0.82rem; font-family: inherit; padding: 0.4rem 0.55rem;
-    border-radius: 4px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px;
+    padding: 0 10px; border: none; border-radius: var(--radius-chip);
+    background: none; color: var(--text); font-size: 14px; font-family: inherit; text-align: left; cursor: pointer;
   }
-  .suggestion-item.active, .suggestion-item:hover { background: var(--surface-2); }
+  .suggestion-item.active, .suggestion-item:hover { background: var(--surface-2); color: var(--text-bright); }
+  .suggestion-item .pxi { font-size: 16px; }
   .suggestion-create { color: var(--accent); }
+
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    .chips-row { min-height: 44px; }
+    .artist-chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+    .chip-input { min-width: 0; flex-basis: 100%; }
+    .chip-remove { min-width: 44px; min-height: 44px; }
+    .suggestion-item { min-height: 44px; }
+  }
 </style>

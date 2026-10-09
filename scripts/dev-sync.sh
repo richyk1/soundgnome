@@ -12,7 +12,7 @@
 set -euo pipefail
 
 REMOTE="${SOUNDGNOME_REMOTE:-worker}"
-REMOTE_PATH="${SOUNDGNOME_REMOTE_PATH:-dev/soundgnome/}"
+REMOTE_PATH="${SOUNDGNOME_REMOTE_PATH:-dev/soundome/}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 EXCLUDES=(
@@ -23,7 +23,7 @@ EXCLUDES=(
   --exclude '/data/'
   --exclude '/temp/'
   --exclude '/ingest/'
-  --exclude '.env'
+  --exclude '.env*'
   --exclude 'config.toml'
   --exclude 'apps/web/dev-dist/'
   --exclude '.DS_Store'

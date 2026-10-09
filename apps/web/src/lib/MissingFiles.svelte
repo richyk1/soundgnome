@@ -33,23 +33,30 @@
 <section class="mf">
   <header class="mf-head">
     <div class="mf-heading">
-      <h2>Missing files</h2>
+      <h2><i class="pxi pxi-file" aria-hidden="true"></i>Missing files</h2>
       <p class="mf-desc">
         Library tracks whose audio file is gone from disk. Re-sync re-downloads it from the
         original source and re-files it in place, keeping the track's identity.
       </p>
     </div>
-    <button class="mf-refresh" onclick={load} disabled={loading}>
-      {#if loading}<span class="mini-spin" aria-hidden="true"></span>{/if}Refresh
+    <button class="btn-secondary btn-sm mf-refresh" onclick={load} disabled={loading}>
+      <i class="pxi {loading ? 'pxi-loader pxi-spin' : 'pxi-refresh'}" aria-hidden="true"></i>Refresh
     </button>
   </header>
 
   {#if loading && tracks.length === 0}
-    <p class="mf-status"><span class="mini-spin" aria-hidden="true"></span>Checking library…</p>
+    <p class="mf-status" role="status"><i class="pxi pxi-loader pxi-spin" aria-hidden="true"></i>Checking library…</p>
   {:else if error}
-    <p class="mf-status is-err">{error}</p>
+    <div class="callout callout-error" role="alert">
+      <i class="pxi pxi-square-alert" aria-hidden="true"></i>
+      <div class="callout-body"><strong>Couldn't check the library.</strong><span>{error}</span></div>
+    </div>
   {:else if tracks.length === 0}
-    <p class="mf-empty">Every library file is present. Nothing to re-sync.</p>
+    <div class="empty">
+      <i class="pxi pxi-check" aria-hidden="true"></i>
+      <p class="empty-title">No missing files</p>
+      <p class="empty-hint">Every library file is present. Nothing to re-sync.</p>
+    </div>
   {:else}
     <p class="mf-count">{tracks.length} missing file{tracks.length > 1 ? 's' : ''}</p>
     <ul class="mf-list">
@@ -64,6 +71,7 @@
             <StatefulButton
               variant="primary"
               size="sm"
+              icon="refresh"
               label="Re-sync"
               action={async () => {
                 await resyncTrack(t.id!);
@@ -83,126 +91,115 @@
   .mf {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 16px;
   }
   .mf-head {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 16px;
   }
   .mf-heading h2 {
-    margin: 0 0 0.25rem;
-    font-size: 1.05rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 6px;
+    font-size: 18px;
+    line-height: 1.3;
+  }
+  .mf-heading h2 .pxi {
+    font-size: 16px;
+    color: var(--muted);
   }
   .mf-desc {
     margin: 0;
-    font-size: 0.82rem;
-    color: var(--muted);
-    line-height: 1.5;
     max-width: 72ch;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--muted);
   }
   .mf-refresh {
     flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.4rem 0.8rem;
-    font: inherit;
-    font-size: 0.82rem;
-    color: var(--text);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .mf-refresh:hover:not(:disabled) {
-    background: var(--surface-2);
-  }
-  .mf-refresh:disabled {
-    opacity: 0.6;
-    cursor: default;
   }
 
   .mf-status {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 8px;
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 14px;
     color: var(--muted);
   }
-  .mf-status.is-err {
-    color: var(--error);
-  }
-  .mf-empty {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--muted-2);
+  .mf-status .pxi {
+    font-size: 16px;
+    color: var(--live);
   }
   .mf-count {
     margin: 0;
     font-family: var(--font-mono);
-    font-size: 0.78rem;
-    color: var(--muted-2);
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
+    color: var(--muted-2);
   }
 
   .mf-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
     display: flex;
     flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--border);
   }
   .mf-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    padding: 0.75rem 0.25rem;
+    gap: 16px;
+    padding: 12px 4px;
     border-bottom: 1px solid var(--border-soft);
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+  .mf-row:hover {
+    background: var(--surface);
   }
   .mf-main {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 2px;
     min-width: 0;
   }
   .mf-title {
-    font-size: 0.9rem;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.35;
     color: var(--text-bright);
   }
   .mf-meta {
-    font-size: 0.82rem;
+    font-size: 13px;
+    line-height: 1.35;
     color: var(--muted);
   }
   .mf-path {
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    color: var(--muted-2);
+    margin-top: 2px;
     overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted-2);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .mf-nosrc {
     flex-shrink: 0;
-    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--muted-2);
   }
 
-  .mini-spin {
-    width: 12px;
-    height: 12px;
-    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: mf-spin 0.7s linear infinite;
-  }
-  @keyframes mf-spin {
-    to {
-      transform: rotate(360deg);
-    }
+  @media (max-width: 860px), (hover: none) and (pointer: coarse) {
+    .mf-head, .mf-row { flex-wrap: wrap; }
+    .mf-main { flex: 1 1 100%; }
+    .mf-title, .mf-meta { overflow-wrap: anywhere; }
   }
 </style>
